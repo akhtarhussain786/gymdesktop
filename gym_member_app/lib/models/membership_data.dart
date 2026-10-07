@@ -1,10 +1,12 @@
 class MembershipData {
   final CurrentPlan currentPlan;
+  final List<UpcomingPlan> upcomingPlans;
   final List<RenewalHistoryItem> renewalHistory;
   final GymSupportInfo gymSupport;
 
   MembershipData({
     required this.currentPlan,
+    required this.upcomingPlans,
     required this.renewalHistory,
     required this.gymSupport,
   });
@@ -12,6 +14,9 @@ class MembershipData {
   factory MembershipData.fromJson(Map<String, dynamic> json) {
     return MembershipData(
       currentPlan: CurrentPlan.fromJson(json['current_plan'] ?? {}),
+      upcomingPlans: (json['upcoming_plans'] as List? ?? [])
+          .map((u) => UpcomingPlan.fromJson(u))
+          .toList(),
       renewalHistory: (json['renewal_history'] as List? ?? [])
           .map((r) => RenewalHistoryItem.fromJson(r))
           .toList(),
@@ -57,6 +62,47 @@ class CurrentPlan {
       isExpiringSoon: json['is_expiring_soon'] == true,
       renewalDue: json['renewal_due'] == true,
       benefits: (json['benefits'] as List? ?? []).map((b) => b.toString()).toList(),
+    );
+  }
+}
+
+class UpcomingPlan {
+  final int id;
+  final String planName;
+  final double amount;
+  final int durationMonths;
+  final String startDate;
+  final String expiryDate;
+  final int queuePosition;
+  final String status;
+  final String currency;
+  final String scheduledNotice;
+
+  UpcomingPlan({
+    required this.id,
+    required this.planName,
+    required this.amount,
+    required this.durationMonths,
+    required this.startDate,
+    required this.expiryDate,
+    required this.queuePosition,
+    required this.status,
+    required this.currency,
+    required this.scheduledNotice,
+  });
+
+  factory UpcomingPlan.fromJson(Map<String, dynamic> json) {
+    return UpcomingPlan(
+      id: json['id'] ?? 0,
+      planName: json['plan_name'] ?? 'General Fitness',
+      amount: (json['amount'] ?? 0).toDouble(),
+      durationMonths: json['duration_months'] ?? 1,
+      startDate: json['start_date'] ?? '',
+      expiryDate: json['expiry_date'] ?? '',
+      queuePosition: json['queue_position'] ?? 1,
+      status: json['status'] ?? 'Upcoming',
+      currency: json['currency'] ?? '₹',
+      scheduledNotice: json['scheduled_notice'] ?? '',
     );
   }
 }

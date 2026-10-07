@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../core/config/api_config.dart';
 import '../core/network/api_service.dart';
+import '../core/theme/app_colors.dart';
+import '../providers/auth_provider.dart';
 import '../widgets/branded_button.dart';
 
 class ForgotPasswordDialog extends StatefulWidget {
-  final String gymCode;
+  final String? gymCode;
 
-  const ForgotPasswordDialog({super.key, required this.gymCode});
+  const ForgotPasswordDialog({super.key, this.gymCode});
 
   @override
   State<ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
@@ -33,16 +37,18 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
       _message = null;
     });
 
+    final effectiveGymCode = widget.gymCode ?? context.read<AuthProvider>().currentTenant?.gymCode ?? '';
+
     try {
       await ApiService.post(ApiConfig.forgotPassword, body: {
-        'gym_code': widget.gymCode,
+        'gym_code': effectiveGymCode,
         'email': email,
       });
 
       setState(() {
         _isLoading = false;
         _isSuccess = true;
-        _message = 'Password reset instructions have been logged. Please check your inbox or visit gym reception.';
+        _message = 'Password reset request registered. Please check with your gym reception.';
       });
     } on ApiException catch (e) {
       setState(() {
@@ -61,26 +67,43 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final effectiveGymCode = widget.gymCode ?? context.read<AuthProvider>().currentTenant?.gymCode ?? '';
 
     return AlertDialog(
-      title: const Text('Reset Password'),
+      backgroundColor: AppColors.darkCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: AppColors.darkBorder),
+      ),
+      title: Text(
+        'RESET PASSWORD',
+        style: GoogleFonts.outfit(
+          color: AppColors.darkTextPrimary,
+          fontWeight: FontWeight.w800,
+          fontSize: 18,
+          letterSpacing: 0.4,
+        ),
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Enter your registered email address or member username for Gym Code (${widget.gymCode}):',
-              style: theme.textTheme.bodyMedium,
+              'Enter your registered email address or member username for Gym Code ($effectiveGymCode):',
+              style: GoogleFonts.plusJakartaSans(
+                color: AppColors.darkTextSecondary,
+                fontSize: 13,
+              ),
             ),
             const SizedBox(height: 16),
             if (!_isSuccess) ...[
               TextField(
                 controller: _emailController,
+                style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextPrimary),
                 decoration: const InputDecoration(
                   labelText: 'Email or Username',
-                  prefixIcon: Icon(Icons.email_outlined),
+                  prefixIcon: Icon(Icons.email_outlined, color: AppColors.darkTextMuted),
                 ),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -91,15 +114,19 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: _isSuccess
-                      ? Colors.green.withValues(alpha: 0.15)
-                      : Colors.red.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+                      ? AppColors.success.withValues(alpha: 0.15)
+                      : AppColors.danger.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _isSuccess ? AppColors.success : AppColors.danger,
+                  ),
                 ),
                 child: Text(
                   _message!,
-                  style: TextStyle(
-                    color: _isSuccess ? Colors.green : Colors.red,
-                    fontSize: 13,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: _isSuccess ? AppColors.success : AppColors.danger,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
                   ),
                 ),
               ),
@@ -110,17 +137,15 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text(_isSuccess ? 'Done' : 'Cancel'),
+          child: const Text('Close', style: TextStyle(color: AppColors.darkTextSecondary)),
         ),
         if (!_isSuccess)
-          SizedBox(
-            width: 120,
-            child: BrandedButton(
-              text: 'Submit',
-              height: 38,
-              isLoading: _isLoading,
-              onPressed: _submit,
-            ),
+          BrandedButton(
+            label: 'Send Request',
+            width: 140,
+            height: 40,
+            isLoading: _isLoading,
+            onPressed: _submit,
           ),
       ],
     );

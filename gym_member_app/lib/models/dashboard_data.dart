@@ -1,6 +1,22 @@
 import 'gym_tenant.dart';
 import 'member_user.dart';
 
+double _toDouble(dynamic val) {
+  if (val == null) return 0.0;
+  if (val is double) return val;
+  if (val is int) return val.toDouble();
+  if (val is String) return double.tryParse(val) ?? 0.0;
+  return 0.0;
+}
+
+int _toInt(dynamic val) {
+  if (val == null) return 0;
+  if (val is int) return val;
+  if (val is double) return val.toInt();
+  if (val is String) return int.tryParse(val) ?? 0;
+  return 0;
+}
+
 class DashboardData {
   final GymTenant gym;
   final MemberUser member;
@@ -30,19 +46,23 @@ class DashboardData {
 
   factory DashboardData.fromJson(Map<String, dynamic> json) {
     return DashboardData(
-      gym: GymTenant.fromJson(json['gym'] ?? {}),
-      member: MemberUser.fromJson(json['member'] ?? {}),
-      membership: DashboardMembership.fromJson(json['membership'] ?? {}),
-      attendance: DashboardAttendance.fromJson(json['attendance'] ?? {}),
-      payments: DashboardPayments.fromJson(json['payments'] ?? {}),
-      workout: json['workout'] != null ? DashboardWorkout.fromJson(json['workout']) : null,
-      diet: json['diet'] != null ? DashboardDiet.fromJson(json['diet']) : null,
-      trainer: json['trainer'] != null ? DashboardTrainer.fromJson(json['trainer']) : null,
+      gym: GymTenant.fromJson(json['gym'] is Map ? Map<String, dynamic>.from(json['gym']) : {}),
+      member: MemberUser.fromJson(json['member'] is Map ? Map<String, dynamic>.from(json['member']) : {}),
+      membership: DashboardMembership.fromJson(json['membership'] is Map ? Map<String, dynamic>.from(json['membership']) : {}),
+      attendance: DashboardAttendance.fromJson(json['attendance'] is Map ? Map<String, dynamic>.from(json['attendance']) : {}),
+      payments: DashboardPayments.fromJson(json['payments'] is Map ? Map<String, dynamic>.from(json['payments']) : {}),
+      workout: (json['workout'] is Map) ? DashboardWorkout.fromJson(Map<String, dynamic>.from(json['workout'])) : null,
+      diet: (json['diet'] is Map) ? DashboardDiet.fromJson(Map<String, dynamic>.from(json['diet'])) : null,
+      trainer: (json['trainer'] is Map) ? DashboardTrainer.fromJson(Map<String, dynamic>.from(json['trainer'])) : null,
       announcements: (json['announcements'] as List? ?? [])
-          .map((a) => DashboardAnnouncement.fromJson(a))
+          .whereType<Map>()
+          .map((a) => DashboardAnnouncement.fromJson(Map<String, dynamic>.from(a)))
           .toList(),
-      todos: (json['todos'] as List? ?? []).map((t) => DashboardTodo.fromJson(t)).toList(),
-      qrPass: DashboardQrPass.fromJson(json['qr_pass'] ?? {}),
+      todos: (json['todos'] as List? ?? [])
+          .whereType<Map>()
+          .map((t) => DashboardTodo.fromJson(Map<String, dynamic>.from(t)))
+          .toList(),
+      qrPass: DashboardQrPass.fromJson(json['qr_pass'] is Map ? Map<String, dynamic>.from(json['qr_pass']) : {}),
     );
   }
 }
@@ -70,14 +90,14 @@ class DashboardMembership {
 
   factory DashboardMembership.fromJson(Map<String, dynamic> json) {
     return DashboardMembership(
-      planName: json['plan_name'] ?? 'General Fitness',
-      planDurationMonths: json['plan_duration_months'] ?? 1,
-      status: json['status'] ?? 'Active',
-      startDate: json['start_date'] ?? '',
-      expiryDate: json['expiry_date'] ?? '',
-      daysRemaining: json['days_remaining'] ?? 0,
+      planName: json['plan_name']?.toString() ?? 'General Fitness',
+      planDurationMonths: _toInt(json['plan_duration_months'] ?? 1),
+      status: json['status']?.toString() ?? 'Active',
+      startDate: json['start_date']?.toString() ?? '',
+      expiryDate: json['expiry_date']?.toString() ?? '',
+      daysRemaining: _toInt(json['days_remaining']),
       isExpiringSoon: json['is_expiring_soon'] == true,
-      totalFee: (json['total_fee'] ?? 0).toDouble(),
+      totalFee: _toDouble(json['total_fee']),
     );
   }
 }
@@ -97,10 +117,10 @@ class DashboardAttendance {
 
   factory DashboardAttendance.fromJson(Map<String, dynamic> json) {
     return DashboardAttendance(
-      todayStatus: json['today_status'] ?? 'Not Checked In',
-      todayCheckIn: json['today_check_in'],
-      todayCheckOut: json['today_check_out'],
-      totalLifetimeSessions: json['total_lifetime_sessions'] ?? 0,
+      todayStatus: json['today_status']?.toString() ?? 'Not Checked In',
+      todayCheckIn: json['today_check_in']?.toString(),
+      todayCheckOut: json['today_check_out']?.toString(),
+      totalLifetimeSessions: _toInt(json['total_lifetime_sessions']),
     );
   }
 }
@@ -118,10 +138,10 @@ class DashboardPayments {
 
   factory DashboardPayments.fromJson(Map<String, dynamic> json) {
     return DashboardPayments(
-      totalPaid: (json['total_paid'] ?? 0).toDouble(),
-      outstandingDue: (json['outstanding_due'] ?? 0).toDouble(),
-      latestInvoice: json['latest_invoice'] != null
-          ? DashboardLatestInvoice.fromJson(json['latest_invoice'])
+      totalPaid: _toDouble(json['total_paid']),
+      outstandingDue: _toDouble(json['outstanding_due']),
+      latestInvoice: (json['latest_invoice'] is Map)
+          ? DashboardLatestInvoice.fromJson(Map<String, dynamic>.from(json['latest_invoice']))
           : null,
     );
   }
@@ -144,11 +164,11 @@ class DashboardLatestInvoice {
 
   factory DashboardLatestInvoice.fromJson(Map<String, dynamic> json) {
     return DashboardLatestInvoice(
-      id: json['id'] ?? 0,
-      number: json['number'] ?? '',
-      amount: (json['amount'] ?? 0).toDouble(),
-      date: json['date'] ?? '',
-      status: json['status'] ?? 'Paid',
+      id: _toInt(json['id']),
+      number: json['number']?.toString() ?? '',
+      amount: _toDouble(json['amount']),
+      date: json['date']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'Paid',
     );
   }
 }
@@ -172,12 +192,12 @@ class DashboardWorkout {
 
   factory DashboardWorkout.fromJson(Map<String, dynamic> json) {
     return DashboardWorkout(
-      planId: json['plan_id'] ?? 0,
-      name: json['name'] ?? 'Workout Plan',
-      goal: json['goal'] ?? '',
-      level: json['level'] ?? 'Beginner',
-      scheduleText: json['schedule_text'] ?? '',
-      trainerName: json['trainer_name'] ?? 'Trainer',
+      planId: _toInt(json['plan_id']),
+      name: json['name']?.toString() ?? 'Workout Plan',
+      goal: json['goal']?.toString() ?? '',
+      level: json['level']?.toString() ?? 'Beginner',
+      scheduleText: json['schedule_text']?.toString() ?? json['schedule']?.toString() ?? '',
+      trainerName: json['trainer_name']?.toString() ?? 'Trainer',
     );
   }
 }
@@ -199,11 +219,11 @@ class DashboardDiet {
 
   factory DashboardDiet.fromJson(Map<String, dynamic> json) {
     return DashboardDiet(
-      planId: json['plan_id'] ?? 0,
-      name: json['name'] ?? 'Diet Plan',
-      target: json['target'] ?? '',
-      calories: json['calories'] ?? 2000,
-      mealsText: json['meals_text'] ?? '',
+      planId: _toInt(json['plan_id']),
+      name: json['name']?.toString() ?? 'Diet Plan',
+      target: json['target']?.toString() ?? '',
+      calories: _toInt(json['calories'] ?? 2000),
+      mealsText: json['meals_text']?.toString() ?? json['meals']?.toString() ?? '',
     );
   }
 }
@@ -229,13 +249,13 @@ class DashboardTrainer {
 
   factory DashboardTrainer.fromJson(Map<String, dynamic> json) {
     return DashboardTrainer(
-      id: json['id'] ?? 0,
-      name: json['name'] ?? 'Trainer',
-      designation: json['designation'] ?? 'Personal Trainer',
-      phone: json['phone'] ?? '',
-      email: json['email'] ?? '',
-      specialization: json['specialization'] ?? 'Fitness',
-      timings: json['timings'] ?? 'Working Hours',
+      id: _toInt(json['id']),
+      name: json['name']?.toString() ?? 'Trainer',
+      designation: json['designation']?.toString() ?? 'Personal Trainer',
+      phone: json['phone']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+      specialization: json['specialization']?.toString() ?? 'Fitness',
+      timings: json['timings']?.toString() ?? 'Working Hours',
     );
   }
 }
@@ -253,9 +273,9 @@ class DashboardAnnouncement {
 
   factory DashboardAnnouncement.fromJson(Map<String, dynamic> json) {
     return DashboardAnnouncement(
-      id: json['id'] ?? 0,
-      message: json['message'] ?? '',
-      date: json['date'] ?? '',
+      id: _toInt(json['id']),
+      message: json['message']?.toString() ?? '',
+      date: json['date']?.toString() ?? '',
     );
   }
 }
@@ -273,9 +293,9 @@ class DashboardTodo {
 
   factory DashboardTodo.fromJson(Map<String, dynamic> json) {
     return DashboardTodo(
-      id: json['id'] ?? 0,
-      taskDesc: json['task_desc'] ?? '',
-      taskStatus: json['task_status'] ?? 'Pending',
+      id: _toInt(json['id']),
+      taskDesc: json['task_desc']?.toString() ?? '',
+      taskStatus: json['task_status']?.toString() ?? json['is_completed']?.toString() ?? 'Pending',
     );
   }
 }
@@ -293,9 +313,9 @@ class DashboardQrPass {
 
   factory DashboardQrPass.fromJson(Map<String, dynamic> json) {
     return DashboardQrPass(
-      payload: json['payload'] ?? '',
-      code: json['code'] ?? '',
-      validUntil: json['valid_until'] ?? '',
+      payload: json['payload']?.toString() ?? '',
+      code: json['code']?.toString() ?? '',
+      validUntil: json['valid_until']?.toString() ?? '',
     );
   }
 }

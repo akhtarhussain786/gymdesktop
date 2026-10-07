@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/member_data_provider.dart';
@@ -23,19 +24,33 @@ class _TrainerScreenState extends State<TrainerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final provider = context.watch<MemberDataProvider>();
     final data = provider.trainer;
 
     return Scaffold(
+      backgroundColor: AppColors.darkBg,
       appBar: AppBar(
-        title: const Text('Assigned Trainer'),
+        backgroundColor: AppColors.darkBgDeep,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        title: Text(
+          'PERSONAL COACH',
+          style: GoogleFonts.outfit(
+            color: AppColors.darkTextPrimary,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            letterSpacing: 0.5,
+          ),
+        ),
       ),
       body: Builder(
         builder: (context) {
           if (provider.loading && data == null) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
+              ),
+            );
           }
 
           if (provider.error != null && data == null) {
@@ -47,8 +62,8 @@ class _TrainerScreenState extends State<TrainerScreen> {
 
           if (data == null || !data.hasTrainer || data.trainer == null) {
             return const EmptyStateView(
-              title: 'No Dedicated Trainer',
-              message: 'You have not been assigned a 1-on-1 personal trainer yet. Inquire at reception for trainer package upgrades.',
+              title: 'No Dedicated Coach',
+              message: 'You have not been assigned a 1-on-1 personal coach yet. Inquire at reception for coach package upgrades.',
               icon: Icons.sports_rounded,
             );
           }
@@ -62,41 +77,58 @@ class _TrainerScreenState extends State<TrainerScreen> {
               children: [
                 // Trainer Profile Card
                 Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : AppColors.lightCard,
+                    color: AppColors.darkCard,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: theme.dividerTheme.color ?? Colors.grey.withValues(alpha: 0.2)),
+                    border: Border.all(color: AppColors.limeBorder, width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Column(
                     children: [
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor: theme.primaryColor.withValues(alpha: 0.15),
-                        child: Text(
-                          t.fullname.isNotEmpty ? t.fullname[0].toUpperCase() : 'T',
-                          style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w800,
-                            color: theme.primaryColor,
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.lime, width: 2),
+                        ),
+                        child: CircleAvatar(
+                          radius: 36,
+                          backgroundColor: AppColors.darkCardElevated,
+                          child: Text(
+                            t.fullname.isNotEmpty ? t.fullname[0].toUpperCase() : 'T',
+                            style: GoogleFonts.outfit(
+                              fontSize: 30,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.lime,
+                            ),
                           ),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Text(
                         t.fullname,
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        style: GoogleFonts.outfit(
                           fontWeight: FontWeight.w800,
                           fontSize: 20,
+                          color: AppColors.darkTextPrimary,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        t.designation,
-                        style: TextStyle(
-                          color: theme.primaryColor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13.5,
+                        t.designation.toUpperCase(),
+                        style: GoogleFonts.plusJakartaSans(
+                          color: AppColors.lime,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                          letterSpacing: 0.5,
                         ),
                       ),
                     ],
@@ -105,52 +137,104 @@ class _TrainerScreenState extends State<TrainerScreen> {
                 const SizedBox(height: 24),
 
                 // Specializations
-                Text('Specializations', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 10),
+                Text(
+                  'SPECIALIZATIONS',
+                  style: GoogleFonts.outfit(
+                    color: AppColors.darkTextPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: t.specializations.map((s) => Chip(label: Text(s))).toList(),
+                  children: t.specializations.map((s) => Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.lime.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: AppColors.limeBorder),
+                    ),
+                    child: Text(
+                      s,
+                      style: GoogleFonts.plusJakartaSans(
+                        color: AppColors.lime,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )).toList(),
                 ),
                 const SizedBox(height: 24),
 
                 // Availability & Contact
-                Text('Availability & Hours', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 10),
+                Text(
+                  'AVAILABILITY & CONTACT',
+                  style: GoogleFonts.outfit(
+                    color: AppColors.darkTextPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : AppColors.lightCard,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: theme.dividerTheme.color ?? Colors.grey.withValues(alpha: 0.2)),
+                    color: AppColors.darkCard,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.darkBorder),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.access_time_rounded, size: 18, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(t.availableTimings, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          const Icon(Icons.access_time_rounded, size: 18, color: AppColors.lime),
+                          const SizedBox(width: 10),
+                          Text(
+                            t.availableTimings,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.darkTextPrimary,
+                              fontSize: 13.5,
+                            ),
+                          ),
                         ],
                       ),
                       if (t.phone.isNotEmpty) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                         Row(
                           children: [
-                            const Icon(Icons.phone_outlined, size: 18, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            SelectableText(t.phone, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            const Icon(Icons.phone_outlined, size: 18, color: AppColors.cyan),
+                            const SizedBox(width: 10),
+                            SelectableText(
+                              t.phone,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkTextPrimary,
+                                fontSize: 13.5,
+                              ),
+                            ),
                           ],
                         ),
                       ],
                       if (t.email.isNotEmpty) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                         Row(
                           children: [
-                            const Icon(Icons.email_outlined, size: 18, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            SelectableText(t.email, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            const Icon(Icons.email_outlined, size: 18, color: AppColors.defaultAccent),
+                            const SizedBox(width: 10),
+                            SelectableText(
+                              t.email,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkTextPrimary,
+                                fontSize: 13.5,
+                              ),
+                            ),
                           ],
                         ),
                       ],

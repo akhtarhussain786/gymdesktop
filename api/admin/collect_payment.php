@@ -5,7 +5,6 @@
  */
 
 require_once __DIR__ . '/middleware.php';
-require_once __DIR__ . '/../../core/subscription_engine.php';
 
 $auth = AdminAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
@@ -13,6 +12,28 @@ $tenantId = (int)$auth['tenant_id'];
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     ApiResponse::error('Method not allowed', 405);
+}
+
+// 0. Ensure schema compatibility
+static $schemaChecked = false;
+if (!$schemaChecked) {
+    try {
+        if (!api_column_exists('members', 'due_amount')) {
+            @DB::query("ALTER TABLE `members` ADD COLUMN `due_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+        }
+        if (!api_column_exists('members', 'due_date')) {
+            @DB::query("ALTER TABLE `members` ADD COLUMN `due_date` date DEFAULT NULL");
+        }
+        if (!api_column_exists('invoices', 'paid_amount')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+        }
+        if (!api_column_exists('invoices', 'due_date')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `due_date` date DEFAULT NULL");
+        }
+    } catch (Throwable $e) {
+        error_log("Schema auto-alter ignored: " . $e->getMessage());
+    }
+    $schemaChecked = true;
 }
 
 $input = get_json_input();
@@ -41,10 +62,15 @@ if (!$member) {
     ApiResponse::notFound('Member not found in this gym.');
 }
 
+$branchId = (int)($member['branch_id'] ?? $tenant['branch_id'] ?? 1);
+if ($branchId <= 0) {
+    $branchId = 1;
+}
+
 DB::beginTransaction();
 try {
-    $currency = $tenant['currency'] ?: '₹';
-    $gymName = $tenant['gym_name'] ?: 'Our Gym';
+    $currency = !empty($tenant['currency']) ? $tenant['currency'] : '₹';
+    $gymName = !empty($tenant['gym_name']) ? $tenant['gym_name'] : 'Our Gym';
 
     if ($paymentType === 'renewal') {
         // --- MEMBERSHIP RENEWAL FLOW ---
@@ -60,9 +86,9 @@ try {
 
         $invStatus = ($remainingDue <= 0) ? 'Paid' : 'Partial';
 
-        $invId = DB::insert('invoices', [
+        $invCols = [
             'tenant_id' => $tenantId,
-            'branch_id' => (int)($member['branch_id'] ?? 1),
+            'branch_id' => $branchId,
             'member_id' => $memberId,
             'invoice_number' => $invoiceNumber,
             'service_name' => $services,
@@ -72,43 +98,56 @@ try {
             'discount' => 0.00,
             'payment_method' => $paymentMethod,
             'payment_date' => $paymentDate,
-            'due_date' => $remainingDue > 0 ? $newDueDate : null,
             'status' => $invStatus,
             'transaction_ref' => strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid()), 0, 8)),
             'notes' => $notes,
             'created_by' => $auth['user_id'] ?? null,
             'created_at' => date('Y-m-d H:i:s')
-        ]);
+        ];
+
+        if (api_column_exists('invoices', 'due_date')) {
+            $invCols['due_date'] = $remainingDue > 0 ? $newDueDate : null;
+        }
+
+        $invId = DB::insert('invoices', $invCols);
 
         // Calculate Start Date and Expiry Date
         $startDate = $paymentDate;
         $expiryDate = date('Y-m-d', strtotime("+$planMonths months", strtotime($startDate)));
 
-        DB::insert('member_subscriptions', [
-            'tenant_id' => $tenantId,
-            'member_id' => $memberId,
-            'plan_name_snapshot' => $services,
-            'plan_price_snapshot' => $totalPlanFee,
-            'plan_duration_snapshot' => $planMonths,
-            'start_date' => $startDate,
-            'expiry_date' => $expiryDate,
-            'status' => 'active',
-            'payment_id' => $invId,
-            'queue_position' => 1,
-            'activated_at' => date('Y-m-d H:i:s'),
-            'created_at' => date('Y-m-d H:i:s')
-        ]);
+        if (api_table_exists('member_subscriptions')) {
+            DB::insert('member_subscriptions', [
+                'tenant_id' => $tenantId,
+                'member_id' => $memberId,
+                'plan_name_snapshot' => $services,
+                'plan_price_snapshot' => $totalPlanFee,
+                'plan_duration_snapshot' => $planMonths,
+                'start_date' => $startDate,
+                'expiry_date' => $expiryDate,
+                'status' => 'active',
+                'payment_id' => $invId,
+                'queue_position' => 1,
+                'activated_at' => date('Y-m-d H:i:s'),
+                'created_at' => date('Y-m-d H:i:s')
+            ]);
+        }
 
         // Update Member
-        DB::update('members', [
+        $memberUpdate = [
             'services' => $services,
             'amount' => $totalPlanFee,
             'plan' => $planMonths,
             'status' => 'Active',
-            'paid_date' => $startDate,
-            'due_amount' => $remainingDue,
-            'due_date' => $remainingDue > 0 ? $newDueDate : null
-        ], 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
+            'paid_date' => $startDate
+        ];
+        if (api_column_exists('members', 'due_amount')) {
+            $memberUpdate['due_amount'] = $remainingDue;
+        }
+        if (api_column_exists('members', 'due_date')) {
+            $memberUpdate['due_date'] = $remainingDue > 0 ? $newDueDate : null;
+        }
+
+        DB::update('members', $memberUpdate, 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
 
         $finalDue = $remainingDue;
         $lastReceiptId = $invId;
@@ -124,7 +163,6 @@ try {
         );
 
         $remainingToAllocate = $amountCollected;
-        $updatedInvoices = [];
         $lastReceiptId = 0;
         $lastInvoiceNumber = '';
 
@@ -138,12 +176,17 @@ try {
             $newPaid = (float)$inv['paid_amount'] + $payForThis;
             $newStatus = ($newPaid >= (float)$inv['amount']) ? 'Paid' : 'Partial';
 
-            DB::update('invoices', [
+            $updateData = [
                 'paid_amount' => $newPaid,
                 'status' => $newStatus,
-                'due_date' => ($newStatus === 'Paid') ? null : $newDueDate,
                 'notes' => $inv['notes'] . " | Paid {$currency}{$payForThis} via {$paymentMethod} on {$paymentDate}"
-            ], 'id = ?', [$inv['id']]);
+            ];
+
+            if (api_column_exists('invoices', 'due_date')) {
+                $updateData['due_date'] = ($newStatus === 'Paid') ? null : $newDueDate;
+            }
+
+            DB::update('invoices', $updateData, 'id = ?', [$inv['id']]);
 
             $remainingToAllocate -= $payForThis;
             $lastReceiptId = (int)$inv['id'];
@@ -158,7 +201,7 @@ try {
 
             $lastReceiptId = DB::insert('invoices', [
                 'tenant_id' => $tenantId,
-                'branch_id' => (int)($member['branch_id'] ?? 1),
+                'branch_id' => $branchId,
                 'member_id' => $memberId,
                 'invoice_number' => $invoiceNumber,
                 'service_name' => 'Due Balance Payment (' . $member['services'] . ')',
@@ -186,10 +229,16 @@ try {
             [$tenantId, $memberId]
         );
 
-        DB::update('members', [
-            'due_amount' => $recalcDue,
-            'due_date' => ($recalcDue > 0) ? $newDueDate : null
-        ], 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
+        $memberUpdate = [];
+        if (api_column_exists('members', 'due_amount')) {
+            $memberUpdate['due_amount'] = $recalcDue;
+        }
+        if (api_column_exists('members', 'due_date')) {
+            $memberUpdate['due_date'] = ($recalcDue > 0) ? $newDueDate : null;
+        }
+        if (!empty($memberUpdate)) {
+            DB::update('members', $memberUpdate, 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
+        }
 
         $finalDue = $recalcDue;
     }

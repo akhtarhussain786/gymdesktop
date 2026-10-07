@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../providers/member_data_provider.dart';
 import '../widgets/branded_button.dart';
+import '../widgets/fitisify_logo_header.dart';
 import 'diet_screen.dart';
 import 'membership_screen.dart';
 import 'notices_screen.dart';
@@ -28,11 +30,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) => Padding(
+        builder: (ctx, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.darkCard,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
           padding: EdgeInsets.only(
             left: 24,
             right: 24,
@@ -44,8 +48,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Change Password',
-                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                'UPDATE PASSWORD',
+                style: GoogleFonts.outfit(
+                  color: AppColors.darkTextPrimary,
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
                 ),
@@ -54,36 +59,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
               TextField(
                 controller: currentPassController,
                 obscureText: true,
+                style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextPrimary),
                 decoration: const InputDecoration(
                   labelText: 'Current Password',
-                  prefixIcon: Icon(Icons.lock_outline),
+                  prefixIcon: Icon(Icons.lock_outline, color: AppColors.darkTextMuted),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: newPassController,
                 obscureText: true,
+                style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextPrimary),
                 decoration: const InputDecoration(
                   labelText: 'New Password (min 6 characters)',
-                  prefixIcon: Icon(Icons.lock_reset),
+                  prefixIcon: Icon(Icons.lock_reset, color: AppColors.darkTextMuted),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: confirmPassController,
                 obscureText: true,
+                style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextPrimary),
                 decoration: const InputDecoration(
                   labelText: 'Confirm New Password',
-                  prefixIcon: Icon(Icons.lock_reset),
+                  prefixIcon: Icon(Icons.lock_reset, color: AppColors.darkTextMuted),
                 ),
               ),
               if (errorText != null) ...[
                 const SizedBox(height: 12),
-                Text(errorText!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                Text(errorText!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
               ],
               const SizedBox(height: 20),
               BrandedButton(
-                text: 'Update Password',
+                label: 'Save Password',
                 isLoading: isLoading,
                 onPressed: () async {
                   setModalState(() {
@@ -102,7 +110,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     if (ctx.mounted) {
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('Password updated successfully!')),
+                        const SnackBar(
+                          content: Text('Password updated successfully!'),
+                          backgroundColor: AppColors.success,
+                        ),
                       );
                     }
                   } else {
@@ -122,16 +133,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final auth = context.watch<AuthProvider>();
     final member = auth.currentMember;
-    final isDark = theme.brightness == Brightness.dark;
 
     if (member == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Scaffold(
+        backgroundColor: AppColors.bg(context),
+        body: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
+          ),
+        ),
+      );
     }
 
     return Scaffold(
+      backgroundColor: AppColors.bg(context),
+      appBar: Navigator.canPop(context)
+          ? AppBar(
+              backgroundColor: AppColors.bgDeep(context),
+              elevation: 0,
+              title: Text(
+                'ATHLETE PROFILE',
+                style: GoogleFonts.outfit(
+                  color: AppColors.textPrimary(context),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            )
+          : null,
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -141,21 +173,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : AppColors.lightCard,
+                color: AppColors.card(context),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: theme.dividerTheme.color ?? Colors.grey.withValues(alpha: 0.2)),
+                border: Border.all(color: AppColors.limeBorder, width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.4 : 0.06),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 32,
-                    backgroundColor: theme.primaryColor.withValues(alpha: 0.15),
-                    child: Text(
-                      member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'M',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: theme.primaryColor,
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.lime, width: 2),
+                    ),
+                    child: CircleAvatar(
+                      radius: 30,
+                      backgroundColor: AppColors.cardElevated(context),
+                      child: Text(
+                        member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
+                        style: GoogleFonts.outfit(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.lime,
+                        ),
                       ),
                     ),
                   ),
@@ -166,24 +212,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(
                           member.fullname,
-                          style: theme.textTheme.titleMedium?.copyWith(
+                          style: GoogleFonts.outfit(
                             fontWeight: FontWeight.w800,
                             fontSize: 18,
+                            color: AppColors.textPrimary(context),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'ID: ${member.memberId} • @${member.username}',
-                          style: TextStyle(
-                            color: theme.primaryColor,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
+                          style: GoogleFonts.plusJakartaSans(
+                            color: AppColors.lime,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
                         Text(
                           member.services,
-                          style: theme.textTheme.bodyMedium?.copyWith(fontSize: 12),
+                          style: GoogleFonts.plusJakartaSans(
+                            color: AppColors.textSecondary(context),
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -195,10 +251,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             // Member Info Section
             Text(
-              'Personal Details',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              'PERSONAL DETAILS',
+              style: GoogleFonts.outfit(
+                color: AppColors.textPrimary(context),
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                letterSpacing: 0.6,
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             _buildDetailItem(context, 'Email Address', member.email.isNotEmpty ? member.email : 'Not Provided', Icons.email_outlined),
             _buildDetailItem(context, 'Phone Number', member.phone.isNotEmpty ? member.phone : 'Not Provided', Icons.phone_outlined),
             _buildDetailItem(context, 'Gender', member.gender, Icons.person_outline),
@@ -208,10 +269,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             // Modules & Options List
             Text(
-              'Gym Modules & Services',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              'PORTAL MODULES & SERVICES',
+              style: GoogleFonts.outfit(
+                color: AppColors.textPrimary(context),
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                letterSpacing: 0.6,
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             _buildNavTile(
               context,
               'Membership & Plan Benefits',
@@ -228,8 +294,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             _buildNavTile(
               context,
-              'Personal Trainer Details',
-              'Assigned trainer information & timings',
+              'Personal Coach Details',
+              'Assigned coach info & timings',
               Icons.sports_rounded,
               () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrainerScreen())),
             ),
@@ -251,16 +317,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             // Security Section
             Text(
-              'Security',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              'SECURITY',
+              style: GoogleFonts.outfit(
+                color: AppColors.textPrimary(context),
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+                letterSpacing: 0.6,
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             _buildNavTile(
               context,
               'Change Password',
               'Update your member login password',
               Icons.lock_reset_rounded,
               _showChangePasswordSheet,
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: Column(
+                children: [
+                  const FitisifyLogoHeader(iconSize: 28, fontSize: 16),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Version 2.0 • Premium Gym Operating System',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      color: AppColors.textMuted(context),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 30),
           ],
@@ -270,28 +357,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildDetailItem(BuildContext context, String label, String value, IconData icon) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerTheme.color ?? Colors.grey.withValues(alpha: 0.2)),
+        color: AppColors.card(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border(context)),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.grey),
-          const SizedBox(width: 12),
+          Icon(icon, size: 20, color: AppColors.lime),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                Text(label, style: GoogleFonts.plusJakartaSans(color: AppColors.textMuted(context), fontSize: 11, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text(value, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                Text(value, style: GoogleFonts.plusJakartaSans(color: AppColors.textPrimary(context), fontWeight: FontWeight.w700, fontSize: 13.5)),
               ],
             ),
           ),
@@ -301,23 +385,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildNavTile(BuildContext context, String title, String subtitle, IconData icon, VoidCallback onTap) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : AppColors.lightCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerTheme.color ?? Colors.grey.withValues(alpha: 0.2)),
+        color: AppColors.card(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border(context)),
       ),
-      child: ListTile(
-        leading: Icon(icon, color: theme.primaryColor),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+        leading: Icon(icon, color: AppColors.lime),
+        title: Text(
+          title,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w800,
+            fontSize: 14,
+            color: AppColors.textPrimary(context),
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 12,
+            color: AppColors.textSecondary(context),
+          ),
+        ),
+        trailing: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textMuted(context)),
         onTap: onTap,
       ),
-    );
+    ),
+  );
   }
 }

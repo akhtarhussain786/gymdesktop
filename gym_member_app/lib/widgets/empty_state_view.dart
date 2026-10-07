@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
-import 'branded_button.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../core/theme/app_colors.dart';
 
 class EmptyStateView extends StatelessWidget {
   final String title;
   final String message;
   final IconData icon;
-  final String? actionText;
+  final String? actionLabel;
   final VoidCallback? onAction;
 
   const EmptyStateView({
     super.key,
     required this.title,
     required this.message,
-    required this.icon,
-    this.actionText,
+    this.icon = Icons.inbox_outlined,
+    this.actionLabel,
     this.onAction,
   });
 
@@ -28,34 +29,43 @@ class EmptyStateView extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              width: 72,
+              height: 72,
               decoration: BoxDecoration(
                 color: theme.primaryColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: theme.primaryColor.withValues(alpha: 0.25),
+                  width: 1,
+                ),
               ),
-              child: Icon(icon, size: 48, color: theme.primaryColor),
+              child: Icon(icon, color: theme.primaryColor, size: 36),
             ),
             const SizedBox(height: 20),
             Text(
               title,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
+              style: GoogleFonts.outfit(
+                color: AppColors.textPrimary(context),
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
               message,
-              style: theme.textTheme.bodyMedium,
+              style: GoogleFonts.plusJakartaSans(
+                color: AppColors.textSecondary(context),
+                fontSize: 13.5,
+                height: 1.5,
+              ),
               textAlign: TextAlign.center,
             ),
-            if (actionText != null && onAction != null) ...[
+            if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 24),
-              BrandedButton(
-                text: actionText!,
+              ElevatedButton(
                 onPressed: onAction,
-                height: 44,
+                child: Text(actionLabel!),
               ),
             ],
           ],

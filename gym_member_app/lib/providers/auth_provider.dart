@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../core/config/api_config.dart';
 import '../core/network/api_service.dart';
 import '../core/storage/secure_storage_service.dart';
-import '../models/admin_user.dart';
 import '../models/gym_tenant.dart';
 import '../models/member_user.dart';
 
@@ -20,22 +18,37 @@ class AuthProvider extends ChangeNotifier {
   AuthStatus _status = AuthStatus.initial;
   GymTenant? _currentTenant;
   MemberUser? _currentMember;
-  AdminUser? _adminUser;
-  String _role = 'member'; // 'member', 'gym_admin', 'staff', 'trainer'
+  Map<String, dynamic>? _adminUser;
+  String _userRole = 'member';
   String? _authToken;
   String? _errorMessage;
   bool _isLoading = false;
+  List<Map<String, dynamic>> _availableGyms = [];
 
   AuthStatus get status => _status;
   GymTenant? get currentTenant => _currentTenant;
   MemberUser? get currentMember => _currentMember;
-  AdminUser? get adminUser => _adminUser;
-  String get role => _role;
-  bool get isAdmin => _role == 'gym_admin' || _role == 'staff' || _role == 'super_admin' || _role == 'trainer';
+  Map<String, dynamic>? get adminUser => _adminUser;
+  String get userRole => _userRole;
   String? get authToken => _authToken;
   String? get errorMessage => _errorMessage;
   bool get isLoading => _isLoading;
-  bool get isAuthenticated => _status == AuthStatus.authenticated;
+  bool get isAdmin => ['gym_admin', 'staff', 'super_admin', 'trainer'].contains(_userRole.toLowerCase());
+  bool get isAuthenticated => _status == AuthStatus.authenticated && (_currentMember != null || isAdmin);
+  List<Map<String, dynamic>> get availableGyms => _availableGyms;
+
+  Future<List<Map<String, dynamic>>> fetchAvailableGyms({String? query}) async {
+    try {
+      final queryParams = (query != null && query.trim().isNotEmpty) ? {'q': query.trim()} : null;
+      final data = await ApiService.get(ApiConfig.listGyms, queryParams: queryParams);
+      if (data is List) {
+        _availableGyms = List<Map<String, dynamic>>.from(data);
+        notifyListeners();
+        return _availableGyms;
+      }
+    } catch (_) {}
+    return _availableGyms;
+  }
 
   AuthProvider() {
     ApiService.onSessionExpired = _handleSessionExpiry;
@@ -54,44 +67,39 @@ class AuthProvider extends ChangeNotifier {
     try {
       final token = await SecureStorageService.getToken();
       final gymCode = await SecureStorageService.getCurrentGymCode();
+      final savedRole = await SecureStorageService.getUserRole();
+      final savedUserData = await SecureStorageService.getUserData();
 
       if (token != null && token.isNotEmpty && gymCode != null && gymCode.isNotEmpty) {
         _authToken = token;
+        ApiService.activeToken = _authToken;
+        _userRole = savedRole ?? 'member';
+        _adminUser = savedUserData;
+
+        // Verify gym
         final gymData = await ApiService.get(ApiConfig.gymLookup, queryParams: {'code': gymCode});
         if (gymData != null) {
           _currentTenant = GymTenant.fromJson(gymData);
 
-          // Try checking if this is an Admin session
-          try {
-            final adminDash = await ApiService.adminGet(ApiConfig.adminDashboard);
+          if (isAdmin) {
+            // Restore Admin Session
+            final adminDash = await ApiService.get(ApiConfig.adminDashboard, isAdmin: true);
             if (adminDash != null) {
-              _role = 'gym_admin';
-              _adminUser = AdminUser(
-                id: 1,
-                username: 'admin',
-                fullname: _currentTenant?.gymName ?? 'Gym Admin',
-                role: 'gym_admin',
-                email: '',
-                phone: '',
-              );
               _status = AuthStatus.authenticated;
               _isLoading = false;
               notifyListeners();
               return;
             }
-          } catch (_) {
-            // Not an admin token, try member dashboard
-          }
-
-          // Otherwise restore as Member session
-          final dashboardData = await ApiService.get(ApiConfig.dashboard);
-          if (dashboardData != null) {
-            _currentMember = MemberUser.fromJson(dashboardData['member'] ?? {});
-            _role = 'member';
-            _status = AuthStatus.authenticated;
-            _isLoading = false;
-            notifyListeners();
-            return;
+          } else {
+            // Restore Member Session
+            final dashboardData = await ApiService.get(ApiConfig.dashboard);
+            if (dashboardData != null) {
+              _currentMember = MemberUser.fromJson(dashboardData['member'] ?? {});
+              _status = AuthStatus.authenticated;
+              _isLoading = false;
+              notifyListeners();
+              return;
+            }
           }
         }
       }
@@ -128,6 +136,7 @@ class AuthProvider extends ChangeNotifier {
       await SecureStorageService.saveCurrentGymCode(_currentTenant!.gymCode);
       await SecureStorageService.saveActiveTenantId(_currentTenant!.id);
 
+      // Add to saved gyms list for switcher
       final saved = await SecureStorageService.getSavedGymTenants();
       final exists = saved.any((g) => g['id'] == _currentTenant!.id);
       if (!exists) {
@@ -159,14 +168,14 @@ class AuthProvider extends ChangeNotifier {
     _currentTenant = null;
     _currentMember = null;
     _adminUser = null;
+    _userRole = 'member';
     _authToken = null;
-    _role = 'member';
     _status = AuthStatus.unauthenticated;
     _errorMessage = null;
     notifyListeners();
   }
 
-  // 2. Member & Admin Universal Login
+  // 2. Dual Login: Member OR Gym Admin/Staff
   Future<bool> login({
     required String loginId,
     required String password,
@@ -195,18 +204,33 @@ class AuthProvider extends ChangeNotifier {
 
       final data = await ApiService.post(ApiConfig.login, body: body, gymCode: _currentTenant!.gymCode);
       _authToken = data['token'];
+      ApiService.activeToken = _authToken;
       await SecureStorageService.saveToken(_authToken!);
       await SecureStorageService.saveActiveTenantId(_currentTenant!.id);
 
-      _role = (data['role'] ?? 'member').toString().toLowerCase();
-      _currentTenant = GymTenant.fromJson(data['tenant'] ?? {});
+      final returnedRole = (data['role'] ?? 'member').toString().toLowerCase();
+      _userRole = returnedRole;
+      await SecureStorageService.saveUserRole(_userRole);
 
       if (isAdmin) {
-        _adminUser = AdminUser.fromJson(data['user'] ?? {});
+        // Admin / Staff Login
+        _adminUser = data['user'] is Map<String, dynamic> ? data['user'] : Map<String, dynamic>.from(data['user'] ?? {});
         _currentMember = null;
+        if (data['tenant'] != null) {
+          _currentTenant = GymTenant.fromJson(data['tenant']);
+        }
+        if (_adminUser != null) {
+          await SecureStorageService.saveUserData(_adminUser!);
+        }
       } else {
-        _currentMember = MemberUser.fromJson(data['member'] ?? {});
+        // Regular Member Login
         _adminUser = null;
+        if (data['member'] != null) {
+          _currentMember = MemberUser.fromJson(data['member']);
+        }
+        if (data['tenant'] != null) {
+          _currentTenant = GymTenant.fromJson(data['tenant']);
+        }
       }
 
       _status = AuthStatus.authenticated;
@@ -226,16 +250,17 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // 3. Switch Gym Tenant
+  // 3. Switch Gym Tenant (Multi-Gym Member Support)
   Future<bool> switchGym(String targetGymCode) async {
     _isLoading = true;
     notifyListeners();
 
+    // Clear previous tenant's session & tokens
     await SecureStorageService.clearSession();
     _authToken = null;
     _currentMember = null;
     _adminUser = null;
-    _role = 'member';
+    _userRole = 'member';
 
     final success = await lookupGym(targetGymCode);
     return success;
@@ -251,9 +276,10 @@ class AuthProvider extends ChangeNotifier {
 
     await SecureStorageService.clearSession();
     _authToken = null;
+    ApiService.activeToken = null;
     _currentMember = null;
     _adminUser = null;
-    _role = 'member';
+    _userRole = 'member';
     _status = (_currentTenant != null) ? AuthStatus.gymIdentified : AuthStatus.unauthenticated;
     notifyListeners();
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/member_data_provider.dart';
@@ -23,19 +24,33 @@ class _NoticesScreenState extends State<NoticesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final provider = context.watch<MemberDataProvider>();
     final data = provider.notices;
 
     return Scaffold(
+      backgroundColor: AppColors.darkBg,
       appBar: AppBar(
-        title: const Text('Gym Announcements'),
+        backgroundColor: AppColors.darkBgDeep,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        title: Text(
+          'ANNOUNCEMENTS',
+          style: GoogleFonts.outfit(
+            color: AppColors.darkTextPrimary,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            letterSpacing: 0.5,
+          ),
+        ),
       ),
       body: Builder(
         builder: (context) {
           if (provider.loading && data == null) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
+              ),
+            );
           }
 
           if (provider.error != null && data == null) {
@@ -54,6 +69,8 @@ class _NoticesScreenState extends State<NoticesScreen> {
           }
 
           return RefreshIndicator(
+            color: AppColors.lime,
+            backgroundColor: AppColors.darkCard,
             onRefresh: () => provider.fetchNotices(refresh: true),
             child: ListView.builder(
               padding: const EdgeInsets.all(20),
@@ -61,12 +78,19 @@ class _NoticesScreenState extends State<NoticesScreen> {
               itemBuilder: (context, index) {
                 final notice = data.notices[index];
                 return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
+                  margin: const EdgeInsets.only(bottom: 14),
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : AppColors.lightCard,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: theme.dividerTheme.color ?? Colors.grey.withValues(alpha: 0.2)),
+                    color: AppColors.darkCard,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppColors.darkBorder),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -74,10 +98,11 @@ class _NoticesScreenState extends State<NoticesScreen> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: theme.primaryColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
+                          color: AppColors.lime.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.limeBorder),
                         ),
-                        child: Icon(Icons.campaign_rounded, color: theme.primaryColor, size: 22),
+                        child: const Icon(Icons.campaign_rounded, color: AppColors.lime, size: 22),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -87,20 +112,34 @@ class _NoticesScreenState extends State<NoticesScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  notice.title,
-                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                Expanded(
+                                  child: Text(
+                                    notice.title,
+                                    style: GoogleFonts.outfit(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                      color: AppColors.darkTextPrimary,
+                                    ),
+                                  ),
                                 ),
                                 Text(
                                   notice.formattedDate,
-                                  style: TextStyle(color: theme.primaryColor, fontWeight: FontWeight.w600, fontSize: 12),
+                                  style: GoogleFonts.plusJakartaSans(
+                                    color: AppColors.lime,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11.5,
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
                             Text(
                               notice.message,
-                              style: theme.textTheme.bodyMedium?.copyWith(height: 1.45),
+                              style: GoogleFonts.plusJakartaSans(
+                                color: AppColors.darkTextSecondary,
+                                fontSize: 13,
+                                height: 1.5,
+                              ),
                             ),
                           ],
                         ),

@@ -11,15 +11,60 @@ class SecureStorageService {
   static const String _keyCurrentGymCode = 'current_gym_code';
   static const String _keySavedGyms = 'saved_gym_tenants';
   static const String _keyActiveTenantId = 'active_tenant_id';
+  static const String _keyUserRole = 'user_role';
+  static const String _keyUserData = 'user_data';
 
-  // Save active bearer token
+  // Save User Role (member, gym_admin, staff, super_admin, trainer)
+  static Future<void> saveUserRole(String role) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUserRole, role);
+  }
+
+  static Future<String?> getUserRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyUserRole);
+  }
+
+  // Save User Data (Admin info)
+  static Future<void> saveUserData(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUserData, jsonEncode(data));
+  }
+
+  static Future<Map<String, dynamic>?> getUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyUserData);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Save active bearer token with dual storage for maximum Android compatibility
   static Future<void> saveToken(String token) async {
-    await _storage.write(key: _keyToken, value: token);
+    try {
+      await _storage.write(key: _keyToken, value: token);
+    } catch (_) {}
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyToken, token);
+    } catch (_) {}
   }
 
   // Get active bearer token
   static Future<String?> getToken() async {
-    return await _storage.read(key: _keyToken);
+    try {
+      final token = await _storage.read(key: _keyToken);
+      if (token != null && token.isNotEmpty) return token;
+    } catch (_) {}
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final prefToken = prefs.getString(_keyToken);
+      if (prefToken != null && prefToken.isNotEmpty) return prefToken;
+    } catch (_) {}
+    return null;
   }
 
   // Save current selected gym code
@@ -84,7 +129,13 @@ class SecureStorageService {
 
   // Clear current active session (logout)
   static Future<void> clearSession() async {
-    await _storage.delete(key: _keyToken);
+    try {
+      await _storage.delete(key: _keyToken);
+    } catch (_) {}
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyToken);
+    } catch (_) {}
     final tenantId = await getActiveTenantId();
     if (tenantId != null) {
       await purgeTenantData(tenantId);

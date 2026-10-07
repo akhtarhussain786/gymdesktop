@@ -9,11 +9,14 @@ class Tenant {
     private static $currentTenant = null;
 
     /**
-     * Get active tenant ID from session or authenticated user.
+     * Get active tenant ID from session, authenticated context, or current tenant.
      * Fails closed: gym-scoped users without a tenant context are logged out (never silently tenant #1).
      * Super admins (not impersonating) and anonymous visitors get 0 = "no tenant".
      */
     public static function getTenantId() {
+        if (self::$currentTenant !== null && !empty(self::$currentTenant['id'])) {
+            return (int)self::$currentTenant['id'];
+        }
         if (isset($_SESSION['tenant_id']) && !empty($_SESSION['tenant_id']) && (int)$_SESSION['tenant_id'] > 0) {
             return (int)$_SESSION['tenant_id'];
         }
@@ -21,6 +24,26 @@ class Tenant {
             self::failClosed('Missing tenant context for user #' . (int)$_SESSION['user_id']);
         }
         return 0;
+    }
+
+    /**
+     * Set active tenant ID in session and current context
+     */
+    public static function setTenantId($id) {
+        $id = (int)$id;
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION['tenant_id'] = $id;
+        }
+        if (self::$currentTenant !== null && is_array(self::$currentTenant)) {
+            self::$currentTenant['id'] = $id;
+        }
+    }
+
+    /**
+     * Explicitly set the active tenant payload
+     */
+    public static function setCurrent($tenant) {
+        self::$currentTenant = is_array($tenant) ? $tenant : null;
     }
 
     /**
@@ -218,27 +241,30 @@ class Tenant {
      */
     public static function checkLimit($resource = 'members') {
         $tenant = self::getCurrent();
-        $tenantId = $tenant['id'];
+        $tenantId = (int)($tenant['id'] ?? 0);
+        if ($tenantId <= 0) {
+            return ['allowed' => true, 'current' => 0, 'max' => 999999];
+        }
 
         if ($resource === 'members') {
             $count = (int)DB::fetchValue("SELECT COUNT(*) FROM members WHERE tenant_id = ?", [$tenantId]);
-            $max = (int)($tenant['max_members'] ?? 100);
-            return ['allowed' => ($count < $max), 'current' => $count, 'max' => $max];
+            $max = (int)($tenant['max_members'] ?? 0);
+            return ['allowed' => ($max <= 0 || $count < $max), 'current' => $count, 'max' => ($max <= 0 ? 999999 : $max)];
         }
 
         if ($resource === 'staff') {
             $count = (int)DB::fetchValue("SELECT COUNT(*) FROM staffs WHERE tenant_id = ?", [$tenantId]);
-            $max = (int)($tenant['max_staff'] ?? 10);
-            return ['allowed' => ($count < $max), 'current' => $count, 'max' => $max];
+            $max = (int)($tenant['max_staff'] ?? 0);
+            return ['allowed' => ($max <= 0 || $count < $max), 'current' => $count, 'max' => ($max <= 0 ? 999999 : $max)];
         }
 
         if ($resource === 'branches') {
             $count = (int)DB::fetchValue("SELECT COUNT(*) FROM branches WHERE tenant_id = ?", [$tenantId]);
-            $max = (int)($tenant['max_branches'] ?? 1);
-            return ['allowed' => ($count < $max), 'current' => $count, 'max' => $max];
+            $max = (int)($tenant['max_branches'] ?? 0);
+            return ['allowed' => ($max <= 0 || $count < $max), 'current' => $count, 'max' => ($max <= 0 ? 999999 : $max)];
         }
 
-        return ['allowed' => true, 'current' => 0, 'max' => 9999];
+        return ['allowed' => true, 'current' => 0, 'max' => 999999];
     }
 
     /**

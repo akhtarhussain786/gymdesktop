@@ -5,10 +5,6 @@ import 'providers/admin_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/dashboard_provider.dart';
 import 'providers/member_data_provider.dart';
-import 'screens/admin/admin_navigation_screen.dart';
-import 'screens/gym_lookup_screen.dart';
-import 'screens/login_screen.dart';
-import 'screens/main_navigation_screen.dart';
 import 'screens/splash_screen.dart';
 
 void main() {
@@ -36,27 +32,10 @@ class GymMemberApp extends StatelessWidget {
     final auth = context.watch<AuthProvider>();
 
     return MaterialApp(
-      title: auth.currentTenant?.gymName ?? 'Fitisify Gym OS',
+      title: auth.currentTenant?.gymName ?? 'FITISIFY OS',
       debugShowCheckedModeBanner: false,
       theme: themeProvider.themeData,
-      home: _resolveInitialScreen(auth),
+      home: const SplashScreen(),
     );
-  }
-
-  Widget _resolveInitialScreen(AuthProvider auth) {
-    if (auth.status == AuthStatus.initial) {
-      return const SplashScreen();
-    }
-    if (auth.status == AuthStatus.authenticated) {
-      // Role-based routing: Admin Console vs Member Dashboard
-      if (auth.isAdmin) {
-        return const AdminNavigationScreen();
-      }
-      return const MainNavigationScreen();
-    }
-    if (auth.status == AuthStatus.gymIdentified) {
-      return const LoginScreen();
-    }
-    return const GymLookupScreen();
   }
 }

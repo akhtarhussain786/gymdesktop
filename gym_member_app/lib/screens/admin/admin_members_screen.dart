@@ -1,29 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../models/admin_member_item.dart';
+import '../../core/theme/app_colors.dart';
+import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 import 'admin_add_member_screen.dart';
+import 'admin_collect_payment_dialog.dart';
 import 'admin_member_detail_screen.dart';
 
 class AdminMembersScreen extends StatefulWidget {
-  const AdminMembersScreen({super.key});
+  final String? initialFilter;
+
+  const AdminMembersScreen({super.key, this.initialFilter});
 
   @override
   State<AdminMembersScreen> createState() => _AdminMembersScreenState();
 }
 
 class _AdminMembersScreenState extends State<AdminMembersScreen> {
-  final TextEditingController _searchController = TextEditingController();
+  final _searchController = TextEditingController();
+  String _activeFilter = 'all';
+  String _activeSort = 'recent';
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialFilter != null) {
+      _activeFilter = widget.initialFilter!;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final admin = context.read<AdminProvider>();
-      _searchController.text = admin.searchQuery;
-      admin.searchMembers();
+      _loadMembers();
     });
   }
 
@@ -33,18 +41,34 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
     super.dispose();
   }
 
-  Future<void> _makePhoneCall(String phoneNumber) async {
-    final clean = phoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('tel:$clean');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
+  Future<void> _loadMembers({bool refresh = false}) async {
+    await context.read<AdminProvider>().fetchMembers(
+      search: _searchController.text.trim(),
+      filter: _activeFilter,
+      sort: _activeSort,
+      refresh: refresh,
+    );
   }
 
-  Future<void> _sendWhatsApp(String phone, String message) async {
-    final clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    final fullPhone = clean.startsWith('91') || clean.length > 10 ? clean : '91$clean';
-    final uri = Uri.parse('https://wa.me/$fullPhone?text=${Uri.encodeComponent(message)}');
+  void _openCollectDialog(AdminMemberItem member) {
+    showDialog(
+      context: context,
+      builder: (_) => AdminCollectPaymentDialog(
+        memberId: member.memberId,
+        memberName: member.fullname,
+        memberPhone: member.phone,
+        currentDue: member.dueAmount,
+        currentDueDate: member.dueDate,
+        currentService: member.services,
+        currentPlanMonths: member.planMonths,
+      ),
+    ).then((_) => _loadMembers(refresh: true));
+  }
+
+  Future<void> _sendWhatsApp(String phone, String text) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(text)}';
+    final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -52,167 +76,161 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final admin = context.watch<AdminProvider>();
-    final auth = context.watch<AuthProvider>();
-    final currency = auth.currentTenant?.currency ?? '₹';
+    final currency = context.watch<AuthProvider>().currentTenant?.currency ?? '₹';
 
     return Scaffold(
+      backgroundColor: AppColors.bg(context),
       appBar: AppBar(
-        title: const Text('Members Directory', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          'Gym Members Directory',
+          style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person_add_alt_1, color: Color(0xFF3B82F6)),
-            tooltip: 'Add New Member',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminAddMemberScreen()),
-              );
-            },
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: () => _loadMembers(refresh: true),
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AdminAddMemberScreen()),
+          ).then((_) => _loadMembers(refresh: true));
+        },
+        backgroundColor: AppColors.lime,
+        foregroundColor: Colors.black,
+        icon: const Icon(Icons.person_add_alt_1_rounded),
+        label: Text(
+          'Add Member',
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w900,
+            fontSize: 13,
+          ),
+        ),
+      ),
       body: Column(
         children: [
-          // --- 1. SEARCH BAR ---
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search by name, phone, address...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchController.clear();
-                          admin.searchMembers(query: '');
+          // 1. Search Bar & Sort Row
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            color: AppColors.bg(context),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _searchController,
+                        style: GoogleFonts.plusJakartaSans(fontSize: 13.5),
+                        decoration: InputDecoration(
+                          hintText: 'Search by Name, Phone, ID...',
+                          prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _loadMembers();
+                                  },
+                                )
+                              : null,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                        ),
+                        onChanged: (v) {
+                          _loadMembers();
                         },
-                      )
-                    : null,
-                filled: true,
-                fillColor: theme.cardColor,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Sort Menu
+                    PopupMenuButton<String>(
+                      icon: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.card(context),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border(context)),
+                        ),
+                        child: const Icon(Icons.sort_rounded, color: AppColors.lime, size: 20),
+                      ),
+                      color: AppColors.card(context),
+                      initialValue: _activeSort,
+                      onSelected: (val) {
+                        setState(() => _activeSort = val);
+                        _loadMembers();
+                      },
+                      itemBuilder: (ctx) => [
+                        const PopupMenuItem(value: 'recent', child: Text('Recent Registrations')),
+                        const PopupMenuItem(value: 'due_high', child: Text('Highest Dues First')),
+                        const PopupMenuItem(value: 'expiry_soon', child: Text('Expiring Soonest')),
+                        const PopupMenuItem(value: 'name_asc', child: Text('Name (A to Z)')),
+                      ],
+                    ),
+                  ],
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
-                ),
-              ),
-              onChanged: (val) => admin.searchMembers(query: val),
-            ),
-          ),
+                const SizedBox(height: 10),
 
-          // --- 2. FILTER CHIPS ---
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                _buildFilterChip(
-                  label: 'All Members',
-                  filterKey: 'all',
-                  icon: Icons.people,
-                  isSelected: admin.activeFilter == 'all',
-                  onSelected: () => admin.searchMembers(filter: 'all'),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  label: '⚠️ With Dues',
-                  filterKey: 'dues',
-                  icon: Icons.warning_amber_rounded,
-                  isSelected: admin.activeFilter == 'dues',
-                  selectedColor: const Color(0xFFEF4444),
-                  onSelected: () => admin.searchMembers(filter: 'dues'),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  label: '⏳ Expiring Soon',
-                  filterKey: 'expiring',
-                  icon: Icons.access_time,
-                  isSelected: admin.activeFilter == 'expiring',
-                  selectedColor: const Color(0xFFF59E0B),
-                  onSelected: () => admin.searchMembers(filter: 'expiring'),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  label: '🔴 Expired',
-                  filterKey: 'expired',
-                  icon: Icons.cancel_outlined,
-                  isSelected: admin.activeFilter == 'expired',
-                  selectedColor: const Color(0xFFEF4444),
-                  onSelected: () => admin.searchMembers(filter: 'expired'),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  label: '🟢 Active',
-                  filterKey: 'active',
-                  icon: Icons.check_circle_outline,
-                  isSelected: admin.activeFilter == 'active',
-                  selectedColor: const Color(0xFF10B981),
-                  onSelected: () => admin.searchMembers(filter: 'active'),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          // --- 3. MEMBERS COUNT & LIST ---
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Found ${admin.members.length} members',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w600),
-                ),
-                if (admin.activeFilter == 'dues')
-                  Text(
-                    'Sorted by highest due amount',
-                    style: TextStyle(fontSize: 11, color: Colors.red[400], fontWeight: FontWeight.bold),
+                // Filter Chips
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _filterChip('all', 'All Members'),
+                      _filterChip('dues', 'Pending Dues'),
+                      _filterChip('expiring', 'Expiring Soon (7d)'),
+                      _filterChip('expired', 'Expired'),
+                      _filterChip('active', 'Active Only'),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
+          const Divider(height: 1),
 
+          // 2. Members List
           Expanded(
-            child: admin.isLoadingMembers
-                ? const Center(child: CircularProgressIndicator())
+            child: admin.isMembersLoading && admin.members.isEmpty
+                ? const Center(child: CircularProgressIndicator(color: AppColors.lime))
                 : admin.members.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.search_off, size: 50, color: Colors.grey.withOpacity(0.5)),
+                            Icon(Icons.people_outline_rounded, size: 48, color: AppColors.textMuted(context)),
                             const SizedBox(height: 12),
                             Text(
-                              'No members found',
-                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                              'No members found for this filter.',
+                              style: GoogleFonts.plusJakartaSans(
+                                color: AppColors.textMuted(context),
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Try changing search query or filter chip.',
-                              style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _activeFilter = 'all');
+                                _loadMembers();
+                              },
+                              icon: const Icon(Icons.clear_all_rounded, size: 16),
+                              label: const Text('Reset Filters'),
                             ),
                           ],
                         ),
                       )
                     : RefreshIndicator(
-                        onRefresh: () => admin.searchMembers(),
+                        onRefresh: () => _loadMembers(refresh: true),
+                        color: AppColors.lime,
                         child: ListView.separated(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
                           itemCount: admin.members.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 14),
-                          itemBuilder: (context, index) {
-                            final m = admin.members[index];
-                            return _buildMemberCard(context, m, currency);
+                          separatorBuilder: (ctx, i) => const SizedBox(height: 10),
+                          itemBuilder: (ctx, i) {
+                            final member = admin.members[i];
+                            return _buildMemberCard(member, currency);
                           },
                         ),
                       ),
@@ -222,306 +240,212 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
     );
   }
 
-  Widget _buildFilterChip({
-    required String label,
-    required String filterKey,
-    required IconData icon,
-    required bool isSelected,
-    Color selectedColor = const Color(0xFF3B82F6),
-    required VoidCallback onSelected,
-  }) {
-    return ChoiceChip(
-      avatar: Icon(icon, size: 16, color: isSelected ? Colors.white : Colors.grey[600]),
-      label: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : Colors.grey[800],
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          fontSize: 13,
+  Widget _filterChip(String key, String label) {
+    final isSelected = _activeFilter == key;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (s) {
+          setState(() => _activeFilter = key);
+          _loadMembers();
+        },
+        selectedColor: AppColors.lime,
+        checkmarkColor: Colors.black,
+        backgroundColor: AppColors.card(context),
+        labelStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: isSelected ? Colors.black : AppColors.textPrimary(context),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: isSelected ? AppColors.lime : AppColors.border(context),
+          ),
         ),
       ),
-      selected: isSelected,
-      selectedColor: selectedColor,
-      backgroundColor: Colors.grey.withOpacity(0.1),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      onSelected: (_) => onSelected(),
     );
   }
 
-  Widget _buildMemberCard(BuildContext context, AdminMemberItem m, String currency) {
-    final theme = Theme.of(context);
+  Widget _buildMemberCard(AdminMemberItem member, String currency) {
+    final isExpired = member.membershipStatus.toLowerCase() == 'expired';
+    final hasDue = member.dueAmount > 0;
 
     return InkWell(
       onTap: () {
-        Navigator.push(
-          context,
+        Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => AdminMemberDetailScreen(memberId: m.memberId),
+            builder: (_) => AdminMemberDetailScreen(
+              memberId: member.memberId,
+              initialName: member.fullname,
+            ),
           ),
-        );
+        ).then((_) => _loadMembers(refresh: true));
       },
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: theme.cardColor,
-          borderRadius: BorderRadius.circular(16),
+          color: AppColors.card(context),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: m.hasDue ? const Color(0xFFEF4444).withOpacity(0.35) : Colors.grey.withOpacity(0.18),
-            width: m.hasDue ? 1.5 : 1,
+            color: hasDue
+                ? AppColors.warning.withValues(alpha: 0.4)
+                : AppColors.border(context),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            // Row 1: Photo, Name, Phone & Status
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Member Photo Thumbnail
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: 54,
-                    height: 54,
-                    color: const Color(0xFF3B82F6).withOpacity(0.12),
-                    child: m.avatar != null
-                        ? Image.network(
-                            m.avatar!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _buildAvatarFallback(m),
-                          )
-                        : _buildAvatarFallback(m),
-                  ),
+            // Avatar
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.cardElevated(context),
+                border: Border.all(
+                  color: isExpired ? AppColors.danger : (hasDue ? AppColors.warning : AppColors.lime),
+                  width: 1.5,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              ),
+              child: ClipOval(
+                child: member.avatar != null && member.avatar!.isNotEmpty
+                    ? Image.network(
+                        member.avatar!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (ctx, err, stack) => _avatarFallback(member.fullname),
+                      )
+                    : _avatarFallback(member.fullname),
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // Member Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        m.fullname,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(Icons.phone, size: 13, color: Colors.grey[600]),
-                          const SizedBox(width: 4),
-                          Text(
-                            m.phone.isNotEmpty ? m.phone : 'No Phone',
-                            style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                      Expanded(
+                        child: Text(
+                          member.fullname,
+                          style: GoogleFonts.outfit(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            color: AppColors.textPrimary(context),
                           ),
-                        ],
-                      ),
-                      if (m.address.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on_outlined, size: 13, color: Colors.grey[600]),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                m.address,
-                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (isExpired ? AppColors.danger : AppColors.success).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          member.membershipStatus.toUpperCase(),
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: isExpired ? AppColors.danger : AppColors.success,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                _buildStatusPill(m),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-            const Divider(height: 1),
-            const SizedBox(height: 10),
-
-            // Row 2: Service & Dates
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${m.services} (${m.planMonths} Mo)',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${member.phone} • ${member.services}',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11.5,
+                      color: AppColors.textMuted(context),
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Joined: ${m.startDate}',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'Expires: ${m.expiryDate}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        color: m.isExpired ? const Color(0xFFEF4444) : Colors.grey[800],
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      m.isExpired
-                          ? 'Expired ${m.daysRemaining.abs()} days ago'
-                          : '${m.daysRemaining} days left',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: m.isExpired
-                            ? const Color(0xFFEF4444)
-                            : (m.isExpiringSoon ? const Color(0xFFF59E0B) : const Color(0xFF10B981)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
 
-            const SizedBox(height: 10),
-
-            // Row 3: Financials & Action Buttons
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: m.hasDue ? const Color(0xFFEF4444).withOpacity(0.08) : const Color(0xFF10B981).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  // Dues & Expiry Row
+                  Row(
                     children: [
-                      Text(
-                        'Total: $currency${m.totalFee.toStringAsFixed(0)} • Paid: $currency${m.paidAmount.toStringAsFixed(0)}',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[700]),
-                      ),
-                      const SizedBox(height: 2),
-                      if (m.hasDue)
-                        Text(
-                          '⚠️ DUE: $currency${m.dueAmount.toStringAsFixed(0)}${m.dueDate != null ? " (Due: ${m.dueDate})" : ""}',
-                          style: const TextStyle(
-                            color: Color(0xFFEF4444),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 13,
+                      if (hasDue)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.warning.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppColors.warning, width: 0.8),
+                          ),
+                          child: Text(
+                            'Due: $currency${member.dueAmount.toStringAsFixed(0)}',
+                            style: GoogleFonts.outfit(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.warning,
+                            ),
                           ),
                         )
                       else
                         Text(
-                          '✓ FULLY PAID',
-                          style: TextStyle(
-                            color: Colors.green[700],
-                            fontWeight: FontWeight.w900,
-                            fontSize: 12,
+                          'Exp: ${member.expiryDate}',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: member.daysRemaining <= 7 ? AppColors.warning : AppColors.textMuted(context),
                           ),
                         ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      if (m.phone.isNotEmpty) ...[
-                        IconButton(
-                          icon: const Icon(Icons.phone, size: 20, color: Color(0xFF3B82F6)),
-                          tooltip: 'Call Member',
-                          constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.all(6),
-                          onPressed: () => _makePhoneCall(m.phone),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          icon: const Icon(Icons.chat, size: 20, color: Color(0xFF25D366)),
-                          tooltip: 'WhatsApp Reminder',
-                          constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.all(6),
-                          onPressed: () => _sendWhatsApp(m.phone, m.whatsappReminder),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: m.hasDue ? const Color(0xFFEF4444) : const Color(0xFF3B82F6),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          minimumSize: const Size(60, 32),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => AdminMemberDetailScreen(memberId: m.memberId),
-                            ),
-                          );
-                        },
-                        child: Text(m.hasDue ? 'Collect' : 'View', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      ),
                     ],
                   ),
                 ],
               ),
             ),
+            const SizedBox(width: 8),
+
+            // Quick Actions (Collect & WhatsApp)
+            Column(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.payments_rounded, color: AppColors.lime, size: 20),
+                  onPressed: () => _openCollectDialog(member),
+                  tooltip: 'Collect Payment',
+                ),
+                if (member.phone.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.chat_rounded, color: Color(0xFF25D366), size: 18),
+                    onPressed: () => _sendWhatsApp(member.phone, member.whatsappReminder),
+                    tooltip: 'WhatsApp Reminder',
+                  ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAvatarFallback(AdminMemberItem m) {
+  Widget _avatarFallback(String name) {
+    final initials = name.trim().isNotEmpty
+        ? name.trim().split(' ').map((e) => e.isNotEmpty ? e[0] : '').take(2).join()
+        : 'M';
     return Center(
       child: Text(
-        m.fullname.isNotEmpty ? m.fullname[0].toUpperCase() : 'M',
-        style: const TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 22,
-          color: Color(0xFF3B82F6),
+        initials.toUpperCase(),
+        style: GoogleFonts.outfit(
+          fontSize: 16,
+          fontWeight: FontWeight.w900,
+          color: AppColors.lime,
         ),
-      ),
-    );
-  }
-
-  Widget _buildStatusPill(AdminMemberItem m) {
-    Color bg = const Color(0xFF10B981).withOpacity(0.12);
-    Color fg = const Color(0xFF10B981);
-    String label = 'Active';
-
-    if (m.isExpired) {
-      bg = const Color(0xFFEF4444).withOpacity(0.12);
-      fg = const Color(0xFFEF4444);
-      label = 'Expired';
-    } else if (m.isExpiringSoon) {
-      bg = const Color(0xFFF59E0B).withOpacity(0.12);
-      fg = const Color(0xFFF59E0B);
-      label = 'Expiring';
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 11),
       ),
     );
   }

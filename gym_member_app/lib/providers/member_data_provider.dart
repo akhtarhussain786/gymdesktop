@@ -57,44 +57,6 @@ class MemberDataProvider extends ChangeNotifier {
     }
   }
 
-  // Fetch Available Renewal Plans
-  Future<Map<String, dynamic>?> fetchPlans() async {
-    try {
-      final data = await ApiService.get(ApiConfig.plans);
-      return data as Map<String, dynamic>?;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // Create Cashfree Payment Order for Renewal
-  Future<Map<String, dynamic>?> createPaymentOrder({
-    required int planId,
-    required int months,
-  }) async {
-    try {
-      final data = await ApiService.post(ApiConfig.createPaymentOrder, body: {
-        'plan_id': planId,
-        'months': months,
-      });
-      return data as Map<String, dynamic>?;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // Check Cashfree Payment Status
-  Future<Map<String, dynamic>?> checkPaymentStatus(String orderId) async {
-    try {
-      final data = await ApiService.post(ApiConfig.checkPaymentStatus, body: {
-        'order_id': orderId,
-      });
-      return data as Map<String, dynamic>?;
-    } catch (_) {
-      return null;
-    }
-  }
-
   // 2. Fetch Attendance Records
   Future<void> fetchAttendance({String? month, bool refresh = false}) async {
     if (_attendance != null && !refresh && month == null) return;
@@ -115,6 +77,54 @@ class MemberDataProvider extends ChangeNotifier {
       _error = 'Failed to load attendance logs.';
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  // Perform Check-In Action
+  Future<String?> checkIn() async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final res = await ApiService.post(ApiConfig.attendance, body: {'action': 'check_in'});
+      await fetchAttendance(refresh: true);
+      _loading = false;
+      notifyListeners();
+      return res['message'] ?? 'Check-in successful!';
+    } on ApiException catch (e) {
+      _error = e.message;
+      _loading = false;
+      notifyListeners();
+      return e.message;
+    } catch (e) {
+      _error = 'Failed to check in.';
+      _loading = false;
+      notifyListeners();
+      return 'Failed to check in.';
+    }
+  }
+
+  // Perform Check-Out Action
+  Future<String?> checkOut() async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final res = await ApiService.post(ApiConfig.attendance, body: {'action': 'check_out'});
+      await fetchAttendance(refresh: true);
+      _loading = false;
+      notifyListeners();
+      return res['message'] ?? 'Check-out successful!';
+    } on ApiException catch (e) {
+      _error = e.message;
+      _loading = false;
+      notifyListeners();
+      return e.message;
+    } catch (e) {
+      _error = 'Failed to check out.';
+      _loading = false;
+      notifyListeners();
+      return 'Failed to check out.';
     }
   }
 
@@ -313,6 +323,79 @@ class MemberDataProvider extends ChangeNotifier {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  // Fetch Renewal Plans
+  Future<Map<String, dynamic>?> fetchPlans() async {
+    try {
+      final res = await ApiService.get(ApiConfig.plans);
+      return res as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Generate Renewal Payment QR
+  Future<Map<String, dynamic>?> generateRenewalQr({required int planId, required int months}) async {
+    try {
+      final res = await ApiService.post(ApiConfig.generateRenewalQr, body: {
+        'plan_id': planId,
+        'months': months
+      });
+      return res as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Submit Renewal Payment UTR Ref
+  Future<Map<String, dynamic>?> submitRenewalPayment({
+    required String planName,
+    required int months,
+    required double amount,
+    required String transactionRef
+  }) async {
+    try {
+      final res = await ApiService.post(ApiConfig.submitRenewalPayment, body: {
+        'plan_name': planName,
+        'months': months,
+        'amount': amount,
+        'transaction_ref': transactionRef
+      });
+      // Refresh membership & payments
+      fetchMembership(refresh: true);
+      fetchPayments(refresh: true);
+      return res as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Create Cashfree Payment Order (Backend calculated price)
+  Future<Map<String, dynamic>?> createPaymentOrder({required int planId, required int months}) async {
+    try {
+      final res = await ApiService.post(ApiConfig.createPaymentOrder, body: {
+        'plan_id': planId,
+        'months': months
+      });
+      return res as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Check Payment Status with Cashfree & Idempotent Processing
+  Future<Map<String, dynamic>?> checkPaymentStatus(String orderId) async {
+    try {
+      final res = await ApiService.post(ApiConfig.checkPaymentStatus, body: {
+        'order_id': orderId
+      });
+      fetchMembership(refresh: true);
+      fetchPayments(refresh: true);
+      return res as Map<String, dynamic>;
+    } catch (_) {
+      return null;
     }
   }
 

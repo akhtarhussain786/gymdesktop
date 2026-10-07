@@ -1,9 +1,11 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/theme/app_colors.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 
@@ -17,32 +19,34 @@ class AdminAddMemberScreen extends StatefulWidget {
 class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // Text Controllers
   final _fullnameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _addressController = TextEditingController();
-
+  final _passwordController = TextEditingController(text: '123456');
   final _totalAmountController = TextEditingController(text: '1000');
   final _paidAmountController = TextEditingController(text: '1000');
 
-  String _selectedGender = 'Male';
+  String _gender = 'Male';
   String _selectedService = 'General Fitness';
-  int _selectedPlanMonths = 1;
-  double _monthlyRate = 1000.0;
-  DateTime? _selectedDueDate;
+  int _planMonths = 1;
+  final DateTime _dor = DateTime.now();
+  DateTime? _dueDate;
   String _paymentMethod = 'Cash';
 
   // Photo
-  File? _photoFile;
+  XFile? _selectedPhoto;
   Uint8List? _photoBytes;
-  String? _photoFileName;
   final ImagePicker _picker = ImagePicker();
+
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AdminProvider>().loadRates();
+      context.read<AdminProvider>().fetchRates();
     });
   }
 
@@ -52,73 +56,134 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     _phoneController.dispose();
     _emailController.dispose();
     _addressController.dispose();
+    _passwordController.dispose();
     _totalAmountController.dispose();
     _paidAmountController.dispose();
     super.dispose();
   }
 
-  void _recalculateTotals() {
-    final total = _monthlyRate * _selectedPlanMonths;
-    _totalAmountController.text = total.toStringAsFixed(0);
-    // If paid was previously matching total, keep it matching, else keep user amount
-    _paidAmountController.text = total.toStringAsFixed(0);
-    setState(() {});
-  }
+  double get _totalAmount => double.tryParse(_totalAmountController.text.trim()) ?? 0.0;
+  double get _paidAmount => double.tryParse(_paidAmountController.text.trim()) ?? 0.0;
+  double get _dueAmount => (_totalAmount - _paidAmount) > 0 ? (_totalAmount - _paidAmount) : 0.0;
 
   Future<void> _pickImage(ImageSource source) async {
     try {
-      final picked = await _picker.pickImage(
+      final photo = await _picker.pickImage(
         source: source,
         maxWidth: 800,
         maxHeight: 800,
         imageQuality: 85,
       );
-
-      if (picked != null) {
-        if (kIsWeb) {
-          final bytes = await picked.readAsBytes();
-          setState(() {
-            _photoBytes = bytes;
-            _photoFileName = picked.name;
-            _photoFile = null;
-          });
-        } else {
-          setState(() {
-            _photoFile = File(picked.path);
-            _photoBytes = null;
-            _photoFileName = picked.name;
-          });
-        }
+      if (photo != null) {
+        final bytes = await photo.readAsBytes();
+        setState(() {
+          _selectedPhoto = photo;
+          _photoBytes = bytes;
+        });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not access camera/gallery: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not pick image: $e'), backgroundColor: AppColors.danger),
+        );
+      }
     }
   }
 
-  void _showImageSourceDialog() {
+  void _showImageSourcePicker() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Color(0xFF3B82F6)),
-              title: const Text('Take Live Photo with Camera'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImage(ImageSource.camera);
-              },
+      backgroundColor: AppColors.card(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Member Photo',
+                  style: GoogleFonts.outfit(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary(ctx),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildSourceOption(
+                      icon: Icons.camera_alt_rounded,
+                      label: 'Take Camera Photo',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _pickImage(ImageSource.camera);
+                      },
+                    ),
+                    _buildSourceOption(
+                      icon: Icons.photo_library_rounded,
+                      label: 'Gallery / Files',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _pickImage(ImageSource.gallery);
+                      },
+                    ),
+                    if (_selectedPhoto != null)
+                      _buildSourceOption(
+                        icon: Icons.delete_outline_rounded,
+                        label: 'Remove Photo',
+                        color: AppColors.danger,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          setState(() {
+                            _selectedPhoto = null;
+                            _photoBytes = null;
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.photo_library, color: Color(0xFF10B981)),
-              title: const Text('Choose Photo from Gallery'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImage(ImageSource.gallery);
-              },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSourceOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 100,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.cardElevated(context),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border(context)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 28, color: color ?? AppColors.lime),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color ?? AppColors.textPrimary(context),
+              ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -126,414 +191,678 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final admin = context.watch<AdminProvider>();
-    final auth = context.watch<AuthProvider>();
-    final currency = auth.currentTenant?.currency ?? '₹';
+  Future<void> _selectDueDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate ?? DateTime.now().add(const Duration(days: 7)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.dark(
+              primary: AppColors.lime,
+              onPrimary: Colors.black,
+              surface: AppColors.card(context),
+              onSurface: AppColors.textPrimary(context),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
 
-    final totalAmount = double.tryParse(_totalAmountController.text.trim()) ?? 0.0;
-    final paidAmount = double.tryParse(_paidAmountController.text.trim()) ?? 0.0;
-    final dueAmount = (totalAmount - paidAmount).clamp(0.0, 999999.0);
+    if (picked != null) {
+      setState(() => _dueDate = picked);
+    }
+  }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Add New Member', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Future<void> _handleSubmit() async {
+    if (!_formKey.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
+
+    setState(() => _isSubmitting = true);
+    final admin = context.read<AdminProvider>();
+
+    try {
+      final res = await admin.addMember(
+        fullname: _fullnameController.text.trim(),
+        phone: _phoneController.text.trim(),
+        email: _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
+        address: _addressController.text.trim().isNotEmpty ? _addressController.text.trim() : null,
+        gender: _gender,
+        services: _selectedService,
+        planMonths: _planMonths,
+        totalAmount: _totalAmount,
+        paidAmount: _paidAmount,
+        dueAmount: _dueAmount,
+        dueDate: _dueAmount > 0 && _dueDate != null
+            ? DateFormat('yyyy-MM-dd').format(_dueDate!)
+            : null,
+        paymentMethod: _paymentMethod,
+        password: _passwordController.text.isNotEmpty ? _passwordController.text : '123456',
+        dor: DateFormat('yyyy-MM-dd').format(_dor),
+        photoPath: !kIsWeb ? _selectedPhoto?.path : null,
+        photoBytes: _photoBytes,
+      );
+
+      if (mounted && res != null) {
+        _showSuccessDialog(res);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _showSuccessDialog(Map<String, dynamic> data) {
+    final gymName = context.read<AuthProvider>().currentTenant?.gymName ?? 'Our Gym';
+    final currency = context.read<AuthProvider>().currentTenant?.currency ?? '₹';
+    final name = data['fullname'] ?? _fullnameController.text;
+    final username = data['username'] ?? '';
+    final phone = data['phone'] ?? _phoneController.text;
+    final due = (data['due_amount'] is num) ? (data['due_amount'] as num).toDouble() : _dueAmount;
+
+    final dueText = due > 0 ? "\nPending Due: *$currency$due*" : "";
+    final welcomeMessage = "Welcome to *$gymName*, *$name*! 🎉\n"
+        "Your membership for *$_selectedService* is activated.\n"
+        "Username: *$username*\n"
+        "App Login: Use your username & password to track workouts & attendance.$dueText";
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: AppColors.card(ctx),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(color: AppColors.limeBorder),
+          ),
+          contentPadding: const EdgeInsets.all(24),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // --- 1. PHOTO CAPTURE AVATAR ---
-              Center(
-                child: Stack(
-                  children: [
-                    InkWell(
-                      onTap: _showImageSourceDialog,
-                      borderRadius: BorderRadius.circular(50),
-                      child: Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF3B82F6).withOpacity(0.12),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF3B82F6), width: 2),
-                        ),
-                        child: ClipOval(
-                          child: _photoBytes != null
-                              ? Image.memory(_photoBytes!, fit: BoxFit.cover)
-                              : _photoFile != null
-                                  ? Image.file(_photoFile!, fit: BoxFit.cover)
-                                  : const Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.camera_alt, size: 34, color: Color(0xFF3B82F6)),
-                                        SizedBox(height: 4),
-                                        Text('Add Photo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF3B82F6))),
-                                      ],
-                                    ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: InkWell(
-                        onTap: _showImageSourceDialog,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF3B82F6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.edit, size: 16, color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  ],
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: AppColors.lime.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.lime, width: 2),
                 ),
+                child: const Icon(Icons.person_add_alt_1_rounded, color: AppColors.lime, size: 32),
               ),
-              const SizedBox(height: 8),
-              const Center(
-                child: Text(
-                  'One-time Customer Photo (Distinguish same-name clients)',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+              const SizedBox(height: 16),
+              Text(
+                'Member Registered!',
+                style: GoogleFonts.outfit(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textPrimary(ctx),
                 ),
+                textAlign: TextAlign.center,
               ),
-
-              const SizedBox(height: 24),
-
-              // --- 2. BASIC DETAILS ---
-              Text('Personal Details', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-
-              TextFormField(
-                controller: _fullnameController,
-                decoration: InputDecoration(
-                  labelText: 'Full Name *',
-                  prefixIcon: const Icon(Icons.person),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
+              const SizedBox(height: 6),
+              Text(
+                'New member account created and membership activated.',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12.5,
+                  color: AppColors.textMuted(ctx),
                 ),
-                validator: (val) => (val == null || val.trim().isEmpty) ? 'Please enter customer full name' : null,
+                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
-              TextFormField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                  labelText: 'Mobile Phone Number *',
-                  prefixIcon: const Icon(Icons.phone),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
-                ),
-                validator: (val) => (val == null || val.trim().length < 10) ? 'Please enter 10-digit mobile number' : null,
-              ),
-              const SizedBox(height: 12),
-
-              TextFormField(
-                controller: _addressController,
-                decoration: InputDecoration(
-                  labelText: 'Address / Area (Optional)',
-                  prefixIcon: const Icon(Icons.location_on),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              DropdownButtonFormField<String>(
-                value: _selectedGender,
-                decoration: InputDecoration(
-                  labelText: 'Gender',
-                  prefixIcon: const Icon(Icons.wc),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Male', child: Text('Male')),
-                  DropdownMenuItem(value: 'Female', child: Text('Female')),
-                  DropdownMenuItem(value: 'Other', child: Text('Other')),
-                ],
-                onChanged: (val) => setState(() => _selectedGender = val ?? 'Male'),
-              ),
-
-              const SizedBox(height: 24),
-
-              // --- 3. MEMBERSHIP PACKAGE & DURATION ---
-              Text('Membership Package', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-
-              DropdownButtonFormField<String>(
-                value: admin.rates.any((r) => r['name'] == _selectedService)
-                    ? _selectedService
-                    : (admin.rates.isNotEmpty ? admin.rates[0]['name'].toString() : 'General Fitness'),
-                decoration: InputDecoration(
-                  labelText: 'Service / Package',
-                  prefixIcon: const Icon(Icons.fitness_center),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
-                ),
-                items: (admin.rates.isNotEmpty
-                        ? admin.rates
-                        : [
-                            {'name': 'General Fitness', 'charge': 1000.0},
-                            {'name': 'Strength & Cardio', 'charge': 1500.0},
-                            {'name': 'Personal Training', 'charge': 3000.0},
-                          ])
-                    .map<DropdownMenuItem<String>>((r) {
-                  final name = r['name'].toString();
-                  final charge = (r['charge'] as num).toDouble();
-                  return DropdownMenuItem(
-                    value: name,
-                    child: Text('$name ($currency${charge.toStringAsFixed(0)}/mo)'),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    _selectedService = val;
-                    final match = admin.rates.firstWhere(
-                      (r) => r['name'] == val,
-                      orElse: () => {'charge': 1000.0},
-                    );
-                    _monthlyRate = (match['charge'] as num).toDouble();
-                    _recalculateTotals();
-                  }
-                },
-              ),
-              const SizedBox(height: 12),
-
-              DropdownButtonFormField<int>(
-                value: _selectedPlanMonths,
-                decoration: InputDecoration(
-                  labelText: 'Duration (Months)',
-                  prefixIcon: const Icon(Icons.calendar_month),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
-                ),
-                items: const [
-                  DropdownMenuItem(value: 1, child: Text('1 Month')),
-                  DropdownMenuItem(value: 3, child: Text('3 Months (Quarterly)')),
-                  DropdownMenuItem(value: 6, child: Text('6 Months (Half-Yearly)')),
-                  DropdownMenuItem(value: 12, child: Text('12 Months (1 Year)')),
-                ],
-                onChanged: (val) {
-                  if (val != null) {
-                    _selectedPlanMonths = val;
-                    _recalculateTotals();
-                  }
-                },
-              ),
-
-              const SizedBox(height: 24),
-
-              // --- 4. FINANCIALS & PARTIAL DUES BREAKDOWN ---
-              Text('Payment & Dues (Khata)', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _totalAmountController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: InputDecoration(
-                        labelText: 'Total Plan Fee ($currency) *',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        filled: true,
-                        fillColor: theme.cardColor,
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _paidAmountController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
-                      decoration: InputDecoration(
-                        labelText: 'Amount Paid ($currency) *',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        filled: true,
-                        fillColor: theme.cardColor,
-                      ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 12),
-
-              // Due Amount Auto-Display Box
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: dueAmount > 0 ? const Color(0xFFEF4444).withOpacity(0.08) : const Color(0xFF10B981).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: dueAmount > 0 ? const Color(0xFFEF4444).withOpacity(0.3) : const Color(0xFF10B981).withOpacity(0.3),
-                  ),
+                  color: AppColors.cardElevated(ctx),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.border(ctx)),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
-                    Text(
-                      dueAmount > 0 ? '⚠️ REMAINING DUE AMOUNT:' : '✓ PAYMENT STATUS:',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: dueAmount > 0 ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                        fontSize: 13,
-                      ),
-                    ),
-                    Text(
-                      dueAmount > 0 ? '$currency${dueAmount.toStringAsFixed(2)}' : 'FULL PAID (0 DUES)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: dueAmount > 0 ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                        fontSize: 16,
-                      ),
-                    ),
+                    _infoRow(ctx, 'Full Name', name),
+                    _infoRow(ctx, 'Username', username),
+                    _infoRow(ctx, 'Service', _selectedService),
+                    _infoRow(ctx, 'Initial Due', due > 0 ? '$currency$due' : 'Zero (Fully Paid)'),
                   ],
                 ),
               ),
+              const SizedBox(height: 20),
 
-              if (dueAmount > 0) ...[
-                const SizedBox(height: 12),
-                InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now().add(const Duration(days: 7)),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                    );
-                    if (picked != null) {
-                      setState(() => _selectedDueDate = picked);
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: theme.cardColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _selectedDueDate != null
-                              ? 'Due Promise Date: ${DateFormat('yyyy-MM-dd').format(_selectedDueDate!)}'
-                              : 'Select Expected Due Date (e.g. 7 days)',
-                          style: TextStyle(color: _selectedDueDate != null ? const Color(0xFFEF4444) : Colors.grey[700], fontWeight: FontWeight.bold),
-                        ),
-                        const Icon(Icons.calendar_today, size: 18),
-                      ],
-                    ),
+              // WhatsApp Welcome Message
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                  final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(welcomeMessage)}';
+                  final uri = Uri.parse(url);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  minimumSize: const Size.fromHeight(46),
+                ),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: Text(
+                  'Send Welcome on WhatsApp',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
                   ),
                 ),
-              ],
-
-              const SizedBox(height: 16),
-
-              DropdownButtonFormField<String>(
-                value: _paymentMethod,
-                decoration: InputDecoration(
-                  labelText: 'Payment Method',
-                  prefixIcon: const Icon(Icons.payments),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: theme.cardColor,
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                  DropdownMenuItem(value: 'UPI', child: Text('UPI / QR')),
-                  DropdownMenuItem(value: 'Card', child: Text('Card / POS')),
-                ],
-                onChanged: (val) => setState(() => _paymentMethod = val ?? 'Cash'),
               ),
+              const SizedBox(height: 10),
 
-              const SizedBox(height: 28),
-
-              // --- 5. SUBMIT BUTTON ---
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF3B82F6),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop(); // Close dialog
+                  Navigator.of(context).pop(); // Back to members list
+                },
+                child: Text(
+                  'Go to Members List',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: AppColors.lime,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
                   ),
-                  icon: admin.isSubmitting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.person_add_alt_1),
-                  label: Text(
-                    admin.isSubmitting ? 'Registering Member...' : 'REGISTER MEMBER & SAVE',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  onPressed: admin.isSubmitting
-                      ? null
-                      : () async {
-                          if (!_formKey.currentState!.validate()) return;
-
-                          final res = await admin.addMember(
-                            fullname: _fullnameController.text.trim(),
-                            phone: _phoneController.text.trim(),
-                            email: _emailController.text.trim(),
-                            address: _addressController.text.trim(),
-                            gender: _selectedGender,
-                            services: _selectedService,
-                            planMonths: _selectedPlanMonths,
-                            totalAmount: totalAmount,
-                            paidAmount: paidAmount,
-                            dueAmount: dueAmount,
-                            dueDate: _selectedDueDate != null
-                                ? DateFormat('yyyy-MM-dd').format(_selectedDueDate!)
-                                : null,
-                            paymentMethod: _paymentMethod,
-                            photoFile: _photoFile,
-                            photoBytes: _photoBytes,
-                            photoFileName: _photoFileName,
-                          );
-
-                          if (res != null && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Member "${res['fullname']}" registered with Invoice #${res['invoice_number']}!'),
-                                backgroundColor: const Color(0xFF10B981),
-                              ),
-                            );
-                            Navigator.pop(context);
-                          } else if (admin.errorMessage != null && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(admin.errorMessage!),
-                                backgroundColor: const Color(0xFFEF4444),
-                              ),
-                            );
-                          }
-                        },
                 ),
               ),
             ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _infoRow(BuildContext ctx, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textMuted(ctx),
+            ),
+          ),
+          Text(
+            value,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary(ctx),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final admin = context.watch<AdminProvider>();
+    final currency = context.watch<AuthProvider>().currentTenant?.currency ?? '₹';
+
+    return Scaffold(
+      backgroundColor: AppColors.bg(context),
+      appBar: AppBar(
+        title: Text(
+          'Register New Member',
+          style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 1. Photo Card
+                  Center(
+                    child: Stack(
+                      alignment: Alignment.bottomRight,
+                      children: [
+                        InkWell(
+                          onTap: _showImageSourcePicker,
+                          borderRadius: BorderRadius.circular(50),
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppColors.cardElevated(context),
+                              border: Border.all(color: AppColors.limeBorder, width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.lime.withValues(alpha: 0.2),
+                                  blurRadius: 15,
+                                ),
+                              ],
+                            ),
+                            child: ClipOval(
+                              child: _photoBytes != null
+                                  ? Image.memory(_photoBytes!, fit: BoxFit.cover)
+                                  : Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(Icons.add_a_photo_rounded, color: AppColors.lime, size: 28),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Add Photo',
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.lime,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: AppColors.lime,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.black),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // 2. Personal Information Section
+                  _sectionHeader('PERSONAL INFORMATION'),
+                  const SizedBox(height: 12),
+
+                  TextFormField(
+                    controller: _fullnameController,
+                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                    decoration: const InputDecoration(
+                      labelText: 'Full Name *',
+                      hintText: 'e.g., Rahul Sharma',
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Full Name is required' : null,
+                  ),
+                  const SizedBox(height: 14),
+
+                  TextFormField(
+                    controller: _phoneController,
+                    keyboardType: TextInputType.phone,
+                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                    decoration: const InputDecoration(
+                      labelText: 'Mobile Phone Number *',
+                      hintText: 'e.g., 9876543210',
+                      prefixIcon: Icon(Icons.phone_outlined),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Phone number is required' : null,
+                  ),
+                  const SizedBox(height: 14),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          style: GoogleFonts.plusJakartaSans(fontSize: 13),
+                          decoration: const InputDecoration(
+                            labelText: 'Email (Optional)',
+                            prefixIcon: Icon(Icons.email_outlined),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _gender,
+                          dropdownColor: AppColors.card(context),
+                          decoration: const InputDecoration(
+                            labelText: 'Gender',
+                            prefixIcon: Icon(Icons.wc_rounded),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'Male', child: Text('Male')),
+                            DropdownMenuItem(value: 'Female', child: Text('Female')),
+                            DropdownMenuItem(value: 'Other', child: Text('Other')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) setState(() => _gender = v);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  TextFormField(
+                    controller: _addressController,
+                    style: GoogleFonts.plusJakartaSans(fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: 'Residential Address / City',
+                      hintText: 'e.g., Sector 15, Near City Mall',
+                      prefixIcon: Icon(Icons.location_on_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // 3. Package & Plan Section
+                  _sectionHeader('MEMBERSHIP PACKAGE & CHARGES'),
+                  const SizedBox(height: 12),
+
+                  // Service Selector (From rates or default)
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedService,
+                    dropdownColor: AppColors.card(context),
+                    decoration: const InputDecoration(
+                      labelText: 'Select Workout / Gym Package',
+                      prefixIcon: Icon(Icons.fitness_center_rounded),
+                    ),
+                    items: (admin.rates.isNotEmpty
+                            ? admin.rates.map((r) => r.name).toList()
+                            : ['General Fitness', 'Strength & Cardio', 'Personal Training', 'CrossFit'])
+                        .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        setState(() {
+                          _selectedService = v;
+                          // Auto set rate if found
+                          final match = admin.rates.where((r) => r.name == v).firstOrNull;
+                          if (match != null) {
+                            final total = match.charge * _planMonths;
+                            _totalAmountController.text = total.toStringAsFixed(0);
+                            _paidAmountController.text = total.toStringAsFixed(0);
+                          }
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Plan Duration Selector Chips
+                  Text(
+                    'PLAN DURATION',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textMuted(context),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _durationChip(1, '1 Mo'),
+                      _durationChip(3, '3 Mos'),
+                      _durationChip(6, '6 Mos'),
+                      _durationChip(12, '1 Year'),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Financials Card
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: AppColors.card(context),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: AppColors.border(context)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _totalAmountController,
+                                keyboardType: TextInputType.number,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary(context),
+                                ),
+                                decoration: InputDecoration(
+                                  labelText: 'Total Plan Fee',
+                                  prefixText: '$currency ',
+                                ),
+                                onChanged: (v) => setState(() {}),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: _paidAmountController,
+                                keyboardType: TextInputType.number,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.lime,
+                                ),
+                                decoration: InputDecoration(
+                                  labelText: 'Amount Paid Now',
+                                  prefixText: '$currency ',
+                                ),
+                                onChanged: (v) => setState(() {}),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Computed Due Banner
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _dueAmount > 0
+                                ? AppColors.warning.withValues(alpha: 0.12)
+                                : AppColors.success.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _dueAmount > 0 ? AppColors.warning : AppColors.success,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                _dueAmount > 0 ? 'Pending Due Balance:' : 'Payment Status:',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: _dueAmount > 0 ? AppColors.warning : AppColors.success,
+                                ),
+                              ),
+                              Text(
+                                _dueAmount > 0 ? '$currency${_dueAmount.toStringAsFixed(2)}' : '✓ Full Paid (Zero Due)',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  color: _dueAmount > 0 ? AppColors.warning : AppColors.success,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        if (_dueAmount > 0) ...[
+                          const SizedBox(height: 14),
+                          InkWell(
+                            onTap: _selectDueDate,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.cardElevated(context),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.border(context)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.event_note_rounded, size: 18, color: AppColors.cyan),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Promise Due Date',
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontSize: 11,
+                                            color: AppColors.textMuted(context),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        Text(
+                                          _dueDate != null
+                                              ? DateFormat('dd MMM yyyy').format(_dueDate!)
+                                              : 'Select date for remaining due',
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.textPrimary(context),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.calendar_month_rounded, size: 16, color: AppColors.lime),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+
+                        // Payment Method
+                        DropdownButtonFormField<String>(
+                          initialValue: _paymentMethod,
+                          dropdownColor: AppColors.card(context),
+                          decoration: const InputDecoration(
+                            labelText: 'Initial Payment Method',
+                            prefixIcon: Icon(Icons.account_balance_wallet_rounded),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'Cash', child: Text('Cash at Desk')),
+                            DropdownMenuItem(value: 'UPI', child: Text('UPI / QR Code')),
+                            DropdownMenuItem(value: 'Card', child: Text('Credit / Debit Card')),
+                            DropdownMenuItem(value: 'Online', child: Text('Online Transfer')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) setState(() => _paymentMethod = v);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+
+                  // Register Button
+                  ElevatedButton(
+                    onPressed: _isSubmitting ? null : _handleSubmit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.lime,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      shadowColor: AppColors.lime.withValues(alpha: 0.3),
+                      elevation: 8,
+                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.person_add_alt_1_rounded, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Complete Member Registration',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 15,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title) {
+    return Text(
+      title,
+      style: GoogleFonts.plusJakartaSans(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+        color: AppColors.textMuted(context),
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+
+  Widget _durationChip(int months, String label) {
+    final isSelected = _planMonths == months;
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: isSelected,
+          onSelected: (s) {
+            if (s) {
+              setState(() {
+                _planMonths = months;
+                final match = context.read<AdminProvider>().rates.where((r) => r.name == _selectedService).firstOrNull;
+                final unitPrice = match?.charge ?? 1000.0;
+                final total = unitPrice * months;
+                _totalAmountController.text = total.toStringAsFixed(0);
+                _paidAmountController.text = total.toStringAsFixed(0);
+              });
+            }
+          },
+          selectedColor: AppColors.lime,
+          labelStyle: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+            color: isSelected ? Colors.black : AppColors.textPrimary(context),
           ),
         ),
       ),

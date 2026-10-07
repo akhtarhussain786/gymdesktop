@@ -20,19 +20,24 @@ class ApiException implements Exception {
 class ApiService {
   static final http.Client _client = http.Client();
   static VoidCallback? onSessionExpired;
+  static String? activeToken;
 
   // Build standard headers with active bearer token and gym code
-  static Future<Map<String, String>> _getHeaders({String? gymCode, bool isMultipart = false}) async {
+  static Future<Map<String, String>> _getHeaders({String? gymCode}) async {
     final headers = <String, String>{
+      'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
-    if (!isMultipart) {
-      headers['Content-Type'] = 'application/json';
+
+    String? token = activeToken;
+    if (token == null || token.isEmpty) {
+      token = await SecureStorageService.getToken();
     }
 
-    final token = await SecureStorageService.getToken();
     if (token != null && token.isNotEmpty) {
       headers['Authorization'] = 'Bearer $token';
+      headers['X-Auth-Token'] = token;
+      headers['X-Bearer-Token'] = token;
     }
 
     final code = gymCode ?? await SecureStorageService.getCurrentGymCode();
@@ -43,108 +48,89 @@ class ApiService {
     return headers;
   }
 
-  // GET Request (Member)
-  static Future<dynamic> get(String endpoint, {Map<String, String>? queryParams, String? gymCode}) async {
-    try {
-      var uri = Uri.parse('${ApiConfig.baseUrl}$endpoint');
-      if (queryParams != null && queryParams.isNotEmpty) {
-        uri = uri.replace(queryParameters: queryParams);
-      }
-
-      final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
-      return _handleResponse(response);
-    } on SocketException {
-      throw ApiException('No internet connection. Please check your network and try again.');
-    } on TimeoutException {
-      throw ApiException('Connection timed out. Please try again.');
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException('Network error: ${e.toString()}');
-    }
-  }
-
-  // POST Request (Member)
-  static Future<dynamic> post(String endpoint, {dynamic body, String? gymCode}) async {
-    try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}$endpoint');
-      final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _client
-          .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
-      return _handleResponse(response);
-    } on SocketException {
-      throw ApiException('No internet connection. Please check your network and try again.');
-    } on TimeoutException {
-      throw ApiException('Connection timed out. Please try again.');
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException('Network error: ${e.toString()}');
-    }
-  }
-
-  // GET Request (Admin)
-  static Future<dynamic> adminGet(String endpoint, {Map<String, String>? queryParams, String? gymCode}) async {
-    try {
-      var uri = Uri.parse('${ApiConfig.adminBaseUrl}$endpoint');
-      if (queryParams != null && queryParams.isNotEmpty) {
-        uri = uri.replace(queryParameters: queryParams);
-      }
-
-      final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
-      return _handleResponse(response);
-    } on SocketException {
-      throw ApiException('No internet connection. Please check your network and try again.');
-    } on TimeoutException {
-      throw ApiException('Connection timed out. Please try again.');
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException('Network error: ${e.toString()}');
-    }
-  }
-
-  // POST Request (Admin)
-  static Future<dynamic> adminPost(String endpoint, {dynamic body, String? gymCode}) async {
-    try {
-      final uri = Uri.parse('${ApiConfig.adminBaseUrl}$endpoint');
-      final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _client
-          .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 15));
-      return _handleResponse(response);
-    } on SocketException {
-      throw ApiException('No internet connection. Please check your network and try again.');
-    } on TimeoutException {
-      throw ApiException('Connection timed out. Please try again.');
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException('Network error: ${e.toString()}');
-    }
-  }
-
-  // Multipart POST Request (Admin - for Adding Member with Photo)
-  static Future<dynamic> adminMultipartPost(
+  // GET Request
+  static Future<dynamic> get(
     String endpoint, {
-    required Map<String, String> fields,
-    File? file,
-    Uint8List? fileBytes,
-    String? fileName,
-    String fileField = 'photo',
+    Map<String, String>? queryParams,
     String? gymCode,
+    bool isAdmin = false,
   }) async {
     try {
-      final uri = Uri.parse('${ApiConfig.adminBaseUrl}$endpoint');
-      final headers = await _getHeaders(gymCode: gymCode, isMultipart: true);
+      final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
+      var uri = Uri.parse('$base$endpoint');
+      if (queryParams != null && queryParams.isNotEmpty) {
+        uri = uri.replace(queryParameters: queryParams);
+      }
 
+      final headers = await _getHeaders(gymCode: gymCode);
+      final response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+      return _handleResponse(response);
+    } on SocketException {
+      throw ApiException('No internet connection. Please check your network and try again.');
+    } on TimeoutException {
+      throw ApiException('Connection timed out. Please try again.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error: ${e.toString()}');
+    }
+  }
+
+  // POST Request
+  static Future<dynamic> post(
+    String endpoint, {
+    dynamic body,
+    String? gymCode,
+    bool isAdmin = false,
+  }) async {
+    try {
+      final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
+      final uri = Uri.parse('$base$endpoint');
+      final headers = await _getHeaders(gymCode: gymCode);
+      final response = await _client
+          .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
+          .timeout(const Duration(seconds: 20));
+      return _handleResponse(response);
+    } on SocketException {
+      throw ApiException('No internet connection. Please check your network and try again.');
+    } on TimeoutException {
+      throw ApiException('Connection timed out. Please try again.');
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error: ${e.toString()}');
+    }
+  }
+
+  // Multipart POST Request (For Photo Uploads)
+  static Future<dynamic> multipartPost(
+    String endpoint, {
+    required Map<String, String> fields,
+    String? fileField,
+    String? filePath,
+    List<int>? fileBytes,
+    String? fileName,
+    String? gymCode,
+    bool isAdmin = false,
+  }) async {
+    try {
+      final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
+      final uri = Uri.parse('$base$endpoint');
       final request = http.MultipartRequest('POST', uri);
+
+      final headers = await _getHeaders(gymCode: gymCode);
+      headers.remove('Content-Type'); // Multipart boundary is set automatically
       request.headers.addAll(headers);
       request.fields.addAll(fields);
 
-      if (file != null && !kIsWeb) {
-        request.files.add(await http.MultipartFile.fromPath(fileField, file.path));
-      } else if (fileBytes != null && fileName != null) {
-        request.files.add(http.MultipartFile.fromBytes(fileField, fileBytes, filename: fileName));
+      if (fileField != null) {
+        if (filePath != null && filePath.isNotEmpty && !kIsWeb) {
+          request.files.add(await http.MultipartFile.fromPath(fileField, filePath));
+        } else if (fileBytes != null && fileBytes.isNotEmpty) {
+          request.files.add(http.MultipartFile.fromBytes(
+            fileField,
+            fileBytes,
+            filename: fileName ?? 'photo.jpg',
+          ));
+        }
       }
 
       final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
@@ -153,10 +139,10 @@ class ApiService {
     } on SocketException {
       throw ApiException('No internet connection. Please check your network and try again.');
     } on TimeoutException {
-      throw ApiException('Upload timed out. Please try again.');
+      throw ApiException('Connection timed out. Please try again.');
     } catch (e) {
       if (e is ApiException) rethrow;
-      throw ApiException('Network upload error: ${e.toString()}');
+      throw ApiException('Network error: ${e.toString()}');
     }
   }
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../core/theme/app_colors.dart';
 import '../models/dashboard_data.dart';
 import '../models/gym_tenant.dart';
 import '../models/member_user.dart';
@@ -18,43 +20,66 @@ class QrCardDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: AppColors.darkCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: const BorderSide(color: AppColors.limeBorder, width: 1.5),
+      ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(26),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Header
               Text(
-                gym.gymName,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
+                gym.gymName.toUpperCase(),
+                style: GoogleFonts.outfit(
+                  color: AppColors.darkTextPrimary,
+                  fontWeight: FontWeight.w900,
                   fontSize: 18,
+                  letterSpacing: 0.5,
                 ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 4),
-              Text(
-                'Digital Member Access Card',
-                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.lime,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'DIGITAL PASS • READY TO SCAN',
+                    style: GoogleFonts.plusJakartaSans(
+                      color: AppColors.lime,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 22),
 
-              // QR Code in White Container for High Contrast Scanning
+              // High-Contrast White QR Card Frame
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 12,
+                      color: AppColors.lime.withValues(alpha: 0.15),
+                      blurRadius: 20,
                       offset: const Offset(0, 4),
                     ),
                   ],
@@ -62,49 +87,64 @@ class QrCardDialog extends StatelessWidget {
                 child: QrImageView(
                   data: qrPass.payload,
                   version: QrVersions.auto,
-                  size: 190.0,
+                  size: 200.0,
                   eyeStyle: const QrEyeStyle(
                     eyeShape: QrEyeShape.square,
-                    color: Colors.black,
+                    color: Color(0xFF05080D),
                   ),
                   dataModuleStyle: const QrDataModuleStyle(
                     dataModuleShape: QrDataModuleShape.square,
-                    color: Colors.black,
+                    color: Color(0xFF05080D),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 22),
 
               // Member Details
               Text(
                 member.fullname,
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Pass Code: ${qrPass.code}',
-                style: TextStyle(
-                  color: theme.primaryColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                style: GoogleFonts.outfit(
+                  color: AppColors.darkTextPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
+              Text(
+                'CODE: ${qrPass.code}',
+                style: GoogleFonts.plusJakartaSans(
+                  color: AppColors.lime,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 4),
               Text(
                 'Valid Until: ${qrPass.validUntil}',
-                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 12),
+                style: GoogleFonts.plusJakartaSans(
+                  color: AppColors.darkTextSecondary,
+                  fontSize: 12,
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
 
               // Close Button
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                height: 44,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.darkCardElevated,
+                    foregroundColor: AppColors.darkTextPrimary,
+                    side: const BorderSide(color: AppColors.darkBorder),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
                   ),
-                  child: const Text('Close Pass'),
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    'Close Pass',
+                    style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ],

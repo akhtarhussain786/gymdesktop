@@ -405,8 +405,16 @@ class DB {
         }
 
         try {
-            $ok = @mysqli_stmt_execute($stmt, $params);
-            if (!$ok) {
+            $executed = false;
+            if (version_compare(PHP_VERSION, '8.1.0', '>=')) {
+                try {
+                    $executed = @mysqli_stmt_execute($stmt, $params);
+                } catch (Throwable $e) {
+                    $executed = false;
+                }
+            }
+
+            if (!$executed) {
                 if (empty($types)) {
                     $types = "";
                     foreach ($params as $p) {
@@ -420,7 +428,7 @@ class DB {
             }
         } catch (Throwable $e) {
             error_log("DB Stmt Execute Error: " . $e->getMessage() . " | SQL: " . $sql);
-            mysqli_stmt_close($stmt);
+            @mysqli_stmt_close($stmt);
             return false;
         }
 
