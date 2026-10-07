@@ -81,9 +81,11 @@ class DemoSeeder {
             // Clean users (keep super_admin)
             if (empty($tenantIds)) {
                 $userResult = DB::query("DELETE FROM users WHERE role NOT IN ('super_admin', 'superadmin')");
+                DB::query("DELETE FROM saas_payments WHERE tenant_id > 0");
             } else {
                 $inClause = implode(',', $tenantIds);
                 $userResult = DB::query("DELETE FROM users WHERE role NOT IN ('super_admin', 'superadmin') AND (tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL)");
+                DB::query("DELETE FROM saas_payments WHERE tenant_id > 0 AND tenant_id NOT IN ({$inClause})");
             }
             $userDeleted = (int)($userResult['affected'] ?? 0);
             if ($userDeleted > 0) {

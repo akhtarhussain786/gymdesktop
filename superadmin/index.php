@@ -109,10 +109,9 @@ $trialTenants = (int)DB::fetchValue("SELECT COUNT(*) FROM tenants WHERE status =
 $suspendedTenants = (int)DB::fetchValue("SELECT COUNT(*) FROM tenants WHERE status IN ('suspended','inactive')");
 
 // Strict Tenant-Scoped Metrics to prevent Ghost / Orphaned Counters
-$totalPlatformMembers = (int)DB::fetchValue("SELECT COUNT(m.id) FROM members m INNER JOIN tenants t ON m.tenant_id = t.id WHERE m.status <> 'Trash'");
-$totalPlatformStaff = (int)DB::fetchValue("SELECT COUNT(s.id) FROM staffs s INNER JOIN tenants t ON s.tenant_id = t.id WHERE s.status <> 'Trash'");
-$totalRevenuePlatform = (float)DB::fetchValue("SELECT COALESCE(SUM(i.paid_amount), SUM(i.amount), 0) FROM invoices i INNER JOIN tenants t ON i.tenant_id = t.id WHERE i.status = 'Paid'");
-$totalSaasRevenue = (float)DB::fetchValue("SELECT COALESCE(SUM(amount), 0) FROM saas_orders WHERE status = 'PAID'");
+$totalPlatformMembers = (int)DB::fetchValue("SELECT COUNT(*) FROM members m INNER JOIN tenants t ON m.tenant_id = t.id WHERE COALESCE(m.status, '') NOT IN ('Trash', 'trash')");
+$totalPlatformStaff = (int)DB::fetchValue("SELECT COUNT(*) FROM staffs s INNER JOIN tenants t ON s.tenant_id = t.id WHERE COALESCE(s.status, '') NOT IN ('Trash', 'trash')");
+$totalSaasRevenue = (float)DB::fetchValue("SELECT COALESCE(SUM(total_payable), 0) FROM saas_payments WHERE status = 'approved'");
 
 // Check database orphaned rows count
 $orphanedCount = DemoSeeder::countOrphans();
@@ -223,9 +222,9 @@ include __DIR__ . '/../includes/topbar.php';
 
     <div class="stat-card stat-info">
         <div class="stat-info">
-            <h3>SaaS Collected Revenue</h3>
-            <div class="stat-value">₹<?php echo number_format($totalSaasRevenue > 0 ? $totalSaasRevenue : $totalRevenuePlatform, 2); ?></div>
-            <div class="stat-meta"><?php echo $totalSaasRevenue > 0 ? 'Direct SaaS Subscriptions' : 'Gym Invoices Processed'; ?></div>
+            <h3>SaaS Platform Revenue</h3>
+            <div class="stat-value">₹<?php echo number_format($totalSaasRevenue, 2); ?></div>
+            <div class="stat-meta">From SaaS purchases & renewals</div>
         </div>
         <div class="stat-icon">
             <i class="fas fa-rupee-sign"></i>
