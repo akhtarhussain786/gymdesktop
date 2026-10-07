@@ -18,7 +18,6 @@ class ApiException implements Exception {
 }
 
 class ApiService {
-  static final http.Client _client = http.Client();
   static VoidCallback? onSessionExpired;
   static String? activeToken;
 
@@ -27,6 +26,7 @@ class ApiService {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'Connection': 'close',
     };
 
     String? token = activeToken;
@@ -48,6 +48,28 @@ class ApiService {
     return headers;
   }
 
+  // Resilient HTTP executor: handles keep-alive disconnects, edge proxy timeouts, and broken pipes
+  static Future<http.Response> _execute(Future<http.Response> Function(http.Client client) action) async {
+    http.Client client = http.Client();
+    try {
+      return await action(client);
+    } catch (e) {
+      client.close();
+      // Auto-retry once on network/socket/write failure
+      if (e is http.ClientException || e is SocketException || e.toString().contains('Write failed') || e.toString().contains('Broken pipe')) {
+        client = http.Client();
+        try {
+          return await action(client);
+        } finally {
+          client.close();
+        }
+      }
+      rethrow;
+    } finally {
+      client.close();
+    }
+  }
+
   // GET Request
   static Future<dynamic> get(
     String endpoint, {
@@ -63,7 +85,7 @@ class ApiService {
       }
 
       final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+      final response = await _execute((client) => client.get(uri, headers: headers).timeout(const Duration(seconds: 25)));
       return _handleResponse(response);
     } on SocketException {
       throw ApiException('No internet connection. Please check your network and try again.');
@@ -86,9 +108,9 @@ class ApiService {
       final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
       final uri = Uri.parse('$base$endpoint');
       final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _client
+      final response = await _execute((client) => client
           .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 25)));
       return _handleResponse(response);
     } on SocketException {
       throw ApiException('No internet connection. Please check your network and try again.');
