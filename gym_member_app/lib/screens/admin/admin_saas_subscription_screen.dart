@@ -1,5 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfwebcheckoutpayment.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfpaymentgateway/cfpaymentgatewayservice.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfsession/cfsession.dart';
+import 'package:flutter_cashfree_pg_sdk/utils/cfenums.dart';
+import 'package:flutter_cashfree_pg_sdk/utils/cfexceptions.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +23,7 @@ class AdminSaasSubscriptionScreen extends StatefulWidget {
 }
 
 class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScreen> with WidgetsBindingObserver {
+  final CFPaymentGatewayService _cfService = CFPaymentGatewayService();
   String _selectedCycle = 'monthly'; // monthly, quarterly, yearly
   final _couponController = TextEditingController();
 
@@ -29,9 +36,29 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _cfService.setCallback(_onCashfreeVerify, _onCashfreeError);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AdminProvider>().fetchSaasSubscription();
     });
+  }
+
+  void _onCashfreeVerify(String orderId) {
+    debugPrint('Cashfree SDK verify callback received for order: $orderId');
+    _triggerVerification(orderId, isBackgroundPoll: false);
+  }
+
+  void _onCashfreeError(CFErrorResponse errorResponse, String orderId) {
+    debugPrint('Cashfree SDK error: ${errorResponse.getMessage()} (code: ${errorResponse.getCode()}) for order $orderId');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorResponse.getMessage()?.isNotEmpty == true
+              ? errorResponse.getMessage()!
+              : 'Payment was not completed. Please try again.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+    }
   }
 
   @override
@@ -241,18 +268,48 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         Navigator.of(context, rootNavigator: true).pop();
       }
 
-      if (res != null && res['checkout_url'] != null) {
-        final checkoutUrl = res['checkout_url'].toString();
+      if (res != null && res['payment_session_id'] != null && res['order_id'] != null) {
         final orderId = res['order_id'].toString();
+        final paymentSessionId = res['payment_session_id'].toString();
+        final mode = (res['cashfree_mode'] ?? 'sandbox').toString().toLowerCase();
+        final checkoutUrl = res['checkout_url']?.toString();
         _activeOrderId = orderId;
 
-        final uri = Uri.parse(checkoutUrl);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        // Launch native Cashfree PG Web Checkout SDK
+        bool sdkLaunched = false;
+        try {
+          final env = (mode == 'production' || mode == 'prod')
+              ? CFEnvironment.PRODUCTION
+              : CFEnvironment.SANDBOX;
+
+          final session = CFSessionBuilder()
+              .setEnvironment(env)
+              .setOrderId(orderId)
+              .setPaymentSessionId(paymentSessionId)
+              .build();
+
+          final webPayment = CFWebCheckoutPaymentBuilder()
+              .setSession(session)
+              .build();
+
+          _cfService.doPayment(webPayment);
+          sdkLaunched = true;
+        } on CFException catch (e) {
+          debugPrint('Cashfree SDK exception: ${e.message}');
+        } catch (e) {
+          debugPrint('Cashfree SDK launch error: $e');
+        }
+
+        // If native SDK couldn't launch (e.g. desktop/web or simulator), fallback to browser
+        if (!sdkLaunched && checkoutUrl != null) {
+          final uri = Uri.parse(checkoutUrl);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
         }
 
         if (mounted) {
-          _showPaymentVerificationDialog(orderId);
+          _showPaymentVerificationDialog(orderId, checkoutUrl: checkoutUrl);
         }
       } else {
         if (mounted) {
@@ -283,7 +340,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     }
   }
 
-  void _showPaymentVerificationDialog(String orderId) {
+  void _showPaymentVerificationDialog(String orderId, {String? checkoutUrl}) {
     _pollingTimer?.cancel();
     int pollCount = 0;
 
@@ -355,6 +412,22 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                         style: const TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
                       ),
                     ),
+                    if (checkoutUrl != null) ...[
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final uri = Uri.parse(checkoutUrl);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        icon: const Icon(Icons.open_in_browser, size: 16, color: Color(0xFF00CEC9)),
+                        label: const Text(
+                          'Open Checkout Page in Browser',
+                          style: TextStyle(color: Color(0xFF00CEC9), fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 actions: [

@@ -41,6 +41,7 @@ dependencies:
   google_fonts: ^6.2.1
   url_launcher: ^6.3.0
   image_picker: ^1.1.2
+  flutter_cashfree_pg_sdk: ^2.4.0+52
 
 dev_dependencies:
   flutter_test:
