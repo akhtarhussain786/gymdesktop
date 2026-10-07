@@ -22,6 +22,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
 
   String? _activeOrderId;
   Timer? _pollingTimer;
+  bool _isCreatingOrder = false;
   bool _isAutoVerifying = false;
 
   @override
@@ -44,16 +45,26 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _activeOrderId != null && !_isAutoVerifying) {
-      // User returned from PhonePe / GPay / Browser: immediately verify!
+      // User returned from PhonePe / GPay / Paytm / Browser: verify with backend immediately!
       _triggerVerification(_activeOrderId!, isBackgroundPoll: true);
     }
   }
 
-  Future<void> _handleRenewPlan(AdminSaasPlanItem plan) async {
+  Future<void> _handlePlanSelection(AdminSaasPlanItem plan) async {
+    if (_isCreatingOrder) return; // Prevent multiple taps
+
     final currency = context.read<AuthProvider>().currentTenant?.currency ?? '₹';
     double price = plan.priceMonthly;
-    if (_selectedCycle == 'quarterly') price = plan.priceQuarterly;
-    if (_selectedCycle == 'yearly') price = plan.priceYearly;
+    String durationLabel = '1 Month';
+    if (_selectedCycle == 'quarterly') {
+      price = plan.priceQuarterly;
+      durationLabel = '3 Months';
+    } else if (_selectedCycle == 'yearly') {
+      price = plan.priceYearly;
+      durationLabel = '1 Year';
+    }
+
+    final isRenew = plan.isCurrent;
 
     showModalBottomSheet(
       context: context,
@@ -88,7 +99,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Confirm SaaS Plan Renewal',
+                    isRenew ? 'Renew SaaS Subscription' : 'Upgrade SaaS Subscription',
                     style: GoogleFonts.outfit(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -97,7 +108,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Instant automatic activation upon UPI / Card payment on Cashfree.',
+                    'Instant automatic activation upon payment via UPI (GPay/PhonePe/Paytm), Cards or Net Banking.',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 12,
                       color: Colors.white60,
@@ -116,9 +127,10 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                     child: Column(
                       children: [
                         _summaryRow('Selected Plan', plan.name, isBold: true),
+                        _summaryRow('Duration', durationLabel),
                         _summaryRow('Billing Cycle', '${_selectedCycle.toUpperCase()} Billing'),
                         _summaryRow('Member Limit', 'Up to ${plan.maxMembers} Members'),
-                        _summaryRow('Staff Limit', 'Up to ${plan.maxStaff} Staffs'),
+                        _summaryRow('Staff Limit', 'Up to ${plan.maxStaff} Staff'),
                         const Divider(height: 16, color: Colors.white12),
                         _summaryRow(
                           'Payable Amount',
@@ -152,10 +164,12 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(ctx);
-                        _initiateCashfreePayment(plan.id, _selectedCycle, _couponController.text.trim());
-                      },
+                      onPressed: _isCreatingOrder
+                          ? null
+                          : () async {
+                              Navigator.pop(ctx);
+                              _initiatePaymentFlow(plan.id, _selectedCycle, _couponController.text.trim());
+                            },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.lime,
                         foregroundColor: Colors.black,
@@ -163,7 +177,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                       ),
                       icon: const Icon(Icons.lock_outline_rounded, size: 18),
                       label: Text(
-                        'Pay with Cashfree ($currency${price.toStringAsFixed(0)})',
+                        'Subscribe / Pay Now ($currency${price.toStringAsFixed(0)})',
                         style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14),
                       ),
                     ),
@@ -177,7 +191,43 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     );
   }
 
-  Future<void> _initiateCashfreePayment(int planId, String cycle, String coupon) async {
+  Future<void> _initiatePaymentFlow(int planId, String cycle, String coupon) async {
+    if (_isCreatingOrder) return;
+
+    setState(() {
+      _isCreatingOrder = true;
+    });
+
+    // Show loading indicator: Creating payment order...
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF1E1E2C),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            content: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: [
+                  const CircularProgressIndicator(color: AppColors.lime, strokeWidth: 3),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Text(
+                      'Creating payment order...',
+                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final admin = context.read<AdminProvider>();
     try {
       final res = await admin.createSaasCashfreeOrder(
@@ -185,6 +235,11 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         billingCycle: cycle,
         couponCode: coupon.isNotEmpty ? coupon : null,
       );
+
+      // Close "Creating payment order..." dialog
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
 
       if (res != null && res['checkout_url'] != null) {
         final checkoutUrl = res['checkout_url'].toString();
@@ -202,15 +257,28 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not create Cashfree order. Please try again.')),
+            const SnackBar(
+              content: Text('Payment was not completed. Please try again.'),
+              backgroundColor: AppColors.danger,
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Payment initiation failed: $e'), backgroundColor: AppColors.danger),
+          SnackBar(
+            content: Text('Payment was not completed. Please try again: $e'),
+            backgroundColor: AppColors.danger,
+          ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCreatingOrder = false;
+        });
       }
     }
   }
@@ -223,7 +291,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       pollCount++;
       if (pollCount > 40) {
-        timer.cancel(); // Stop after 2 minutes
+        timer.cancel(); // Stop polling after 2 minutes
         return;
       }
       await _triggerVerification(orderId, isBackgroundPoll: true);
@@ -235,75 +303,90 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1E1E2C),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-              title: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.lime.withOpacity(0.15),
-                      shape: BoxShape.circle,
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                backgroundColor: const Color(0xFF1E1E2C),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                title: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.lime.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.payment_rounded, color: AppColors.lime, size: 20),
                     ),
-                    child: const Icon(Icons.payment_rounded, color: AppColors.lime, size: 20),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Payment Gateway',
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+                    ),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 8),
+                    const CircularProgressIndicator(color: AppColors.lime, strokeWidth: 2.5),
+                    const SizedBox(height: 18),
+                    Text(
+                      _isAutoVerifying ? 'Verifying payment...' : 'Pay via Google Pay, PhonePe, Paytm, UPI, or Card',
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '⚡ Subscription activates automatically upon successful payment. No manual admin approval needed!',
+                      style: TextStyle(color: Colors.white60, fontSize: 11.5),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF13131A),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Order ID: #$orderId',
+                        style: const TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      _pollingTimer?.cancel();
+                      _activeOrderId = null;
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Payment was not completed. Please try again.'),
+                          backgroundColor: AppColors.warning,
+                        ),
+                      );
+                    },
+                    child: const Text('Cancel / Retry', style: TextStyle(color: Colors.white54)),
                   ),
-                  const SizedBox(width: 10),
-                  Text('Cashfree Payment', style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17)),
+                  ElevatedButton.icon(
+                    onPressed: _isAutoVerifying ? null : () => _triggerVerification(orderId, isBackgroundPoll: false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.lime,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.check_circle_outline, size: 16),
+                    label: Text(
+                      _isAutoVerifying ? 'Verifying...' : 'Verify Payment',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ],
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const SizedBox(height: 8),
-                  const CircularProgressIndicator(color: AppColors.lime, strokeWidth: 2.5),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Complete payment via PhonePe, GPay, Paytm, UPI, or Cards.',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '⚡ Your SaaS subscription will be activated automatically in real-time. No manual admin approval needed!',
-                    style: TextStyle(color: Colors.white60, fontSize: 11.5),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF13131A),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'Order Ref: #$orderId',
-                      style: const TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    _pollingTimer?.cancel();
-                    _activeOrderId = null;
-                    Navigator.pop(ctx);
-                  },
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => _triggerVerification(orderId, isBackgroundPoll: false),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.lime,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  icon: const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text('Verify & Activate', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
             );
           },
         );
@@ -322,16 +405,19 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         _activeOrderId = null;
 
         if (mounted) {
-          // Close verification waiting dialog if open
+          // Close verification waiting dialog
           Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst || route.settings.name == '/');
 
-          // Show celebration dialog
+          // Refresh subscription info
+          await context.read<AdminProvider>().fetchSaasSubscription();
+
+          // Show Success popup
           _showRenewalSuccessDialog();
         }
       } else if (!isBackgroundPoll && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Payment is still pending on Cashfree. If you completed payment, please wait a few seconds and tap Verify.'),
+            content: Text('Payment was not completed. Please try again.'),
             backgroundColor: AppColors.warning,
           ),
         );
@@ -369,9 +455,9 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
               ),
               const SizedBox(height: 14),
               Text(
-                'SaaS Subscription Renewed!',
+                'Payment Successful',
                 style: GoogleFonts.outfit(
-                  fontSize: 18,
+                  fontSize: 20,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
                 ),
@@ -379,9 +465,19 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
               ),
               const SizedBox(height: 6),
               Text(
-                'Your payment was verified via Cashfree and your gym operating software license has been extended automatically.',
+                'Subscription activated successfully',
                 style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.lime,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Your payment was verified with the payment gateway and your SaaS subscription has been activated immediately.',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11.5,
                   color: Colors.white70,
                 ),
                 textAlign: TextAlign.center,
@@ -395,14 +491,16 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                 ),
                 child: Column(
                   children: [
-                    _summaryRow('Active Plan', sub?.planName ?? 'SaaS Plan', isBold: true),
+                    _summaryRow('Current Plan', sub?.planName ?? 'SaaS Plan', isBold: true),
+                    _summaryRow('Subscription Status', 'Active', isBold: true, valueColor: AppColors.success),
+                    _summaryRow('Start Date', sub?.subscriptionStart ?? '-', isBold: false),
                     _summaryRow(
-                      'New Valid Until',
+                      'Expiry Date',
                       sub?.subscriptionExpiry ?? 'Extended',
                       isBold: true,
                       valueColor: const Color(0xFF00CEC9),
                     ),
-                    _summaryRow('Days Remaining', '${sub?.daysRemaining ?? 30} Days Left', isBold: true, valueColor: AppColors.lime),
+                    _summaryRow('Remaining Days', '${sub?.daysRemaining ?? 30} Days', isBold: true, valueColor: AppColors.lime),
                   ],
                 ),
               ),
@@ -417,7 +515,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  child: const Text('Done & Continue', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -587,9 +685,14 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     final isCritical = sub.daysRemaining <= 2 && !isExpired;
 
     String expiryFormatted = sub.subscriptionExpiry;
+    String startFormatted = sub.subscriptionStart;
     try {
       final dt = DateTime.parse(sub.subscriptionExpiry);
-      expiryFormatted = DateFormat('dd MMMM yyyy (EEEE)').format(dt);
+      expiryFormatted = DateFormat('dd MMMM yyyy').format(dt);
+    } catch (_) {}
+    try {
+      final dt = DateTime.parse(sub.subscriptionStart);
+      startFormatted = DateFormat('dd MMMM yyyy').format(dt);
     } catch (_) {}
 
     return Container(
@@ -655,7 +758,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  isExpired ? 'EXPIRED' : (isCritical ? '${sub.daysRemaining} DAYS LEFT' : 'ACTIVE'),
+                  isExpired ? 'Expired' : 'Active',
                   style: TextStyle(
                     color: isExpired ? AppColors.danger : (isExpiringSoon ? AppColors.warning : AppColors.success),
                     fontSize: 11,
@@ -674,42 +777,58 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
               color: const Color(0xFF13131A),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Subscription Valid Until:', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                    const SizedBox(height: 2),
+                    const Text('Start Date:', style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+                    Text(
+                      startFormatted,
+                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Expiry Date:', style: TextStyle(color: Colors.white54, fontSize: 11.5)),
                     Text(
                       expiryFormatted,
                       style: TextStyle(
                         color: isExpired ? AppColors.danger : (isExpiringSoon ? const Color(0xFFFF9F43) : Colors.white),
                         fontWeight: FontWeight.bold,
-                        fontSize: 13.5,
+                        fontSize: 12.5,
                       ),
                     ),
                   ],
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    isExpired
-                        ? 'Expired'
-                        : (sub.daysRemaining == 0
-                            ? 'Expires Today'
-                            : '${sub.daysRemaining} Days Left'),
-                    style: TextStyle(
-                      color: isExpired ? AppColors.danger : (isExpiringSoon ? const Color(0xFFFF9F43) : const Color(0xFF00CEC9)),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11.5,
+                const Divider(height: 14, color: Colors.white10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Remaining Days:', style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        isExpired
+                            ? 'Expired'
+                            : (sub.daysRemaining == 0
+                                ? 'Expires Today'
+                                : '${sub.daysRemaining} Days Left'),
+                        style: TextStyle(
+                          color: isExpired ? AppColors.danger : (isExpiringSoon ? const Color(0xFFFF9F43) : const Color(0xFF00CEC9)),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11.5,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -897,15 +1016,15 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
             width: double.infinity,
             height: 44,
             child: ElevatedButton.icon(
-              onPressed: () => _handleRenewPlan(plan),
+              onPressed: () => _handlePlanSelection(plan),
               style: ElevatedButton.styleFrom(
                 backgroundColor: plan.isCurrent ? const Color(0xFF00CEC9) : AppColors.lime,
                 foregroundColor: Colors.black,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              icon: const Icon(Icons.autorenew_rounded, size: 16),
+              icon: Icon(plan.isCurrent ? Icons.autorenew_rounded : Icons.check_circle_outline_rounded, size: 16),
               label: Text(
-                plan.isCurrent ? 'Renew Current Plan' : 'Upgrade to ${plan.name}',
+                plan.isCurrent ? 'Renew Plan' : 'Choose Plan',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
