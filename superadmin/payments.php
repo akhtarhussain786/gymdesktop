@@ -13,6 +13,10 @@ $page = 'super_payments';
 $pageTitle = 'SaaS Payments & Orders';
 $pageSubtitle = 'Monitor gateway transactions, payment verifications, and onboarding credentials delivery';
 
+// Auto-purge abandoned pending/failed orders older than 2 days (48 hours)
+$cutoffTime = date('Y-m-d H:i:s', strtotime('-2 days'));
+DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed') AND created_at < ?", [$cutoffTime]);
+
 // Handle Resend / Reset Credentials Action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_credentials'])) {
     Auth::verifyCsrf();
@@ -122,6 +126,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['approve_payment']) |
     redirect(base_url('/superadmin/payments.php'));
 }
 
+// Delete single pending / failed / rejected order
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_payment'])) {
+    Auth::verifyCsrf();
+    $paymentId = (int)($_POST['payment_id'] ?? 0);
+    $payment = DB::fetchOne("SELECT * FROM saas_payments WHERE id = ?", [$paymentId]);
+
+    if (!$payment) {
+        set_flash('error', "Payment record not found.");
+    } elseif ($payment['status'] === 'approved') {
+        set_flash('error', "Approved / Paid payments cannot be deleted to preserve financial audit trail.");
+    } else {
+        DB::query("DELETE FROM saas_payments WHERE id = ? AND status IN ('pending', 'failed', 'rejected')", [$paymentId]);
+        Auth::auditLog('DELETE_SAAS_PAYMENT', "Deleted unpaid SaaS order #$paymentId (Ref: {$payment['transaction_ref']})");
+        set_flash('success', "Order #{$payment['transaction_ref']} deleted successfully.");
+    }
+    redirect(base_url('/superadmin/payments.php'));
+}
+
+// Bulk purge all pending / failed orders older than 2 days
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['purge_old_pending'])) {
+    Auth::verifyCsrf();
+    $cutoff = date('Y-m-d H:i:s', strtotime('-2 days'));
+    DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed', 'rejected') AND created_at < ?", [$cutoff]);
+    Auth::auditLog('PURGE_OLD_PENDING_PAYMENTS', "Purged abandoned SaaS orders older than 2 days");
+    set_flash('success', "All pending / unpaid orders older than 2 days have been purged.");
+    redirect(base_url('/superadmin/payments.php'));
+}
+
 // Search and Filter
 $search = trim($_GET['search'] ?? '');
 $statusFilter = trim($_GET['status'] ?? '');
@@ -209,6 +241,13 @@ include __DIR__ . '/../includes/topbar.php';
             <?php if (!empty($search) || !empty($statusFilter)): ?>
                 <a href="payments.php" class="btn btn-secondary btn-sm"><i class="fas fa-times"></i> Reset</a>
             <?php endif; ?>
+        </form>
+
+        <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Delete all abandoned pending / unpaid orders older than 2 days?');">
+            <?php echo Auth::csrfField(); ?>
+            <button type="submit" name="purge_old_pending" value="1" class="btn btn-sm btn-outline-danger" title="Purge abandoned orders older than 48 hours">
+                <i class="fas fa-broom"></i> Clean Pending (>2 Days)
+            </button>
         </form>
     </div>
 
@@ -323,11 +362,14 @@ include __DIR__ . '/../includes/topbar.php';
                                                     <i class="fas fa-check-double"></i> Approve
                                                 </button>
                                             </form>
-                                            <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Reject this payment?');">
+                                        <?php endif; ?>
+
+                                        <?php if ($p['status'] !== 'approved'): ?>
+                                            <form method="POST" action="" style="margin: 0;" onsubmit="return confirm(<?php echo e(json_encode('Permanently delete unpaid order ' . $p['transaction_ref'] . '?')); ?>);">
                                                 <?php echo Auth::csrfField(); ?>
                                                 <input type="hidden" name="payment_id" value="<?php echo (int)$p['id']; ?>" />
-                                                <button type="submit" name="reject_payment" value="1" class="btn btn-danger btn-sm" title="Reject payment">
-                                                    <i class="fas fa-times"></i>
+                                                <button type="submit" name="delete_payment" value="1" class="btn btn-sm" style="background-color: #ef4444; border-color: #ef4444; color: #ffffff; padding: 4px 8px; border-radius: 6px;" title="Delete Order">
+                                                    <i class="fas fa-trash-alt"></i>
                                                 </button>
                                             </form>
                                         <?php endif; ?>

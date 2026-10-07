@@ -33,19 +33,22 @@ if (!$isCli && !empty($cronSecret) && $reqKey !== $cronSecret) {
     }
 }
 
-$tenantId = !empty($_GET['tenant_id']) ? (int)$_GET['tenant_id'] : null;
+// 1. Auto-purge abandoned pending/failed checkouts older than 2 days (48 hours)
+$cutoffTime = date('Y-m-d H:i:s', strtotime('-2 days'));
+$purgedCount = DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed') AND created_at < ?", [$cutoffTime]);
 
-// Execute automated reminders
+// 2. Execute automated reminders
 $result = SubscriptionEngine::checkAndSendSaasExpiryReminders($tenantId);
 
 $response = [
     'success'         => true,
     'timestamp'       => date('Y-m-d H:i:s'),
+    'purged_orders'   => $purgedCount,
     'total_checked'   => $result['total_checked'] ?? 0,
     'reminders_sent'  => $result['reminders_sent'] ?? 0,
     'skipped'         => $result['skipped'] ?? 0,
     'errors'          => $result['errors'] ?? [],
-    'message'         => "Processed {$result['total_checked']} gyms: {$result['reminders_sent']} email reminders sent, {$result['skipped']} skipped (already sent today)."
+    'message'         => "Processed {$result['total_checked']} gyms: {$result['reminders_sent']} email reminders sent, {$result['skipped']} skipped. Purged old pending orders."
 ];
 
 if ($isCli) {
