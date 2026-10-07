@@ -287,7 +287,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
-                              side: Border.all(color: const Color(0xFFEF4444).withOpacity(0.2)),
+                              side: BorderSide(color: const Color(0xFFEF4444).withOpacity(0.2)),
                             ),
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),

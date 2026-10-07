@@ -12,6 +12,7 @@ class GymTenant {
   final String primaryColor;
   final String secondaryColor;
   final String? planName;
+  final String? upiId;
   final List<GymBranch> branches;
   final Map<String, bool> features;
 
@@ -21,6 +22,7 @@ class GymTenant {
     required this.gymName,
     required this.slug,
     this.logo,
+    this.upiId,
     required this.address,
     required this.phone,
     required this.email,
@@ -46,6 +48,7 @@ class GymTenant {
       gymName: json['gym_name'] ?? 'Gym Facility',
       slug: json['slug'] ?? '',
       logo: json['logo'],
+      upiId: json['upi_id'],
       address: json['address'] ?? '',
       phone: json['phone'] ?? '',
       email: json['email'] ?? '',
@@ -73,6 +76,7 @@ class GymTenant {
         'primary_color': primaryColor,
         'secondary_color': secondaryColor,
         'plan_name': planName,
+        'upi_id': upiId,
       };
 }
 
