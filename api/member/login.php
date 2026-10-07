@@ -69,19 +69,21 @@ if ($blockReason !== null) {
     ApiResponse::forbidden($blockReason);
 }
 
-// 2. Locate Member within this specific tenant
-// Check unified users table first for role = 'member' and tenant_id
+// 2. Locate User or Member within this specific tenant
+// Check unified users table for matching loginId (username, email, phone, or member_id)
 $user = DB::fetchOne(
     "SELECT * FROM users 
-     WHERE tenant_id = ? AND (username = ? OR email = ? OR phone = ? OR member_id = ?) AND role = 'member' 
+     WHERE tenant_id = ? AND (username = ? OR email = ? OR phone = ? OR member_id = ?) 
      LIMIT 1",
     [$tenantId, $loginId, $loginId, $loginId, (is_numeric($loginId) ? (int)$loginId : -1)]
 );
 
 $member = null;
 $isValid = false;
+$userRole = 'member';
 
 if ($user) {
+    $userRole = strtolower((string)$user['role']);
     // Password check (md5/plaintext accepted only as a one-time upgrade path, then rehashed to bcrypt)
     $pwCheck = api_verify_password($password, $user['password']);
     if ($pwCheck !== false) {
@@ -97,8 +99,66 @@ if ($user) {
             ApiResponse::forbidden('Your account is currently ' . $user['status'] . '. Please contact gym support.');
         }
 
-        // Fetch corresponding member record (users.member_id -> members.user_id; never users.id)
-        $member = null;
+        // If this is an Admin / Staff user, we don't require a members table row
+        if (in_array($userRole, ['gym_admin', 'staff', 'super_admin', 'trainer'], true)) {
+            api_rate_clear('login', $rateKeyUser);
+
+            $userId = (int)$user['id'];
+            $rawToken = bin2hex(random_bytes(32));
+            $tokenHash = hash('sha256', $rawToken);
+            $expiryDate = gmdate('Y-m-d H:i:s', time() + 90 * 86400);
+
+            // Clean expired tokens
+            DB::query("DELETE FROM member_tokens WHERE tenant_id = ? AND user_id = ? AND expires_at < ?", [$tenantId, $userId, gmdate('Y-m-d H:i:s')]);
+
+            $tokenRow = [
+                'tenant_id' => (int)$tenantId,
+                'member_id' => 0,
+                'user_id' => (int)$userId,
+                'token_hash' => (string)$tokenHash,
+                'device_id' => mb_substr((string)$deviceId, 0, 100),
+                'device_name' => mb_substr((string)($deviceName ?: 'Mobile Device'), 0, 100),
+                'platform' => (string)$platform,
+                'expires_at' => (string)$expiryDate
+            ];
+            $cols = array_keys($tokenRow);
+            DB::execute(
+                "INSERT INTO `member_tokens` (`" . implode('`, `', $cols) . "`) VALUES (" . implode(', ', array_fill(0, count($cols), '?')) . ")",
+                array_values($tokenRow)
+            );
+
+            $adminResponse = [
+                'token' => $rawToken,
+                'role' => $userRole,
+                'expires_at' => $expiryDate,
+                'user' => [
+                    'id' => $userId,
+                    'username' => $user['username'],
+                    'fullname' => $user['fullname'],
+                    'role' => $userRole,
+                    'email' => $user['email'] ?? '',
+                    'phone' => $user['phone'] ?? '',
+                    'avatar' => !empty($user['avatar']) ? base_url('/uploads/avatars/' . $user['avatar']) : null
+                ],
+                'tenant' => [
+                    'id' => $tenantId,
+                    'gym_code' => $tenant['gym_code'] ?: 'GYM-' . $tenantId,
+                    'gym_name' => $tenant['gym_name'],
+                    'slug' => $tenant['slug'],
+                    'logo' => $tenant['logo'] ? base_url('/img/' . $tenant['logo']) : null,
+                    'primary_color' => $tenant['primary_color'] ?: '#2563eb',
+                    'secondary_color' => $tenant['secondary_color'] ?: '#10b981',
+                    'currency' => $tenant['currency'] ?: '₹',
+                    'phone' => $tenant['phone'] ?: '',
+                    'email' => $tenant['email'] ?: '',
+                    'address' => $tenant['address'] ?: '',
+                    'upi_id' => $tenant['upi_id'] ?? ''
+                ]
+            ];
+            ApiResponse::success($adminResponse, 'Welcome back, ' . $user['fullname'] . ' (Admin)!');
+        }
+
+        // Otherwise fetch corresponding member record
         if (!empty($user['member_id'])) {
             $member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [(int)$user['member_id'], $tenantId]);
         }
@@ -123,12 +183,10 @@ if (!$isValid) {
             $isValid = true;
             $newHash = $member['password'];
             if ($pwCheck === 'rehash') {
-                // Upgrade legacy hash immediately
                 $newHash = password_hash($password, PASSWORD_DEFAULT);
                 DB::update('members', ['password' => $newHash], 'user_id = ? AND tenant_id = ?', [$member['user_id'], $tenantId]);
             }
 
-            // Sync/create entry in unified users if not existing
             $existingUser = DB::fetchOne("SELECT id FROM users WHERE tenant_id = ? AND member_id = ? AND role = 'member'", [$tenantId, $member['user_id']]);
             if (!$existingUser) {
                 $insertedUserId = DB::insert('users', [
@@ -238,6 +296,7 @@ if (!empty($tenant['features'])) {
 // 5. Response Payload
 $response = [
     'token' => $rawToken,
+    'role' => 'member',
     'expires_at' => $expiryDate,
     'tenant' => [
         'id' => $tenantId,
