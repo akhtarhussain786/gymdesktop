@@ -174,7 +174,7 @@ a {
 
 /* Sidebar Navigation */
 .app-sidebar {
-  width: 260px;
+  width: 270px;
   background-color: var(--bg-surface);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -189,11 +189,12 @@ a {
 }
 
 .sidebar-brand {
-  padding: 20px 22px;
+  padding: 16px 18px;
   display: flex;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--border-color);
+  min-height: 68px;
 }
 
 .brand-logo {
@@ -213,7 +214,7 @@ a {
 .brand-text {
   font-family: 'Outfit', sans-serif;
   font-weight: 800;
-  font-size: 1.15rem;
+  font-size: 1.08rem;
   color: #fff;
   letter-spacing: -0.02em;
   white-space: nowrap;
@@ -231,11 +232,12 @@ a {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .sidebar-menu {
   list-style: none;
-  padding: 16px 12px;
+  padding: 14px 12px;
   overflow-y: auto;
   flex: 1;
   display: flex;
@@ -244,12 +246,13 @@ a {
 }
 
 .sidebar-section-title {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 800;
   color: var(--text-light);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   padding: 14px 12px 6px;
+  opacity: 0.85;
 }
 
 .sidebar-item {
@@ -263,7 +266,7 @@ a {
   gap: 12px;
   padding: 10px 14px;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
   border-radius: var(--radius-sm);
   text-decoration: none;
@@ -276,11 +279,12 @@ a {
   text-align: center;
   color: var(--text-light);
   transition: color 0.2s;
+  flex-shrink: 0;
 }
 
 .sidebar-link:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .sidebar-link:hover i {
@@ -299,9 +303,9 @@ a {
 }
 
 .sidebar-footer {
-  padding: 16px;
+  padding: 14px 16px;
   border-top: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .sidebar-user {
@@ -330,7 +334,7 @@ a {
 }
 
 .sidebar-user-name {
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   font-weight: 700;
   color: #fff;
   white-space: nowrap;

@@ -37,10 +37,12 @@ $currentUser = Auth::user();
             <div style="display: flex; align-items: center; gap: 8px; background: var(--bg-app); padding: 4px 14px; border-radius: var(--radius-full); border: 1px solid var(--border-color); font-size: 0.85rem; font-weight: 600;">
                 <?php if (!empty($tenant['logo']) && ($currentUser['role'] ?? '') !== 'super_admin'): ?>
                     <img src="<?php echo e(str_starts_with($tenant['logo'], 'http') ? $tenant['logo'] : base_url('/uploads/logos/' . $tenant['logo'])); ?>" style="width: 22px; height: 22px; object-fit: contain; border-radius: 4px;" />
+                <?php elseif (($currentUser['role'] ?? '') === 'super_admin'): ?>
+                    <i class="fas fa-shield-alt" style="color: var(--lime);"></i>
                 <?php else: ?>
                     <i class="fas fa-map-marker-alt" style="color: var(--primary);"></i>
                 <?php endif; ?>
-                <span><?php echo e($tenant['gym_name'] ?? 'Main Gym'); ?></span>
+                <span><?php echo e(($currentUser['role'] ?? '') === 'super_admin' ? 'Fitisify Master SaaS' : ($tenant['gym_name'] ?? 'Main Gym')); ?></span>
             </div>
 
             <!-- Theme Toggle Button -->

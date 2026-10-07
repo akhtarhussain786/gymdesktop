@@ -5,18 +5,30 @@ $tenant = Tenant::getCurrent();
 ?>
 <aside class="app-sidebar">
     <div class="sidebar-brand">
-        <div class="brand-logo" style="overflow: hidden; display: flex; align-items: center; justify-content: center;">
+        <div class="brand-logo" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(204, 255, 0, 0.12); border-color: rgba(204, 255, 0, 0.35);">
             <?php if (!empty($tenant['logo']) && $role !== 'super_admin'): ?>
                 <img src="<?php echo e(str_starts_with($tenant['logo'], 'http') ? $tenant['logo'] : base_url('/uploads/logos/' . $tenant['logo'])); ?>" style="width: 100%; height: 100%; object-fit: contain; border-radius: 6px;" />
             <?php else: ?>
-                <i class="fas fa-dumbbell"></i>
+                <i class="fas fa-bolt" style="color: var(--lime); font-size: 1.15rem;"></i>
             <?php endif; ?>
         </div>
-        <div style="overflow: hidden;">
-            <div class="brand-text"><?php echo e($role === 'super_admin' ? 'FITISIFY SAAS' : ($tenant['gym_name'] ?? 'FITISIFY GYM')); ?></div>
+        <div style="overflow: hidden; flex: 1; min-width: 0;">
+            <div class="brand-text" style="display: flex; align-items: center; gap: 5px; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em;">
+                <?php if ($role === 'super_admin'): ?>
+                    <span>FITISIFY</span>
+                    <span style="color: var(--lime); font-size: 0.8em; font-weight: 900; background: rgba(204, 255, 0, 0.15); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(204, 255, 0, 0.3);">SAAS</span>
+                <?php else: ?>
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><?php echo e($tenant['gym_name'] ?? 'FITISIFY GYM'); ?></span>
+                <?php endif; ?>
+            </div>
+            <?php if ($role === 'super_admin'): ?>
+                <div style="font-size: 0.68rem; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 1px;">Platform Control</div>
+            <?php else: ?>
+                <div style="font-size: 0.68rem; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 1px;">Gym Portal</div>
+            <?php endif; ?>
         </div>
         <?php if ($role === 'super_admin'): ?>
-            <span class="tenant-tag" style="background:#ef4444;color:#fff;">SUPER</span>
+            <span class="tenant-tag" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 0.62rem; padding: 2px 6px; font-weight: 800;">SUPER</span>
         <?php else: ?>
             <span class="tenant-tag"><?php echo e($tenant['plan_name'] ?? 'PRO'); ?></span>
         <?php endif; ?>
@@ -24,8 +36,8 @@ $tenant = Tenant::getCurrent();
 
     <ul class="sidebar-menu">
         <?php if ($role === 'super_admin'): ?>
-            <!-- Super Admin Navigation -->
-            <div class="sidebar-section-title">Platform Admin</div>
+            <!-- 1. Core Management -->
+            <div class="sidebar-section-title">Core Management</div>
             <li class="sidebar-item <?php echo $currentPage === 'super_dashboard' ? 'active' : ''; ?>">
                 <a href="<?php echo base_url('/superadmin/index'); ?>" class="sidebar-link">
                     <i class="fas fa-chart-line"></i>
@@ -50,18 +62,24 @@ $tenant = Tenant::getCurrent();
                     <span>SaaS Payments & Orders</span>
                 </a>
             </li>
-            <li class="sidebar-item <?php echo $currentPage === 'super_testimonials' ? 'active' : ''; ?>">
-                <a href="<?php echo base_url('/superadmin/testimonials'); ?>" class="sidebar-link">
-                    <i class="fas fa-quote-right"></i>
-                    <span>Testimonials</span>
-                </a>
-            </li>
+
+            <!-- 2. Marketing & Leads -->
+            <div class="sidebar-section-title">Marketing & Leads</div>
             <li class="sidebar-item <?php echo $currentPage === 'super_leads' ? 'active' : ''; ?>">
                 <a href="<?php echo base_url('/superadmin/visitor-leads'); ?>" class="sidebar-link">
                     <i class="fas fa-address-book" style="color: #10b981;"></i>
                     <span>Visitor Leads & Traffic</span>
                 </a>
             </li>
+            <li class="sidebar-item <?php echo $currentPage === 'super_testimonials' ? 'active' : ''; ?>">
+                <a href="<?php echo base_url('/superadmin/testimonials'); ?>" class="sidebar-link">
+                    <i class="fas fa-quote-right" style="color: #38bdf8;"></i>
+                    <span>Testimonials</span>
+                </a>
+            </li>
+
+            <!-- 3. System & Tools -->
+            <div class="sidebar-section-title">System & Tools</div>
             <li class="sidebar-item <?php echo $currentPage === 'super_seo' ? 'active' : ''; ?>">
                 <a href="<?php echo base_url('/superadmin/seo-settings'); ?>" class="sidebar-link">
                     <i class="fas fa-robot" style="color: #a855f7;"></i>
@@ -71,7 +89,7 @@ $tenant = Tenant::getCurrent();
             <li class="sidebar-item <?php echo $currentPage === 'super_settings' ? 'active' : ''; ?>">
                 <a href="<?php echo base_url('/superadmin/settings'); ?>" class="sidebar-link">
                     <i class="fas fa-sliders-h"></i>
-                    <span>Global Settings</span>
+                    <span>Global Settings & Tools</span>
                 </a>
             </li>
 
@@ -257,14 +275,16 @@ $tenant = Tenant::getCurrent();
 
     <div class="sidebar-footer">
         <div class="sidebar-user">
-            <div class="sidebar-user-avatar">
-                <?php echo strtoupper(substr($currentUser['fullname'] ?? 'U', 0, 1)); ?>
+            <div class="sidebar-user-avatar" style="<?php echo $role === 'super_admin' ? 'background: linear-gradient(135deg, var(--lime), #10b981); color: #05080d;' : ''; ?>">
+                <?php echo strtoupper(substr($currentUser['fullname'] ?? ($role === 'super_admin' ? 'S' : 'A'), 0, 1)); ?>
             </div>
             <div class="sidebar-user-info">
-                <div class="sidebar-user-name"><?php echo e($currentUser['fullname'] ?? 'Administrator'); ?></div>
-                <div class="sidebar-user-role"><?php echo e(str_replace('_', ' ', $role)); ?></div>
+                <div class="sidebar-user-name" title="<?php echo e($currentUser['fullname'] ?? ($role === 'super_admin' ? 'Master Platform Admin' : 'Administrator')); ?>">
+                    <?php echo e($currentUser['fullname'] ?? ($role === 'super_admin' ? 'Master Admin' : 'Administrator')); ?>
+                </div>
+                <div class="sidebar-user-role"><?php echo e($role === 'super_admin' ? 'Super Admin' : str_replace('_', ' ', $role)); ?></div>
             </div>
-            <a href="<?php echo base_url('/logout'); ?>" title="Logout" class="btn-icon" style="border:none;background:none;color:#ef4444;width:30px;height:30px;">
+            <a href="<?php echo base_url('/logout'); ?>" title="Logout" style="border:none; background: rgba(239, 68, 68, 0.12); color: #ef4444; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; text-decoration: none; flex-shrink: 0;" onmouseover="this.style.background='rgba(239,68,68,0.25)'" onmouseout="this.style.background='rgba(239,68,68,0.12)'">
                 <i class="fas fa-sign-out-alt"></i>
             </a>
         </div>

@@ -2,14 +2,41 @@
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/mailer.php';
 require_once __DIR__ . '/../core/helpers.php';
+require_once __DIR__ . '/../core/demo_seeder.php';
 Auth::requireAuth('super_admin');
 
 $page = 'super_settings';
-$pageTitle = 'Global Platform Settings & Mailer Diagnostics';
-$pageSubtitle = 'Manage platform branding, Gmail SMTP configuration, and run test email diagnostics';
+$pageTitle = 'Global Platform Settings & Diagnostics';
+$pageSubtitle = 'Manage platform branding, database health, Gmail SMTP, and demo environment';
 
 $testResult = null;
 $mailConfig = Mailer::getConfig();
+
+// Handle Database Sanitation Action
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['purge_orphaned_records'])) {
+    Auth::verifyCsrf();
+    $res = DemoSeeder::purgeOrphans();
+    if ($res['success']) {
+        Auth::auditLog('SUPER_PURGE_ORPHANS', "Purged {$res['total_deleted']} orphaned records from database.");
+        redirect('settings.php', 'success', "Database Sanitation Succeeded: Removed {$res['total_deleted']} orphaned records.");
+    } else {
+        redirect('settings.php', 'error', "Database Sanitation Failed: " . ($res['error'] ?? 'Unknown error'));
+    }
+}
+
+// Handle Seed / Reset Demo Gym Action
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['seed_demo_gym_account'])) {
+    Auth::verifyCsrf();
+    $force = !empty($_POST['force_reset']);
+    $res = DemoSeeder::seedDemoGym($force);
+    if ($res['success']) {
+        Auth::auditLog('SUPER_SEED_DEMO', "Super Admin reset showcase DEMO FITNESS & GYM account.");
+        $creds = $res['credentials'] ?? [];
+        redirect('settings.php', 'success', "Demo Gym Synchronized: Code <code>{$creds['gym_code']}</code> | Admin: <code>{$creds['admin_username']}</code> / <code>{$creds['admin_password']}</code>");
+    } else {
+        redirect('settings.php', 'error', "Failed to seed demo gym: " . ($res['error'] ?? 'Unknown error'));
+    }
+}
 
 // Handle Test Email Dispatch
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_test_email'])) {
@@ -35,6 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_general_settings
     Auth::verifyCsrf();
     redirect('settings.php', 'success', 'Global platform settings updated successfully.');
 }
+
+// Check database orphaned rows
+$orphanCount = DemoSeeder::countOrphans();
 
 // Fetch recent email delivery logs
 $recentLogs = DB::fetchAll("SELECT * FROM email_delivery_logs ORDER BY id DESC LIMIT 10");
@@ -229,8 +259,59 @@ include __DIR__ . '/../includes/topbar.php';
     </div>
 </div>
 
-<!-- 4. General Platform Settings -->
-<div class="card" style="max-width: 800px;">
+<!-- 4. Database Sanitation & Showcase Demo Tools -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 24px; margin-bottom: 30px;">
+    <!-- Database Health Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <i class="fas fa-database" style="color: #38bdf8;"></i>
+                <span>Database Health & Orphan Cleaner</span>
+            </div>
+            <span class="status-badge <?php echo $orphanCount === 0 ? 'badge-success' : 'badge-warning'; ?>">
+                <i class="fas <?php echo $orphanCount === 0 ? 'fa-check' : 'fa-exclamation-triangle'; ?>"></i>
+                <?php echo $orphanCount === 0 ? 'Clean (0 Orphans)' : $orphanCount . ' Ghost Rows'; ?>
+            </span>
+        </div>
+        <div class="card-body">
+            <p style="color: var(--text-muted); font-size: 0.88rem; line-height: 1.5; margin-top: 0;">
+                Purges dangling records across all child tables (members, staff, invoices, attendance) where the parent gym tenant has been deleted. Ensures 100% accurate metrics.
+            </p>
+            <form method="POST" action="" onsubmit="return confirm('Purge all orphaned records across the database?');">
+                <?php echo Auth::csrfField(); ?>
+                <button type="submit" name="purge_orphaned_records" value="1" class="btn btn-warning" style="width: 100%; font-weight: 700; background: #f59e0b; color: #000;">
+                    <i class="fas fa-broom"></i> Clean Orphaned Records Now
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Showcase Demo Gym Seeder Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">
+                <i class="fas fa-magic" style="color: var(--lime);"></i>
+                <span>Showcase Demo Gym Initializer</span>
+            </div>
+            <span class="status-badge badge-info">Client Presentation</span>
+        </div>
+        <div class="card-body">
+            <p style="color: var(--text-muted); font-size: 0.88rem; line-height: 1.5; margin-top: 0;">
+                Creates or resets a pristine <strong>DEMO FITNESS & GYM</strong> with 5 demo members, 2 trainers, workout & diet routines, and verified invoices for client demonstrations.
+            </p>
+            <form method="POST" action="" onsubmit="return confirm('Initialize / Reset DEMO FITNESS & GYM account?');">
+                <?php echo Auth::csrfField(); ?>
+                <input type="hidden" name="force_reset" value="1" />
+                <button type="submit" name="seed_demo_gym_account" value="1" class="btn btn-primary" style="width: 100%; font-weight: 700;">
+                    <i class="fas fa-sync-alt"></i> Reset / Seed Demo Gym
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 5. General Platform Settings -->
+<div class="card" style="max-width: 800px; margin-bottom: 30px;">
     <div class="card-header">
         <div class="card-title">
             <i class="fas fa-sliders-h"></i>
