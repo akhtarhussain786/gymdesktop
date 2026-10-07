@@ -1,0 +1,26 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+error_log
+api/member/error_log
+admin/error_log
+
+# Flutter / Dart
+gym_member_app/build/
+gym_member_app/.dart_tool/
+gym_member_app/.flutter-plugins
+gym_member_app/.flutter-plugins-dependencies
+gym_member_app/ios/Pods/
+gym_member_app/macos/Pods/
+gym_member_app/.idea/
+gym_member_app/*.iml
+
+# Temporary files
+scratch/
+backups_url_fix/
+.DS_Store
+Thumbs.db

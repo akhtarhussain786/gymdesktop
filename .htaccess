@@ -1,0 +1,78 @@
+# Fitisify OS - Universal Apache Rewrite & Clean SEO URLs Configuration
+
+# ---------------------------------------------------------------------------
+# Security: never serve secrets, dumps, logs, notes or dot-files
+# (Apache 2.4 "Require" syntax with Apache 2.2 "Order/Deny" fallback)
+# ---------------------------------------------------------------------------
+Options -Indexes
+
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<FilesMatch "(?i)(\.(env|sql|log|bak|old|orig|swp|ini|sh|dist)$|^error_log$|^(?!robots\.txt$).*\.txt$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Fallback when mod_rewrite is unavailable: block include-only / private directories
+<IfModule !mod_rewrite.c>
+    RedirectMatch 403 (?i)/(core|database|logs|config)(/|$)
+    RedirectMatch 403 /\.(?!well-known/)
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    Options -MultiViews
+
+    # Block include-only & private directories (core/ is never requested directly by the browser)
+    RewriteRule ^(core|database|logs|config)(/|$) - [F,L,NC]
+    # Include-only PHP fragments (partials, DB shims, API bootstrap) are never pages
+    RewriteRule (^|/)includes/ - [F,L,NC]
+    RewriteRule (^|/)(dbcon|db2|session)(\.php)?$ - [F,L,NC]
+    RewriteRule ^api/member/(common|middleware)(\.php)?$ - [F,L,NC]
+    # Block dot-files / dot-directories (except ACME .well-known)
+    RewriteRule (^|/)\.(?!well-known/) - [F,L]
+    # Never execute scripts from user upload folders
+    RewriteRule ^uploads/.*\.(php[0-9]?|phtml|phar|pht|shtml|cgi|pl|py)$ - [F,L,NC]
+
+    # Pass Authorization header to PHP $_SERVER['HTTP_AUTHORIZATION']
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
+    # Dynamic SEO Endpoints
+    RewriteRule ^sitemap\.xml$ sitemap.php [L,QSA]
+    RewriteRule ^robots\.txt$ robots.php [L,QSA]
+
+    # 1. 301 Redirect any direct *.php request to its clean URL (GET & HEAD requests only)
+    RewriteCond %{REQUEST_METHOD} !POST
+    RewriteCond %{THE_REQUEST} \s/+(.*?)\.php[\s?] [NC]
+    # (absolute target: a relative one gets the server's filesystem path prefixed on Apache)
+    RewriteRule ^ /%1 [R=301,L,NE]
+
+    # 2. Don't rewrite real existing files and directories
+    RewriteCond %{REQUEST_FILENAME} -d [OR]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # 3. Rewrite extensionless clean URLs to .php
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^(.+?)/?$ $1.php [L,QSA]
+</IfModule>
+
+# Caching & Compression for Faster SEO Scores
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml
+</IfModule>
