@@ -7,10 +7,15 @@ import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 import 'admin_add_member_screen.dart';
+import 'admin_attendance_screen.dart';
 import 'admin_collect_payment_dialog.dart';
+import 'admin_expenses_screen.dart';
+import 'admin_fitness_plans_screen.dart';
 import 'admin_gym_qr_screen.dart';
 import 'admin_member_detail_screen.dart';
 import 'admin_members_screen.dart';
+import 'admin_reports_screen.dart';
+import 'admin_staffs_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final Function(int)? onNavigateTab;
@@ -22,6 +27,7 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+
   @override
   void initState() {
     super.initState();
@@ -247,6 +253,63 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 onTap: () {
                                   Navigator.of(context).push(
                                     MaterialPageRoute(builder: (_) => const AdminGymQrScreen(isModal: true)),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _quickActionButton(
+                                icon: Icons.how_to_reg_rounded,
+                                label: 'Live\nAttendance',
+                                color: const Color(0xFF00CEC9),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const AdminAttendanceScreen()),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _quickActionButton(
+                                icon: Icons.payments_rounded,
+                                label: 'Expenses\nTracker',
+                                color: const Color(0xFFFF7675),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const AdminExpensesScreen()),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _quickActionButton(
+                                icon: Icons.badge_rounded,
+                                label: 'Staff &\nTrainers',
+                                color: const Color(0xFFA29BFE),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const AdminStaffsScreen()),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _quickActionButton(
+                                icon: Icons.bar_chart_rounded,
+                                label: 'Financial\nReports',
+                                color: const Color(0xFF0984E3),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const AdminReportsScreen()),
                                   );
                                 },
                               ),

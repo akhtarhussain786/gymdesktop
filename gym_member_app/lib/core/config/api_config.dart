@@ -60,7 +60,19 @@ class ApiConfig {
   static const String adminMembers = '/members.php';
   static const String adminMemberDetail = '/member_detail.php';
   static const String adminAddMember = '/add_member.php';
+  static const String adminEditMember = '/edit_member.php';
   static const String adminCollectPayment = '/collect_payment.php';
   static const String adminGymQr = '/gym_qr.php';
   static const String adminRates = '/rates.php';
+  static const String adminStaffs = '/staffs.php';
+  static const String adminAttendance = '/attendance.php';
+  static const String adminExpenses = '/expenses.php';
+  static const String adminEquipment = '/equipment.php';
+  static const String adminWorkouts = '/workouts.php';
+  static const String adminDiet = '/diet.php';
+  static const String adminClasses = '/classes.php';
+  static const String adminAnnouncements = '/announcements.php';
+  static const String adminInquiries = '/inquiries.php';
+  static const String adminReports = '/reports.php';
+  static const String adminSettings = '/settings.php';
 }

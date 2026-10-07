@@ -7,6 +7,7 @@ import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 import 'admin_collect_payment_dialog.dart';
+import 'admin_edit_member_screen.dart';
 
 class AdminMemberDetailScreen extends StatefulWidget {
   final int memberId;
@@ -91,6 +92,16 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
           style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 18),
         ),
         actions: [
+          if (detail != null)
+            IconButton(
+              icon: const Icon(Icons.edit_rounded, color: AppColors.lime),
+              tooltip: 'Edit Profile',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => AdminEditMemberScreen(member: detail.member)),
+                ).then((_) => _loadDetails());
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             onPressed: _loadDetails,
