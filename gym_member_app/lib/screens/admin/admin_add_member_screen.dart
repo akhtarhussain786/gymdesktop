@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -21,6 +22,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
 
   // Text Controllers
   final _fullnameController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _addressController = TextEditingController();
@@ -31,9 +33,10 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   String _gender = 'Male';
   String _selectedService = 'General Fitness';
   int _planMonths = 1;
-  final DateTime _dor = DateTime.now();
+  DateTime _dor = DateTime.now();
   DateTime? _dueDate;
   String _paymentMethod = 'Cash';
+  bool _obscurePassword = true;
 
   // Photo
   XFile? _selectedPhoto;
@@ -45,6 +48,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   @override
   void initState() {
     super.initState();
+    _fullnameController.addListener(_autoSuggestUsername);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await context.read<AdminProvider>().fetchRates();
       if (mounted) {
@@ -62,9 +66,20 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     });
   }
 
+  void _autoSuggestUsername() {
+    if (_usernameController.text.isEmpty || _usernameController.text.startsWith('mem_')) {
+      final name = _fullnameController.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+      if (name.isNotEmpty) {
+        _usernameController.text = name;
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _fullnameController.removeListener(_autoSuggestUsername);
     _fullnameController.dispose();
+    _usernameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
     _addressController.dispose();
@@ -77,6 +92,10 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   double get _totalAmount => double.tryParse(_totalAmountController.text.trim()) ?? 0.0;
   double get _paidAmount => double.tryParse(_paidAmountController.text.trim()) ?? 0.0;
   double get _dueAmount => (_totalAmount - _paidAmount) > 0 ? (_totalAmount - _paidAmount) : 0.0;
+
+  DateTime get _computedExpiryDate {
+    return DateTime(_dor.year, _dor.month + _planMonths, _dor.day);
+  }
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -105,7 +124,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   void _showImageSourcePicker() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.card(context),
+      backgroundColor: const Color(0xFF1E1E2C),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -121,7 +140,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                   style: GoogleFonts.outfit(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary(ctx),
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -180,9 +199,9 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
         width: 100,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.cardElevated(context),
+          color: const Color(0xFF2A2A3E),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.border(context)),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
         child: Column(
           children: [
@@ -193,7 +212,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: color ?? AppColors.textPrimary(context),
+                color: color ?? Colors.white,
               ),
               textAlign: TextAlign.center,
             ),
@@ -201,6 +220,31 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _selectJoiningDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dor,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.lime,
+              onPrimary: Colors.black,
+              surface: Color(0xFF1E1E2C),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() => _dor = picked);
+    }
   }
 
   Future<void> _selectDueDate() async {
@@ -212,11 +256,10 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.dark(
+            colorScheme: const ColorScheme.dark(
               primary: AppColors.lime,
               onPrimary: Colors.black,
-              surface: AppColors.card(context),
-              onSurface: AppColors.textPrimary(context),
+              surface: Color(0xFF1E1E2C),
             ),
           ),
           child: child!,
@@ -278,132 +321,171 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   void _showSuccessDialog(Map<String, dynamic> data) {
     final gymName = context.read<AuthProvider>().currentTenant?.gymName ?? 'Our Gym';
     final currency = context.read<AuthProvider>().currentTenant?.currency ?? '₹';
+    final memberId = data['member_id']?.toString() ?? '1';
     final name = data['fullname'] ?? _fullnameController.text;
-    final username = data['username'] ?? '';
+    final username = data['username'] ?? _usernameController.text;
+    final password = data['password'] ?? _passwordController.text;
     final phone = data['phone'] ?? _phoneController.text;
+    final paid = (data['paid_amount'] is num) ? (data['paid_amount'] as num).toDouble() : _paidAmount;
     final due = (data['due_amount'] is num) ? (data['due_amount'] as num).toDouble() : _dueAmount;
+    final startDateStr = data['start_date'] ?? DateFormat('dd MMM yyyy').format(_dor);
+    final expiryDateStr = data['expiry_date'] ?? DateFormat('dd MMM yyyy').format(_computedExpiryDate);
 
-    final dueText = due > 0 ? "\nPending Due: *$currency$due*" : "";
-    final welcomeMessage = "Welcome to *$gymName*, *$name*! 🎉\n"
-        "Your membership for *$_selectedService* is activated.\n"
-        "Username: *$username*\n"
-        "App Login: Use your username & password to track workouts & attendance.$dueText";
+    final credentialsText = "🏋️ *Gym Membership Confirmation - $gymName*\n\n"
+        "👤 Member ID: #$memberId\n"
+        "📛 Name: $name\n"
+        "📱 Phone: $phone\n"
+        "🔑 *Login Username:* $username\n"
+        "🔒 *Login Password:* $password\n\n"
+        "📦 Plan: $_selectedService ($_planMonths Month)\n"
+        "📅 Joining Date: $startDateStr\n"
+        "⏳ Expiry Date: $expiryDateStr\n"
+        "💳 Amount Paid: $currency${paid.toStringAsFixed(0)}\n"
+        "${due > 0 ? "⚠️ Pending Due: $currency${due.toStringAsFixed(0)}\n" : "✓ Dues: Clear (₹0)\n"}\n"
+        "📲 Download Gym Member App & login with your username/password to track workouts & attendance!";
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: AppColors.card(ctx),
+          backgroundColor: const Color(0xFF1E1E2C),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
-            side: BorderSide(color: AppColors.limeBorder),
+            side: const BorderSide(color: AppColors.lime),
           ),
-          contentPadding: const EdgeInsets.all(24),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: AppColors.lime.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.lime, width: 2),
+          contentPadding: const EdgeInsets.all(20),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: AppColors.lime.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.lime, width: 2),
+                  ),
+                  child: const Icon(Icons.check_circle_rounded, color: AppColors.lime, size: 30),
                 ),
-                child: const Icon(Icons.person_add_alt_1_rounded, color: AppColors.lime, size: 32),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Member Registered!',
-                style: GoogleFonts.outfit(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.textPrimary(ctx),
+                const SizedBox(height: 12),
+                Text(
+                  'Member Registered Successfully!',
+                  style: GoogleFonts.outfit(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'New member account created and membership activated.',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12.5,
-                  color: AppColors.textMuted(ctx),
+                const SizedBox(height: 4),
+                Text(
+                  'Login credentials and pass details have been generated.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.white60,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.cardElevated(ctx),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.border(ctx)),
+                // Credentials & Details Card
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF13131A),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: Column(
+                    children: [
+                      _infoRow('Member ID', '#$memberId', isHighlight: true),
+                      _infoRow('Login Username', username, isHighlight: true),
+                      _infoRow('Login Password', password, isHighlight: true),
+                      const Divider(height: 14, color: Colors.white12),
+                      _infoRow('Joining Date', startDateStr),
+                      _infoRow('Expiry Date', expiryDateStr),
+                      _infoRow('Plan / Service', '$_selectedService ($_planMonths Mo)'),
+                      _infoRow('Amount Paid', '$currency${paid.toStringAsFixed(0)}', color: const Color(0xFF00CEC9)),
+                      _infoRow('Pending Due', due > 0 ? '$currency${due.toStringAsFixed(0)}' : '₹0 (Clear)', color: due > 0 ? AppColors.warning : AppColors.success),
+                    ],
+                  ),
                 ),
-                child: Column(
+                const SizedBox(height: 16),
+
+                // Action Buttons
+                Row(
                   children: [
-                    _infoRow(ctx, 'Full Name', name),
-                    _infoRow(ctx, 'Username', username),
-                    _infoRow(ctx, 'Service', _selectedService),
-                    _infoRow(ctx, 'Initial Due', due > 0 ? '$currency$due' : 'Zero (Fully Paid)'),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: credentialsText));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Login credentials copied to clipboard!')),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.copy_rounded, size: 16),
+                        label: const Text('Copy Info', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                          final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(credentialsText)}';
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.send_rounded, size: 16),
+                        label: const Text('WhatsApp', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 10),
 
-              // WhatsApp Welcome Message
-              ElevatedButton.icon(
-                onPressed: () async {
-                  final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-                  final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(welcomeMessage)}';
-                  final uri = Uri.parse(url);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF25D366),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  minimumSize: const Size.fromHeight(46),
-                ),
-                icon: const Icon(Icons.send_rounded, size: 18),
-                label: Text(
-                  'Send Welcome on WhatsApp',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      Navigator.of(context).pop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.lime,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Done & View Members', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-
-              TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop(); // Close dialog
-                  Navigator.of(context).pop(); // Back to members list
-                },
-                child: Text(
-                  'Go to Members List',
-                  style: GoogleFonts.plusJakartaSans(
-                    color: AppColors.lime,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13.5,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _infoRow(BuildContext ctx, String label, String value) {
+  Widget _infoRow(String label, String value, {bool isHighlight = false, Color? color}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -412,7 +494,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: AppColors.textMuted(ctx),
+              color: Colors.white60,
             ),
           ),
           Text(
@@ -420,7 +502,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12.5,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary(ctx),
+              color: color ?? (isHighlight ? AppColors.lime : Colors.white),
             ),
           ),
         ],
@@ -434,24 +516,26 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     final currency = context.watch<AuthProvider>().currentTenant?.currency ?? '₹';
 
     return Scaffold(
-      backgroundColor: AppColors.bg(context),
+      backgroundColor: const Color(0xFF13131A),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E2C),
+        elevation: 0,
         title: Text(
           'Register New Member',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 18),
+          style: GoogleFonts.outfit(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.white),
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500),
+            constraints: const BoxConstraints(maxWidth: 550),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 1. Photo Card
+                  // 1. Photo Avatar
                   Center(
                     child: Stack(
                       alignment: Alignment.bottomRight,
@@ -460,18 +544,12 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                           onTap: _showImageSourcePicker,
                           borderRadius: BorderRadius.circular(50),
                           child: Container(
-                            width: 100,
-                            height: 100,
+                            width: 90,
+                            height: 90,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: AppColors.cardElevated(context),
-                              border: Border.all(color: AppColors.limeBorder, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.lime.withValues(alpha: 0.2),
-                                  blurRadius: 15,
-                                ),
-                              ],
+                              color: const Color(0xFF1E1E2C),
+                              border: Border.all(color: AppColors.lime, width: 2),
                             ),
                             child: ClipOval(
                               child: _photoBytes != null
@@ -479,8 +557,8 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                                   : Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
-                                        const Icon(Icons.add_a_photo_rounded, color: AppColors.lime, size: 28),
-                                        const SizedBox(height: 4),
+                                        const Icon(Icons.add_a_photo_rounded, color: AppColors.lime, size: 26),
+                                        const SizedBox(height: 2),
                                         Text(
                                           'Add Photo',
                                           style: GoogleFonts.plusJakartaSans(
@@ -505,36 +583,42 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   // 2. Personal Information Section
-                  _sectionHeader('PERSONAL INFORMATION'),
-                  const SizedBox(height: 12),
+                  _sectionHeader('1. PERSONAL INFORMATION'),
+                  const SizedBox(height: 10),
 
                   TextFormField(
                     controller: _fullnameController,
-                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
-                    decoration: const InputDecoration(
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
                       labelText: 'Full Name *',
-                      hintText: 'e.g., Rahul Sharma',
-                      prefixIcon: Icon(Icons.person_outline_rounded),
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      filled: true,
+                      fillColor: const Color(0xFF1E1E2C),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      prefixIcon: const Icon(Icons.person_outline_rounded, color: AppColors.lime),
                     ),
                     validator: (v) => (v == null || v.trim().isEmpty) ? 'Full Name is required' : null,
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
                   TextFormField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
-                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
-                    decoration: const InputDecoration(
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
                       labelText: 'Mobile Phone Number *',
-                      hintText: 'e.g., 9876543210',
-                      prefixIcon: Icon(Icons.phone_outlined),
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      filled: true,
+                      fillColor: const Color(0xFF1E1E2C),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      prefixIcon: const Icon(Icons.phone_outlined, color: Color(0xFF00CEC9)),
                     ),
                     validator: (v) => (v == null || v.trim().isEmpty) ? 'Phone number is required' : null,
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
                   Row(
                     children: [
@@ -542,21 +626,30 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                         child: TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
-                          style: GoogleFonts.plusJakartaSans(fontSize: 13),
-                          decoration: const InputDecoration(
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
                             labelText: 'Email (Optional)',
-                            prefixIcon: Icon(Icons.email_outlined),
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            filled: true,
+                            fillColor: const Color(0xFF1E1E2C),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            prefixIcon: const Icon(Icons.email_outlined, color: Colors.white54),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: DropdownButtonFormField<String>(
                           initialValue: const ['Male', 'Female', 'Other'].contains(_gender) ? _gender : 'Male',
-                          dropdownColor: AppColors.card(context),
-                          decoration: const InputDecoration(
+                          dropdownColor: const Color(0xFF2A2A3E),
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
                             labelText: 'Gender',
-                            prefixIcon: Icon(Icons.wc_rounded),
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            filled: true,
+                            fillColor: const Color(0xFF1E1E2C),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            prefixIcon: const Icon(Icons.wc_rounded, color: Colors.white54),
                           ),
                           items: const [
                             DropdownMenuItem(value: 'Male', child: Text('Male')),
@@ -570,29 +663,116 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
                   TextFormField(
                     controller: _addressController,
-                    style: GoogleFonts.plusJakartaSans(fontSize: 13),
-                    decoration: const InputDecoration(
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
                       labelText: 'Residential Address / City',
-                      hintText: 'e.g., Sector 15, Near City Mall',
-                      prefixIcon: Icon(Icons.location_on_outlined),
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      filled: true,
+                      fillColor: const Color(0xFF1E1E2C),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      prefixIcon: const Icon(Icons.location_on_outlined, color: Colors.white54),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
-                  // 3. Package & Plan Section
-                  _sectionHeader('MEMBERSHIP PACKAGE & CHARGES'),
+                  // 3. Member App Login Credentials
+                  _sectionHeader('2. MEMBER APP LOGIN CREDENTIALS'),
+                  const SizedBox(height: 10),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _usernameController,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            labelText: 'App Username *',
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            filled: true,
+                            fillColor: const Color(0xFF1E1E2C),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            prefixIcon: const Icon(Icons.alternate_email, color: AppColors.lime),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            labelText: 'App Password *',
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            filled: true,
+                            fillColor: const Color(0xFF1E1E2C),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFFFDCB6E)),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.white54, size: 18),
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 4. Membership Package & Dates
+                  _sectionHeader('3. PACKAGE & JOINING DATES'),
+                  const SizedBox(height: 10),
+
+                  // Joining Date Selector
+                  InkWell(
+                    onTap: _selectJoiningDate,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1E2C),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_today_rounded, color: Color(0xFF00CEC9), size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Joining Date (DOR)', style: TextStyle(color: Colors.white60, fontSize: 11)),
+                                Text(
+                                  DateFormat('dd MMMM yyyy').format(_dor),
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('Change Date', style: TextStyle(color: AppColors.lime, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 12),
 
-                  // Service Selector (From rates or default)
+                  // Service Selector
                   Builder(
                     builder: (context) {
                       final rawServices = (admin.rates.isNotEmpty
-                              ? admin.rates.map((r) => r.name.trim()).toList()
-                              : ['General Fitness', 'Strength & Cardio', 'Personal Training', 'CrossFit']);
+                          ? admin.rates.map((r) => r.name.trim()).toList()
+                          : ['General Fitness', 'Strength & Cardio', 'Personal Training', 'CrossFit']);
 
                       final availableServices = <String>[];
                       for (final s in rawServices) {
@@ -600,25 +780,24 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                           availableServices.add(s);
                         }
                       }
-                      if (availableServices.isEmpty) {
-                        availableServices.add('General Fitness');
-                      }
+                      if (availableServices.isEmpty) availableServices.add('General Fitness');
 
-                      final currentSelected = availableServices.contains(_selectedService)
-                          ? _selectedService
-                          : availableServices.first;
+                      final currentSelected = availableServices.contains(_selectedService) ? _selectedService : availableServices.first;
 
                       return DropdownButtonFormField<String>(
                         key: ValueKey(currentSelected),
                         initialValue: currentSelected,
-                        dropdownColor: AppColors.card(context),
-                        decoration: const InputDecoration(
+                        dropdownColor: const Color(0xFF2A2A3E),
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
                           labelText: 'Select Workout / Gym Package',
-                          prefixIcon: Icon(Icons.fitness_center_rounded),
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          filled: true,
+                          fillColor: const Color(0xFF1E1E2C),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          prefixIcon: const Icon(Icons.fitness_center_rounded, color: AppColors.lime),
                         ),
-                        items: availableServices
-                            .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                            .toList(),
+                        items: availableServices.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
                         onChanged: (v) {
                           if (v != null) {
                             setState(() {
@@ -635,15 +814,15 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                       );
                     },
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
-                  // Plan Duration Selector Chips
+                  // Duration selector
                   Text(
                     'PLAN DURATION',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.textMuted(context),
+                      color: Colors.white60,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -656,18 +835,46 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                       _durationChip(12, '1 Year'),
                     ],
                   ),
+                  const SizedBox(height: 12),
+
+                  // Live Expiry Banner
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6C5CE7).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF6C5CE7).withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.alarm, color: Color(0xFF6C5CE7), size: 18),
+                            const SizedBox(width: 8),
+                            Text('Membership Expiry:', style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 12)),
+                          ],
+                        ),
+                        Text(
+                          DateFormat('dd MMM yyyy').format(_computedExpiryDate),
+                          style: const TextStyle(color: Color(0xFF6C5CE7), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 20),
 
-                  // Financials Card
+                  // 5. Financials & Payment Section
+                  _sectionHeader('4. PAYMENT & DUES BREAKDOWN'),
+                  const SizedBox(height: 10),
+
                   Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppColors.card(context),
+                      color: const Color(0xFF1E1E2C),
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.border(context)),
                     ),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Row(
                           children: [
@@ -675,14 +882,12 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                               child: TextFormField(
                                 controller: _totalAmountController,
                                 keyboardType: TextInputType.number,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary(context),
-                                ),
+                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
                                 decoration: InputDecoration(
-                                  labelText: 'Total Plan Fee',
+                                  labelText: 'Total Fee',
+                                  labelStyle: const TextStyle(color: Colors.white70),
                                   prefixText: '$currency ',
+                                  prefixStyle: const TextStyle(color: Colors.white70),
                                 ),
                                 onChanged: (v) => setState(() {}),
                               ),
@@ -692,14 +897,12 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                               child: TextFormField(
                                 controller: _paidAmountController,
                                 keyboardType: TextInputType.number,
-                                style: GoogleFonts.outfit(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.lime,
-                                ),
+                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF00CEC9)),
                                 decoration: InputDecoration(
                                   labelText: 'Amount Paid Now',
+                                  labelStyle: const TextStyle(color: Colors.white70),
                                   prefixText: '$currency ',
+                                  prefixStyle: const TextStyle(color: Color(0xFF00CEC9)),
                                 ),
                                 onChanged: (v) => setState(() {}),
                               ),
@@ -708,34 +911,30 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                         ),
                         const SizedBox(height: 14),
 
-                        // Computed Due Banner
+                        // Due status banner
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
-                            color: _dueAmount > 0
-                                ? AppColors.warning.withValues(alpha: 0.12)
-                                : AppColors.success.withValues(alpha: 0.12),
+                            color: _dueAmount > 0 ? AppColors.warning.withOpacity(0.12) : AppColors.success.withOpacity(0.12),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _dueAmount > 0 ? AppColors.warning : AppColors.success,
-                            ),
+                            border: Border.all(color: _dueAmount > 0 ? AppColors.warning : AppColors.success),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
                                 _dueAmount > 0 ? 'Pending Due Balance:' : 'Payment Status:',
-                                style: GoogleFonts.plusJakartaSans(
+                                style: TextStyle(
                                   fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.bold,
                                   color: _dueAmount > 0 ? AppColors.warning : AppColors.success,
                                 ),
                               ),
                               Text(
                                 _dueAmount > 0 ? '$currency${_dueAmount.toStringAsFixed(2)}' : '✓ Full Paid (Zero Due)',
-                                style: GoogleFonts.outfit(
+                                style: TextStyle(
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.bold,
                                   color: _dueAmount > 0 ? AppColors.warning : AppColors.success,
                                 ),
                               ),
@@ -744,42 +943,29 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                         ),
 
                         if (_dueAmount > 0) ...[
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 12),
                           InkWell(
                             onTap: _selectDueDate,
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: AppColors.cardElevated(context),
+                                color: Colors.white.withOpacity(0.04),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: AppColors.border(context)),
+                                border: Border.all(color: Colors.white12),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.event_note_rounded, size: 18, color: AppColors.cyan),
+                                  const Icon(Icons.event_note_rounded, size: 18, color: Color(0xFF00CEC9)),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
+                                        const Text('Promise Due Date', style: TextStyle(fontSize: 11, color: Colors.white60)),
                                         Text(
-                                          'Promise Due Date',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 11,
-                                            color: AppColors.textMuted(context),
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        Text(
-                                          _dueDate != null
-                                              ? DateFormat('dd MMM yyyy').format(_dueDate!)
-                                              : 'Select date for remaining due',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.textPrimary(context),
-                                          ),
+                                          _dueDate != null ? DateFormat('dd MMM yyyy').format(_dueDate!) : 'Tap to select due date',
+                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
                                         ),
                                       ],
                                     ),
@@ -795,10 +981,12 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                         // Payment Method
                         DropdownButtonFormField<String>(
                           initialValue: const ['Cash', 'UPI', 'Card', 'Online'].contains(_paymentMethod) ? _paymentMethod : 'Cash',
-                          dropdownColor: AppColors.card(context),
-                          decoration: const InputDecoration(
+                          dropdownColor: const Color(0xFF2A2A3E),
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
                             labelText: 'Initial Payment Method',
-                            prefixIcon: Icon(Icons.account_balance_wallet_rounded),
+                            labelStyle: const TextStyle(color: Colors.white70),
+                            prefixIcon: const Icon(Icons.account_balance_wallet_rounded, color: AppColors.lime),
                           ),
                           items: const [
                             DropdownMenuItem(value: 'Cash', child: Text('Cash at Desk')),
@@ -823,7 +1011,6 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                       foregroundColor: Colors.black,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      shadowColor: AppColors.lime.withValues(alpha: 0.3),
                       elevation: 8,
                     ),
                     child: _isSubmitting
@@ -842,7 +1029,6 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                                 style: GoogleFonts.plusJakartaSans(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 15,
-                                  letterSpacing: 0.3,
                                 ),
                               ),
                             ],
@@ -864,7 +1050,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
       style: GoogleFonts.plusJakartaSans(
         fontSize: 11.5,
         fontWeight: FontWeight.w800,
-        color: AppColors.textMuted(context),
+        color: Colors.white60,
         letterSpacing: 0.8,
       ),
     );
@@ -891,10 +1077,11 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
             }
           },
           selectedColor: AppColors.lime,
+          backgroundColor: const Color(0xFF1E1E2C),
           labelStyle: GoogleFonts.plusJakartaSans(
             fontWeight: FontWeight.w800,
             fontSize: 12,
-            color: isSelected ? Colors.black : AppColors.textPrimary(context),
+            color: isSelected ? Colors.black : Colors.white70,
           ),
         ),
       ),

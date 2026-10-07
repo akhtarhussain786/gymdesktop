@@ -84,21 +84,33 @@ if (!empty($errors)) {
     ApiResponse::error('Validation failed', 422, $errors);
 }
 
-// Generate unique username
+// Generate or use custom username
 $cleanPhone = preg_replace('/[^0-9]/', '', $contact);
-$baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $fullname));
-if (strlen($baseUsername) < 3) {
-    $baseUsername = 'mem' . ($cleanPhone ?: rand(1000, 9999));
-}
-$username = $baseUsername;
-$suffix = 1;
-while (DB::fetchValue("SELECT 1 FROM members WHERE username = ? LIMIT 1", [$username]) || DB::fetchValue("SELECT 1 FROM users WHERE username = ? LIMIT 1", [$username])) {
-    $username = $baseUsername . $suffix;
-    $suffix++;
+$customUsername = trim($input['username'] ?? '');
+
+if (!empty($customUsername)) {
+    $username = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $customUsername));
+    $exists = DB::fetchValue("SELECT 1 FROM members WHERE username = ? LIMIT 1", [$username]) 
+           || DB::fetchValue("SELECT 1 FROM users WHERE username = ? LIMIT 1", [$username]);
+    if ($exists) {
+        $username = $username . rand(10, 99);
+    }
+} else {
+    $baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $fullname));
+    if (strlen($baseUsername) < 3) {
+        $baseUsername = 'mem' . ($cleanPhone ?: rand(1000, 9999));
+    }
+    $username = $baseUsername;
+    $suffix = 1;
+    while (DB::fetchValue("SELECT 1 FROM members WHERE username = ? LIMIT 1", [$username]) || DB::fetchValue("SELECT 1 FROM users WHERE username = ? LIMIT 1", [$username])) {
+        $username = $baseUsername . $suffix;
+        $suffix++;
+    }
 }
 
-$password = trim($input['password'] ?? '123456');
+$password = !empty($input['password']) ? trim($input['password']) : '123456';
 $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+
 
 // 2. Handle Photo Upload (Multipart or Base64)
 $avatarFilename = null;
@@ -256,6 +268,7 @@ try {
         'member_id' => $memberId,
         'fullname' => $fullname,
         'username' => $username,
+        'password' => $password,
         'phone' => $contact,
         'avatar' => $avatarUrl,
         'services' => $services,
@@ -266,8 +279,9 @@ try {
         'due_date' => $dueDate,
         'invoice_number' => $invoiceNumber,
         'invoice_id' => $invId,
+        'start_date' => $dor,
         'expiry_date' => $expiryDate
-    ], 'Member created successfully with photo and payment details!', 201);
+    ], 'Member created successfully with photo and credentials!', 201);
 
 } catch (Throwable $e) {
     DB::rollback();

@@ -158,6 +158,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                   subtitle: 'Live Attendance Today',
                                   icon: Icons.how_to_reg_rounded,
                                   accentColor: AppColors.cyan,
+                                  onTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => const AdminAttendanceScreen()),
+                                    );
+                                  },
                                 ),
                               ),
                             ],

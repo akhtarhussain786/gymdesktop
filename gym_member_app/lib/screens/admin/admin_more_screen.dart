@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/theme_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../gym_lookup_screen.dart';
 import '../login_screen.dart';
-import 'admin_add_member_screen.dart';
 import 'admin_announcements_screen.dart';
 import 'admin_attendance_screen.dart';
 import 'admin_classes_screen.dart';
@@ -78,15 +76,12 @@ class AdminMoreScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final themeProvider = context.watch<ThemeProvider>();
     final tenant = auth.currentTenant;
     final adminUser = auth.adminUser;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final name = adminUser?['fullname'] ?? adminUser?['username'] ?? 'Gym Admin';
-    final email = adminUser?['email'] ?? '';
-    final phone = adminUser?['phone'] ?? '';
     final role = (adminUser?['role'] ?? auth.userRole).toString().toUpperCase();
+
 
     return Scaffold(
       backgroundColor: const Color(0xFF13131A),
