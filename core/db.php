@@ -349,6 +349,39 @@ class DB {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
             mysqli_query($con, $sqlResets);
         }
+
+        // Ensure members columns for mobile dues & avatar
+        $mColRes = mysqli_query($con, "SHOW COLUMNS FROM `members`");
+        $existingMCols = [];
+        if ($mColRes) {
+            while ($mc = mysqli_fetch_assoc($mColRes)) {
+                $existingMCols[] = strtolower($mc['Field']);
+            }
+        }
+        if (!in_array('avatar', $existingMCols)) {
+            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `avatar` varchar(255) DEFAULT NULL");
+        }
+        if (!in_array('due_amount', $existingMCols)) {
+            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `due_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+        }
+        if (!in_array('due_date', $existingMCols)) {
+            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `due_date` date DEFAULT NULL");
+        }
+        if (!in_array('notes', $existingMCols)) {
+            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `notes` text DEFAULT NULL");
+        }
+
+        // Ensure users.avatar exists
+        $uAvatarRes = mysqli_query($con, "SHOW COLUMNS FROM `users` LIKE 'avatar'");
+        if ($uAvatarRes && mysqli_num_rows($uAvatarRes) === 0) {
+            @mysqli_query($con, "ALTER TABLE `users` ADD COLUMN `avatar` varchar(255) DEFAULT NULL AFTER `phone`");
+        }
+
+        // Ensure invoices.due_date exists
+        $iDueDateRes = mysqli_query($con, "SHOW COLUMNS FROM `invoices` LIKE 'due_date'");
+        if ($iDueDateRes && mysqli_num_rows($iDueDateRes) === 0) {
+            @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `due_date` date DEFAULT NULL AFTER `payment_date`");
+        }
     }
 
     /**

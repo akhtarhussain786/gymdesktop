@@ -12,6 +12,7 @@ class AppColors {
   static const Color darkBorder = Color(0xFF334155);
   static const Color darkTextPrimary = Color(0xFFF8FAFC);
   static const Color darkTextSecondary = Color(0xFF94A3B8);
+  static const Color lime = Color(0xFFC7FF2E); // Neon Lime Brand Accent
 
   // Light Theme palette
   static const Color lightBg = Color(0xFFF8FAFC);

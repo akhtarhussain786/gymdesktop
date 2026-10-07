@@ -57,6 +57,44 @@ class MemberDataProvider extends ChangeNotifier {
     }
   }
 
+  // Fetch Available Renewal Plans
+  Future<Map<String, dynamic>?> fetchPlans() async {
+    try {
+      final data = await ApiService.get(ApiConfig.plans);
+      return data as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Create Cashfree Payment Order for Renewal
+  Future<Map<String, dynamic>?> createPaymentOrder({
+    required int planId,
+    required int months,
+  }) async {
+    try {
+      final data = await ApiService.post(ApiConfig.createPaymentOrder, body: {
+        'plan_id': planId,
+        'months': months,
+      });
+      return data as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Check Cashfree Payment Status
+  Future<Map<String, dynamic>?> checkPaymentStatus(String orderId) async {
+    try {
+      final data = await ApiService.post(ApiConfig.checkPaymentStatus, body: {
+        'order_id': orderId,
+      });
+      return data as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // 2. Fetch Attendance Records
   Future<void> fetchAttendance({String? month, bool refresh = false}) async {
     if (_attendance != null && !refresh && month == null) return;

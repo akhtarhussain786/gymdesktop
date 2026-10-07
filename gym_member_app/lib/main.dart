@@ -9,6 +9,7 @@ import 'screens/admin/admin_navigation_screen.dart';
 import 'screens/gym_lookup_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_navigation_screen.dart';
+import 'screens/splash_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,11 +45,7 @@ class GymMemberApp extends StatelessWidget {
 
   Widget _resolveInitialScreen(AuthProvider auth) {
     if (auth.status == AuthStatus.initial) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const SplashScreen();
     }
     if (auth.status == AuthStatus.authenticated) {
       // Role-based routing: Admin Console vs Member Dashboard

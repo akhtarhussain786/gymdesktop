@@ -26,6 +26,9 @@ class ApiConfig {
   static const String profile = '/profile.php';
   static const String changePassword = '/change_password.php';
   static const String membership = '/membership.php';
+  static const String plans = '/plans.php';
+  static const String createPaymentOrder = '/create_payment_order.php';
+  static const String checkPaymentStatus = '/check_payment_status.php';
   static const String attendance = '/attendance.php';
   static const String payments = '/payments.php';
   static const String receipt = '/receipt.php';
