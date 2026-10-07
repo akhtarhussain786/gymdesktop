@@ -1,11 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
-import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfwebcheckoutpayment.dart';
-import 'package:flutter_cashfree_pg_sdk/api/cfpaymentgateway/cfpaymentgatewayservice.dart';
-import 'package:flutter_cashfree_pg_sdk/api/cfsession/cfsession.dart';
-import 'package:flutter_cashfree_pg_sdk/utils/cfenums.dart';
-import 'package:flutter_cashfree_pg_sdk/utils/cfexceptions.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -23,7 +17,6 @@ class AdminSaasSubscriptionScreen extends StatefulWidget {
 }
 
 class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScreen> with WidgetsBindingObserver {
-  final CFPaymentGatewayService _cfService = CFPaymentGatewayService();
   String _selectedCycle = 'monthly'; // monthly, quarterly, yearly
   final _couponController = TextEditingController();
 
@@ -36,29 +29,9 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _cfService.setCallback(_onCashfreeVerify, _onCashfreeError);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AdminProvider>().fetchSaasSubscription();
     });
-  }
-
-  void _onCashfreeVerify(String orderId) {
-    debugPrint('Cashfree SDK verify callback received for order: $orderId');
-    _triggerVerification(orderId, isBackgroundPoll: false);
-  }
-
-  void _onCashfreeError(CFErrorResponse errorResponse, String orderId) {
-    debugPrint('Cashfree SDK error: ${errorResponse.getMessage()} (code: ${errorResponse.getCode()}) for order $orderId');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorResponse.getMessage()?.isNotEmpty == true
-              ? errorResponse.getMessage()!
-              : 'Payment was not completed. Please try again.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-    }
   }
 
   @override
@@ -270,41 +243,20 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
 
       if (res != null && res['payment_session_id'] != null && res['order_id'] != null) {
         final orderId = res['order_id'].toString();
-        final paymentSessionId = res['payment_session_id'].toString();
-        final mode = (res['cashfree_mode'] ?? 'sandbox').toString().toLowerCase();
         final checkoutUrl = res['checkout_url']?.toString();
         _activeOrderId = orderId;
 
-        // Launch native Cashfree PG Web Checkout SDK
-        bool sdkLaunched = false;
-        try {
-          final env = (mode == 'production' || mode == 'prod')
-              ? CFEnvironment.PRODUCTION
-              : CFEnvironment.SANDBOX;
-
-          final session = CFSessionBuilder()
-              .setEnvironment(env)
-              .setOrderId(orderId)
-              .setPaymentSessionId(paymentSessionId)
-              .build();
-
-          final webPayment = CFWebCheckoutPaymentBuilder()
-              .setSession(session)
-              .build();
-
-          _cfService.doPayment(webPayment);
-          sdkLaunched = true;
-        } on CFException catch (e) {
-          debugPrint('Cashfree SDK exception: ${e.message}');
-        } catch (e) {
-          debugPrint('Cashfree SDK launch error: $e');
-        }
-
-        // If native SDK couldn't launch (e.g. desktop/web or simulator), fallback to browser
-        if (!sdkLaunched && checkoutUrl != null) {
-          final uri = Uri.parse(checkoutUrl);
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
+        // Launch Cashfree hosted drop-in checkout page directly
+        // This provides 100% reliable UPI (Google Pay, PhonePe, Paytm, BHIM), QR, Cards & Net Banking
+        // without triggering the Android native SDK's package store restriction on debug/sideload builds.
+        if (checkoutUrl != null && checkoutUrl.isNotEmpty) {
+          try {
+            final uri = Uri.parse(checkoutUrl);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          } catch (e) {
+            debugPrint('Error launching checkout URL: $e');
           }
         }
 
@@ -413,18 +365,28 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                       ),
                     ),
                     if (checkoutUrl != null) ...[
-                      const SizedBox(height: 12),
-                      TextButton.icon(
+                      const SizedBox(height: 14),
+                      ElevatedButton.icon(
                         onPressed: () async {
                           final uri = Uri.parse(checkoutUrl);
                           if (await canLaunchUrl(uri)) {
                             await launchUrl(uri, mode: LaunchMode.externalApplication);
                           }
                         },
-                        icon: const Icon(Icons.open_in_browser, size: 16, color: Color(0xFF00CEC9)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF232538),
+                          foregroundColor: const Color(0xFF00CEC9),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            side: const BorderSide(color: Color(0xFF00CEC9), width: 1),
+                          ),
+                        ),
+                        icon: const Icon(Icons.open_in_browser, size: 18, color: Color(0xFF00CEC9)),
                         label: const Text(
-                          'Open Checkout Page in Browser',
-                          style: TextStyle(color: Color(0xFF00CEC9), fontSize: 12, fontWeight: FontWeight.bold),
+                          'Open Payment in Browser (GPay / PhonePe)',
+                          style: TextStyle(color: Color(0xFF00CEC9), fontSize: 12, fontWeight: FontWeight.w700),
                         ),
                       ),
                     ],
