@@ -909,4 +909,74 @@ class SubscriptionEngine {
         $res['payment_method'] = $verify['payment_method'] ?? null;
         return $res;
     }
+
+    /**
+     * Check active/trial tenants and dispatch automated email reminders starting 5 days before expiry.
+     * Idempotent & safe: Checks delivery logs so only one reminder per day/milestone is sent.
+     * 
+     * @param int|null $targetTenantId If specified, checks only this tenant; otherwise checks all tenants.
+     * @return array ['total_checked' => int, 'reminders_sent' => int, 'skipped' => int, 'errors' => array]
+     */
+    public static function checkAndSendSaasExpiryReminders($targetTenantId = null) {
+        $today = date('Y-m-d');
+        $query = "SELECT t.id, t.gym_name, t.owner_name, t.email, t.phone, t.subscription_expiry, t.status, 
+                         sp.name as plan_name 
+                  FROM tenants t 
+                  LEFT JOIN subscription_plans sp ON t.subscription_plan_id = sp.id 
+                  WHERE t.status IN ('active', 'trial', 'grace') 
+                    AND t.subscription_expiry IS NOT NULL 
+                    AND t.subscription_expiry <> '0000-00-00'";
+        $params = [];
+
+        if ($targetTenantId !== null && (int)$targetTenantId > 0) {
+            $query .= " AND t.id = ?";
+            $params[] = (int)$targetTenantId;
+        }
+
+        $tenants = DB::fetchAll($query, $params);
+        $totalChecked = count($tenants);
+        $sentCount = 0;
+        $skippedCount = 0;
+        $errors = [];
+
+        foreach ($tenants as $t) {
+            $email = trim($t['email'] ?? '');
+            if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                continue;
+            }
+
+            $expiry = date('Y-m-d', strtotime($t['subscription_expiry']));
+            $diffSeconds = strtotime($expiry) - strtotime($today);
+            $daysRemaining = (int)ceil($diffSeconds / 86400);
+
+            // Send reminder when 5 days or fewer remain (5, 4, 3, 2, 1, 0)
+            if ($daysRemaining <= 5 && $daysRemaining >= 0) {
+                require_once __DIR__ . '/mailer.php';
+                $mailResult = Mailer::sendSaasExpiryReminderEmail([
+                    'to_email'       => $email,
+                    'owner_name'     => $t['owner_name'] ?: 'Gym Owner',
+                    'gym_name'       => $t['gym_name'] ?: 'Your Gym',
+                    'plan_name'      => $t['plan_name'] ?: 'SaaS Plan',
+                    'expiry_date'    => $expiry,
+                    'days_remaining' => $daysRemaining,
+                    'tenant_id'      => (int)$t['id']
+                ]);
+
+                if (!empty($mailResult['skipped'])) {
+                    $skippedCount++;
+                } elseif (!empty($mailResult['success'])) {
+                    $sentCount++;
+                } else {
+                    $errors[] = "Tenant #{$t['id']} ({$email}): " . ($mailResult['error'] ?? 'Send failed');
+                }
+            }
+        }
+
+        return [
+            'total_checked'  => $totalChecked,
+            'reminders_sent' => $sentCount,
+            'skipped'        => $skippedCount,
+            'errors'         => $errors
+        ];
+    }
 }

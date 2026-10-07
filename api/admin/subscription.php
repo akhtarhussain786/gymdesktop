@@ -216,6 +216,15 @@ $appId = CashfreeGateway::getAppId();
 $secretKey = CashfreeGateway::getSecretKey();
 $cashfreeAvailable = !empty($appId) && !empty($secretKey);
 
+// Auto-check and send email reminder if subscription is expiring in <= 5 days
+if (isset($subStatus['days_left']) && (int)$subStatus['days_left'] <= 5 && (int)$subStatus['days_left'] >= 0) {
+    try {
+        SubscriptionEngine::checkAndSendSaasExpiryReminders($tenantId);
+    } catch (Throwable $e) {
+        error_log('Error checking SaaS expiry reminders: ' . $e->getMessage());
+    }
+}
+
 ApiResponse::success([
     'current_subscription' => [
         'plan_id' => (int)($tenant['subscription_plan_id'] ?? 0),

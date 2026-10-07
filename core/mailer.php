@@ -439,6 +439,255 @@ HTML;
     }
 
     /**
+     * Send SaaS Subscription Expiry Reminder Email to Gym Owner (5 days, 3 days, 1 day, 0 days)
+     * 
+     * @param array $details [
+     *   'to_email'       => string,
+     *   'owner_name'     => string,
+     *   'gym_name'       => string,
+     *   'plan_name'      => string,
+     *   'expiry_date'    => string,
+     *   'days_remaining' => int,
+     *   'tenant_id'      => int,
+     *   'force_resend'   => bool (default false)
+     * ]
+     * @return array ['success' => bool, 'error' => string|null, 'skipped' => bool]
+     */
+    public static function sendSaasExpiryReminderEmail(array $details) {
+        $to = trim($details['to_email'] ?? '');
+        if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'error' => 'Invalid destination email address.', 'skipped' => false];
+        }
+
+        $tenantId      = !empty($details['tenant_id']) ? (int)$details['tenant_id'] : null;
+        $daysRemaining = isset($details['days_remaining']) ? (int)$details['days_remaining'] : 5;
+        $expiryDate    = trim((string)($details['expiry_date'] ?? date('Y-m-d')));
+        $forceResend   = !empty($details['force_resend']);
+        $today         = date('Y-m-d');
+
+        // Order reference unique per tenant, expiry milestone, and date
+        $orderRef = "SAAS_REMINDER_{$tenantId}_{$expiryDate}_D{$daysRemaining}_{$today}";
+        $emailType = "saas_expiry_reminder_d{$daysRemaining}";
+
+        // Idempotency: Don't send multiple reminder emails for the same milestone on the same day
+        if (!$forceResend) {
+            $existing = DB::fetchOne(
+                "SELECT id FROM email_delivery_logs WHERE order_ref = ? AND status = 'sent' LIMIT 1",
+                [$orderRef]
+            );
+            if ($existing) {
+                return [
+                    'success' => true,
+                    'error'   => null,
+                    'skipped' => true,
+                    'message' => "Reminder email for {$daysRemaining} days left was already sent today."
+                ];
+            }
+        }
+
+        $customerName = htmlspecialchars((string)($details['owner_name'] ?? 'Gym Owner'), ENT_QUOTES, 'UTF-8');
+        $gymName      = htmlspecialchars((string)($details['gym_name'] ?? 'Your Gym'), ENT_QUOTES, 'UTF-8');
+        $planName     = htmlspecialchars((string)($details['plan_name'] ?? 'SaaS Plan'), ENT_QUOTES, 'UTF-8');
+        $safeExpDate  = htmlspecialchars($expiryDate, ENT_QUOTES, 'UTF-8');
+        $renewalUrl   = self::getBaseAppUrl() . '/admin/cashfree-subscription-checkout.php';
+
+        if ($daysRemaining <= 0) {
+            $subject = "🚨 URGENT: Your Fitisify SaaS Subscription Expires TODAY - Renew Now";
+            $headline = "Your SaaS Subscription Expires Today!";
+            $badgeText = "EXPIRES TODAY";
+            $badgeColor = "#ef4444";
+        } elseif ($daysRemaining === 1) {
+            $subject = "⚠️ URGENT: 1 Day Left - Your Fitisify SaaS Subscription Expires Tomorrow";
+            $headline = "Only 1 Day Left Before SaaS Expiry";
+            $badgeText = "1 DAY REMAINING";
+            $badgeColor = "#f59e0b";
+        } else {
+            $subject = "⏰ Reminder: Your Fitisify SaaS Subscription Expires in {$daysRemaining} Days";
+            $headline = "Your SaaS Subscription Expires in {$daysRemaining} Days";
+            $badgeText = "{$daysRemaining} DAYS REMAINING";
+            $badgeColor = "#eab308";
+        }
+
+        // Professional HTML Template
+        $htmlBody = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{$subject}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#0f1015; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#f8fafc; -webkit-text-size-adjust:100%;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0f1015; padding:30px 10px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width:600px; background-color:#171821; border-radius:16px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); box-shadow:0 20px 40px rgba(0,0,0,0.6);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding:30px 24px; text-align:center; color:#ffffff;">
+                            <h1 style="margin:0; font-size:22px; font-weight:800; letter-spacing:-0.5px;">Fitisify Gym SaaS</h1>
+                            <p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Subscription Expiry & Renewal Alert</p>
+                        </td>
+                    </tr>
+
+                    <!-- Body Content -->
+                    <tr>
+                        <td style="padding:32px 28px;">
+                            <!-- Alert Badge -->
+                            <div style="text-align:center; margin-bottom:20px;">
+                                <span style="display:inline-block; background-color:{$badgeColor}; color:#000000; font-weight:800; font-size:12px; padding:6px 14px; border-radius:20px; text-transform:uppercase; letter-spacing:0.5px;">
+                                    {$badgeText}
+                                </span>
+                            </div>
+
+                            <h2 style="font-size:18px; font-weight:800; color:#ffffff; text-align:center; margin:0 0 16px;">
+                                {$headline}
+                            </h2>
+
+                            <p style="font-size:15px; line-height:1.6; color:#cbd5e1; margin:0 0 20px;">
+                                Dear <strong>{$customerName}</strong>,
+                            </p>
+                            <p style="font-size:14px; line-height:1.6; color:#94a3b8; margin:0 0 24px;">
+                                This is a friendly reminder that your gym management SaaS subscription for <strong style="color:#ffffff;">{$gymName}</strong> is scheduled to expire on <strong style="color:#ccff00;">{$safeExpDate}</strong>.
+                            </p>
+
+                            <!-- Subscription Details Card -->
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#202230; border:1px solid rgba(255,255,255,0.08); border-radius:12px; margin-bottom:24px;">
+                                <tr>
+                                    <td style="padding:18px 20px;">
+                                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td style="padding:8px 0; font-size:13px; color:#94a3b8;">Gym Name:</td>
+                                                <td style="padding:8px 0; font-size:13px; color:#ffffff; font-weight:700; text-align:right;">{$gymName}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:8px 0; font-size:13px; color:#94a3b8;">Current Plan:</td>
+                                                <td style="padding:8px 0; font-size:13px; color:#ffffff; font-weight:700; text-align:right;">{$planName}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:8px 0; font-size:13px; color:#94a3b8;">Expiration Date:</td>
+                                                <td style="padding:8px 0; font-size:13px; color:#ccff00; font-weight:700; text-align:right;">{$safeExpDate}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:8px 0; font-size:13px; color:#94a3b8;">Days Remaining:</td>
+                                                <td style="padding:8px 0; font-size:13px; color:#38bdf8; font-weight:700; text-align:right;">{$daysRemaining} Days</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Why Renew Box -->
+                            <div style="background-color:rgba(99,102,241,0.1); border-left:4px solid #6366f1; border-radius:6px; padding:14px 16px; margin-bottom:26px;">
+                                <p style="font-size:13px; line-height:1.5; color:#cbd5e1; margin:0;">
+                                    ⚡ <strong>Avoid service interruptions:</strong> Renew now to maintain uninterrupted access to member check-in, attendance tracking, billing receipts, staff portal, and WhatsApp notifications.
+                                </p>
+                            </div>
+
+                            <!-- CTA Button -->
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:28px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{$renewalUrl}" target="_blank" style="display:inline-block; background-color:#ccff00; color:#000000 !important; text-decoration:none; padding:14px 34px; border-radius:10px; font-weight:800; font-size:15px; text-align:center; box-shadow:0 4px 15px rgba(204,255,0,0.3);">
+                                            ⚡ Renew SaaS Subscription Now
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Payment Methods Pill -->
+                            <p style="font-size:12px; line-height:1.5; color:#94a3b8; text-align:center; margin:0 0 24px;">
+                                Supports <strong>Google Pay, PhonePe, Paytm, BHIM UPI, Cards & Net Banking</strong>.<br>
+                                Plan activates automatically upon successful payment — no waiting or manual admin approval needed!
+                            </p>
+
+                            <hr style="border:none; border-top:1px solid rgba(255,255,255,0.06); margin:20px 0;">
+
+                            <p style="font-size:13px; line-height:1.6; color:#94a3b8; margin:0 0 8px;">
+                                You can also renew directly inside your <strong>Fitisify Gym Admin App</strong>:<br>
+                                <span style="color:#ffffff;">Open App &rarr; Menu &rarr; SaaS Subscription & Billing &rarr; Choose Plan &rarr; Pay</span>
+                            </p>
+
+                            <p style="font-size:13px; line-height:1.6; color:#cbd5e1; margin:20px 0 0;">
+                                Need help or have questions? Simply reply to this email.<br>
+                                <strong>Fitisify SaaS Platform Team</strong>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color:#11121a; padding:18px 24px; text-align:center; font-size:11px; color:#64748b; border-top:1px solid rgba(255,255,255,0.05); line-height:1.5;">
+                            This is an automated subscription reminder notification for {$gymName}.<br>
+                            &copy; " . date('Y') . " Fitisify Gym Management SaaS. All rights reserved.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+HTML;
+
+        // Plain Text Fallback
+        $plainTextBody = <<<TEXT
+Hello {$details['owner_name']},
+
+Reminder: Your Fitisify Gym SaaS subscription for {$details['gym_name']} is expiring in {$daysRemaining} days (on {$safeExpDate}).
+
+Account Details:
+- Gym: {$details['gym_name']}
+- Current Plan: {$planName}
+- Expiration Date: {$safeExpDate}
+- Remaining Days: {$daysRemaining} Days
+
+To ensure your gym management system, member attendance, and billing continue without interruption, please renew your subscription.
+
+Renew Online (UPI / GPay / PhonePe / Cards):
+{$renewalUrl}
+
+You can also renew inside the Fitisify Gym Admin App under "SaaS Subscription & Billing".
+
+Regards,
+Fitisify SaaS Platform Team
+TEXT;
+
+        // Dispatch via SMTP
+        $config = self::getConfig();
+        $smtp = new SmtpClient($config);
+
+        $sendResult = $smtp->send($to, $subject, $htmlBody, [
+            'from_email' => $config['from_address'],
+            'from_name'  => $config['from_name'],
+            'reply_to'   => $config['reply_to'],
+            'plain_text' => $plainTextBody
+        ]);
+
+        $status = $sendResult['success'] ? 'sent' : 'failed';
+        $failureReason = $sendResult['error'] ?? null;
+        $sentAt = $sendResult['success'] ? date('Y-m-d H:i:s') : null;
+
+        self::logDelivery([
+            'recipient_email' => $to,
+            'email_type'      => $emailType,
+            'order_ref'       => $orderRef,
+            'tenant_id'       => $tenantId,
+            'status'          => $status,
+            'sent_at'         => $sentAt,
+            'failure_reason'  => $failureReason
+        ]);
+
+        self::writeAuditFile($to, $subject, $orderRef, $status, $failureReason);
+
+        return [
+            'success' => $sendResult['success'],
+            'error'   => $failureReason,
+            'skipped' => false
+        ];
+    }
+
+    /**
      * Log delivery event into database
      */
     private static function logDelivery(array $data) {
