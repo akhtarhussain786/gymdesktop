@@ -242,7 +242,17 @@ try {
     $invId = DB::insert('invoices', $invCols);
 
     // 6. Create initial active subscription record if table exists
-    $expiryDate = date('Y-m-d', strtotime("+$planMonths months", strtotime($dor)));
+    $customExpiry = !empty($input['expiry_date']) ? trim($input['expiry_date']) : null;
+    $expiryDate = (!empty($customExpiry) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $customExpiry))
+        ? $customExpiry
+        : date('Y-m-d', strtotime("+$planMonths months", strtotime($dor)));
+
+    if (!empty($customExpiry) && $customExpiry !== date('Y-m-d', strtotime("+$planMonths months", strtotime($dor)))) {
+        // Adjust paid_date on member so computed expiry matches
+        $newPaidDate = date('Y-m-d', strtotime("-$planMonths months", strtotime($customExpiry)));
+        DB::update('members', ['paid_date' => $newPaidDate], 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
+    }
+
     if (api_table_exists('member_subscriptions')) {
         DB::insert('member_subscriptions', [
             'tenant_id' => $tenantId,

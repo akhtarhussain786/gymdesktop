@@ -254,6 +254,7 @@ class AdminProvider extends ChangeNotifier {
     String paymentMethod = 'Cash',
     String? password,
     String? dor,
+    String? expiryDate,
     String? photoPath,
     Uint8List? photoBytes,
   }) async {
@@ -279,6 +280,7 @@ class AdminProvider extends ChangeNotifier {
       if (dueDate != null && dueDate.isNotEmpty) fields['due_date'] = dueDate;
       if (password != null && password.isNotEmpty) fields['password'] = password;
       if (dor != null && dor.isNotEmpty) fields['dor'] = dor;
+      if (expiryDate != null && expiryDate.isNotEmpty) fields['expiry_date'] = expiryDate;
 
       dynamic data;
       if (photoPath != null || photoBytes != null) {
@@ -330,6 +332,8 @@ class AdminProvider extends ChangeNotifier {
     required int planMonths,
     String status = 'Active',
     int? trainerId,
+    String? expiryDate,
+    String? dor,
     double? currWeight,
     String? currBodytype,
     String? photoBase64,
@@ -350,6 +354,8 @@ class AdminProvider extends ChangeNotifier {
       if (email != null) body['email'] = email;
       if (address != null) body['address'] = address;
       if (trainerId != null) body['trainer_id'] = trainerId;
+      if (expiryDate != null) body['expiry_date'] = expiryDate;
+      if (dor != null) body['dor'] = dor;
       if (currWeight != null) body['curr_weight'] = currWeight;
       if (currBodytype != null) body['curr_bodytype'] = currBodytype;
       if (photoBase64 != null) body['photo_base64'] = photoBase64;

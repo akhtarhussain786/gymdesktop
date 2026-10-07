@@ -61,6 +61,8 @@ if ($method === 'POST') {
     $email = trim($input['email'] ?? ($existing['email'] ?? ''));
     $status = $input['status'] ?? $existing['status'];
     $trainer_id = !empty($input['trainer_id']) ? (int)$input['trainer_id'] : null;
+    $customExpiry = !empty($input['expiry_date']) ? trim($input['expiry_date']) : null;
+    $customDor = !empty($input['dor']) ? trim($input['dor']) : null;
 
     if (!in_array($status, ['Active', 'Expired', 'Pending'], true)) $status = $existing['status'];
     if (!in_array($gender, ['Male', 'Female', 'Other'], true)) $gender = $existing['gender'];
@@ -94,6 +96,31 @@ if ($method === 'POST') {
         'ini_body_type' => $ini_bodytype,
         'curr_body_type' => $curr_bodytype
     ];
+
+    if (!empty($customDor)) {
+        $updateData['dor'] = $customDor;
+    }
+
+    // If custom expiry date is explicitly set by admin
+    if (!empty($customExpiry) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $customExpiry)) {
+        $baseDate = !empty($customDor) ? $customDor : ($existing['dor'] ?: $existing['paid_date'] ?: date('Y-m-d'));
+        // If expiry is in the future, activate status
+        if ($customExpiry >= date('Y-m-d')) {
+            $updateData['status'] = 'Active';
+        }
+        // Calculate new paid_date so DATE_ADD(paid_date, INTERVAL plan MONTH) = customExpiry
+        $newPaidDate = date('Y-m-d', strtotime("-$plan months", strtotime($customExpiry)));
+        $updateData['paid_date'] = $newPaidDate;
+
+        // Update member_subscriptions if exists
+        if (api_table_exists('member_subscriptions')) {
+            DB::query("UPDATE member_subscriptions 
+                       SET expiry_date = ?, status = CASE WHEN ? >= CURDATE() THEN 'active' ELSE 'expired' END 
+                       WHERE member_id = ? AND tenant_id = ? 
+                       ORDER BY id DESC LIMIT 1", 
+                       [$customExpiry, $customExpiry, $memberId, $tenantId]);
+        }
+    }
 
     // Handle base64 photo upload if provided
     if (!empty($input['photo_base64'])) {
@@ -129,7 +156,15 @@ if ($memberId <= 0) {
     ApiResponse::error('Member ID is required', 400);
 }
 
-$member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId]);
+$planEndSql = "DATE_ADD(paid_date, INTERVAL GREATEST(1, CAST(plan AS UNSIGNED)) MONTH)";
+$effStatusSql = "CASE WHEN status = 'Active' AND (paid_date IS NULL OR $planEndSql < CURDATE()) THEN 'Expired' ELSE status END";
+
+$member = DB::fetchOne("SELECT *, 
+                               $effStatusSql AS effective_status,
+                               $planEndSql AS computed_expiry,
+                               DATEDIFF($planEndSql, CURDATE()) AS days_left
+                        FROM members 
+                        WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId]);
 if (!$member) {
     ApiResponse::error('Member not found', 404);
 }
@@ -140,10 +175,15 @@ $trainers = DB::fetchAll("SELECT user_id, fullname, designation FROM staffs WHER
 $photoUrl = null;
 if (!empty($member['photo'])) {
     $photoUrl = base_url('/uploads/members/' . $member['photo']);
+} elseif (!empty($member['avatar'])) {
+    $photoUrl = base_url('/uploads/avatars/' . $member['avatar']);
 }
 
 ApiResponse::success([
-    'member' => array_merge($member, ['photo_url' => $photoUrl]),
+    'member' => array_merge($member, [
+        'photo_url' => $photoUrl,
+        'expiry_date' => $member['computed_expiry'] ?? date('Y-m-d')
+    ]),
     'rates' => $rates,
     'trainers' => $trainers
 ], 'Member details retrieved successfully');

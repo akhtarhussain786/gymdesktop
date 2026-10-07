@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
@@ -81,8 +82,9 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
     final currency = context.watch<AuthProvider>().currentTenant?.currency ?? '₹';
 
     final totalMembers = admin.members.length;
-    final activeCount = admin.members.where((m) => m.membershipStatus.toLowerCase() == 'active').length;
-    final expiredCount = admin.members.where((m) => m.membershipStatus.toLowerCase() == 'expired').length;
+    final activeCount = admin.members.where((m) => m.membershipStatus.toLowerCase() == 'active' && m.daysRemaining >= 0).length;
+    final expiringCount = admin.members.where((m) => m.daysRemaining >= 0 && m.daysRemaining <= 7 && m.membershipStatus.toLowerCase() != 'expired').length;
+    final expiredCount = admin.members.where((m) => m.membershipStatus.toLowerCase() == 'expired' || m.daysRemaining < 0).length;
     final dueCount = admin.members.where((m) => m.dueAmount > 0).length;
 
     return Scaffold(
@@ -170,8 +172,8 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
                   },
                   itemBuilder: (ctx) => const [
                     PopupMenuItem(value: 'recent', child: Text('Most Recent Joined', style: TextStyle(color: Colors.white))),
+                    PopupMenuItem(value: 'expiry_soon', child: Text('Expiring Soonest (Alert)', style: TextStyle(color: Colors.white))),
                     PopupMenuItem(value: 'due_high', child: Text('Highest Due Amount', style: TextStyle(color: Colors.white))),
-                    PopupMenuItem(value: 'expiry_soon', child: Text('Expiring Soonest', style: TextStyle(color: Colors.white))),
                     PopupMenuItem(value: 'name_asc', child: Text('Name (A to Z)', style: TextStyle(color: Colors.white))),
                   ],
                 ),
@@ -186,9 +188,9 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
             child: Row(
               children: [
                 _filterChip('all', 'All ($totalMembers)'),
+                _filterChip('expiring', 'Expiring Soon ($expiringCount)'),
                 _filterChip('active', 'Active ($activeCount)'),
                 _filterChip('dues', 'Pending Dues ($dueCount)'),
-                _filterChip('expiring', 'Expiring Soon'),
                 _filterChip('expired', 'Expired ($expiredCount)'),
               ],
             ),
@@ -243,23 +245,26 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
 
   Widget _filterChip(String key, String label) {
     final isSelected = _activeFilter == key;
+    final isExpiringKey = key == 'expiring';
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: FilterChip(
         label: Text(label),
         selected: isSelected,
-        selectedColor: AppColors.lime,
+        selectedColor: isExpiringKey ? const Color(0xFFFF9F43) : AppColors.lime,
         checkmarkColor: Colors.black,
         backgroundColor: const Color(0xFF1E1E2C),
         labelStyle: TextStyle(
           fontSize: 11.5,
           fontWeight: FontWeight.bold,
-          color: isSelected ? Colors.black : Colors.white70,
+          color: isSelected ? Colors.black : (isExpiringKey ? const Color(0xFFFF9F43) : Colors.white70),
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
-            color: isSelected ? AppColors.lime : Colors.white.withOpacity(0.06),
+            color: isSelected
+                ? (isExpiringKey ? const Color(0xFFFF9F43) : AppColors.lime)
+                : (isExpiringKey ? const Color(0xFFFF9F43).withOpacity(0.3) : Colors.white.withOpacity(0.06)),
           ),
         ),
         onSelected: (s) {
@@ -270,8 +275,131 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
     );
   }
 
+  Widget _buildExpiryAlertBanner(AdminMemberItem member) {
+    final isExpired = member.membershipStatus.toLowerCase() == 'expired' || member.daysRemaining < 0;
+    final days = member.daysRemaining;
+
+    if (isExpired) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: AppColors.danger.withOpacity(0.18),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: Border(bottom: BorderSide(color: AppColors.danger.withOpacity(0.3))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.cancel_rounded, size: 14, color: AppColors.danger),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '🔴 Membership Expired (${member.expiryDate})',
+                style: const TextStyle(color: AppColors.danger, fontSize: 11.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const Text('Needs Renewal', style: TextStyle(color: AppColors.danger, fontSize: 10.5, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    } else if (days == 0) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF5252).withOpacity(0.25),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: const Border(bottom: BorderSide(color: Color(0xFFFF5252))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, size: 15, color: Color(0xFFFF5252)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '🚨 Expiring Today (${member.expiryDate})!',
+                style: const TextStyle(color: Color(0xFFFF5252), fontSize: 11.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const Text('Action Required', style: TextStyle(color: Color(0xFFFF5252), fontSize: 10.5, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    } else if (days == 1) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF9F43).withOpacity(0.22),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: const Border(bottom: BorderSide(color: Color(0xFFFF9F43))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.alarm_on_rounded, size: 15, color: Color(0xFFFF9F43)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '⚠️ Expiring Tomorrow! (1 Day Left)',
+                style: const TextStyle(color: Color(0xFFFF9F43), fontSize: 11.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Text(member.expiryDate, style: const TextStyle(color: Color(0xFFFF9F43), fontSize: 11, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    } else if (days == 2) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF9F43).withOpacity(0.22),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: const Border(bottom: BorderSide(color: Color(0xFFFF9F43))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.schedule_rounded, size: 15, color: Color(0xFFFF9F43)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '⚠️ Expiring in 2 Days! (${member.expiryDate})',
+                style: const TextStyle(color: Color(0xFFFF9F43), fontSize: 11.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const Text('2 Days Left', style: TextStyle(color: Color(0xFFFF9F43), fontSize: 11, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    } else if (days <= 5) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFECA57).withOpacity(0.12),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: Border(bottom: BorderSide(color: const Color(0xFFFECA57).withOpacity(0.3))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.hourglass_bottom_rounded, size: 14, color: Color(0xFFFECA57)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '⏳ Expiring in $days Days (${member.expiryDate})',
+                style: const TextStyle(color: Color(0xFFFECA57), fontSize: 11.5, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
   Widget _buildMemberCard(AdminMemberItem member, String currency) {
-    final isExpired = member.membershipStatus.toLowerCase() == 'expired';
+    final isExpired = member.membershipStatus.toLowerCase() == 'expired' || member.daysRemaining < 0;
+    final isExpiringCritical = member.daysRemaining <= 2 && member.daysRemaining >= 0 && !isExpired;
     final isExpiringSoon = member.daysRemaining <= 7 && !isExpired;
     final hasDue = member.dueAmount > 0;
 
@@ -280,13 +408,18 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
         color: const Color(0xFF1E1E2C),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: hasDue
-              ? AppColors.warning.withOpacity(0.4)
-              : (isExpired ? AppColors.danger.withOpacity(0.3) : Colors.white.withOpacity(0.06)),
+          color: isExpiringCritical
+              ? const Color(0xFFFF9F43)
+              : (isExpired
+                  ? AppColors.danger.withOpacity(0.5)
+                  : (hasDue ? AppColors.warning.withOpacity(0.5) : Colors.white.withOpacity(0.06))),
+          width: isExpiringCritical ? 1.5 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: isExpiringCritical
+                ? const Color(0xFFFF9F43).withOpacity(0.15)
+                : Colors.black.withOpacity(0.2),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -294,6 +427,8 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
       ),
       child: Column(
         children: [
+          _buildExpiryAlertBanner(member),
+
           // Main Info Row
           InkWell(
             onTap: () {
