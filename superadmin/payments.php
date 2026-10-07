@@ -126,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['approve_payment']) |
     redirect(base_url('/superadmin/payments.php'));
 }
 
-// Delete single pending / failed / rejected order
+// Delete single order (pending, failed, rejected, or test orders)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_payment'])) {
     Auth::verifyCsrf();
     $paymentId = (int)($_POST['payment_id'] ?? 0);
@@ -134,11 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_payment'])) {
 
     if (!$payment) {
         set_flash('error', "Payment record not found.");
-    } elseif ($payment['status'] === 'approved') {
-        set_flash('error', "Approved / Paid payments cannot be deleted to preserve financial audit trail.");
     } else {
-        DB::query("DELETE FROM saas_payments WHERE id = ? AND status IN ('pending', 'failed', 'rejected')", [$paymentId]);
-        Auth::auditLog('DELETE_SAAS_PAYMENT', "Deleted unpaid SaaS order #$paymentId (Ref: {$payment['transaction_ref']})");
+        DB::query("DELETE FROM saas_payments WHERE id = ?", [$paymentId]);
+        Auth::auditLog('DELETE_SAAS_PAYMENT', "Deleted SaaS payment #$paymentId (Ref: {$payment['transaction_ref']})");
         set_flash('success', "Order #{$payment['transaction_ref']} deleted successfully.");
     }
     redirect(base_url('/superadmin/payments.php'));
@@ -151,6 +149,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['purge_old_pending']))
     DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed', 'rejected') AND created_at < ?", [$cutoff]);
     Auth::auditLog('PURGE_OLD_PENDING_PAYMENTS', "Purged abandoned SaaS orders older than 2 days");
     set_flash('success', "All pending / unpaid orders older than 2 days have been purged.");
+    redirect(base_url('/superadmin/payments.php'));
+}
+
+// Bulk purge all test and orphaned records (Keep Demo Gym only)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cleanup_keep_demo_only'])) {
+    Auth::verifyCsrf();
+    // Delete all payments where tenant_id is 0 or tenant is not Demo Gym
+    DB::query("DELETE FROM saas_payments WHERE tenant_id <= 0 OR tenant_id NOT IN (SELECT id FROM tenants WHERE gym_name LIKE '%demo%' OR owner_name LIKE '%demo%')");
+    // Delete non-demo orphaned test tenants
+    DB::query("DELETE FROM tenants WHERE gym_name NOT LIKE '%demo%' AND owner_name NOT LIKE '%demo%' AND email NOT LIKE '%akhtar%' AND id NOT IN (SELECT tenant_id FROM saas_payments WHERE tenant_id > 0)");
+    Auth::auditLog('CLEANUP_SAAS_PAYMENTS', "Purged all test and orphaned orders, keeping only Demo Gym");
+    set_flash('success', "All test and inactive onboarding orders removed. Only Demo Gym is retained.");
     redirect(base_url('/superadmin/payments.php'));
 }
 
@@ -241,6 +251,13 @@ include __DIR__ . '/../includes/topbar.php';
             <?php if (!empty($search) || !empty($statusFilter)): ?>
                 <a href="payments.php" class="btn btn-secondary btn-sm"><i class="fas fa-times"></i> Reset</a>
             <?php endif; ?>
+        </form>
+
+        <form method="POST" action="" style="margin: 0; display: flex; gap: 8px;" onsubmit="return confirm('Delete all test & orphaned checkouts and keep only Demo Gym?');">
+            <?php echo Auth::csrfField(); ?>
+            <button type="submit" name="cleanup_keep_demo_only" value="1" class="btn btn-sm btn-danger" title="Delete all test/orphaned checkouts and keep only Demo Gym">
+                <i class="fas fa-trash"></i> Clean Test Orders (Keep Demo Only)
+            </button>
         </form>
 
         <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Delete all abandoned pending / unpaid orders older than 2 days?');">
@@ -364,15 +381,13 @@ include __DIR__ . '/../includes/topbar.php';
                                             </form>
                                         <?php endif; ?>
 
-                                        <?php if ($p['status'] !== 'approved'): ?>
-                                            <form method="POST" action="" style="margin: 0;" onsubmit="return confirm(<?php echo e(json_encode('Permanently delete unpaid order ' . $p['transaction_ref'] . '?')); ?>);">
-                                                <?php echo Auth::csrfField(); ?>
-                                                <input type="hidden" name="payment_id" value="<?php echo (int)$p['id']; ?>" />
-                                                <button type="submit" name="delete_payment" value="1" class="btn btn-sm" style="background-color: #ef4444; border-color: #ef4444; color: #ffffff; padding: 4px 8px; border-radius: 6px;" title="Delete Order">
-                                                    <i class="fas fa-trash-alt"></i>
-                                                </button>
-                                            </form>
-                                        <?php endif; ?>
+                                        <form method="POST" action="" style="margin: 0;" onsubmit="return confirm(<?php echo e(json_encode('Permanently delete order ' . $p['transaction_ref'] . '?')); ?>);">
+                                            <?php echo Auth::csrfField(); ?>
+                                            <input type="hidden" name="payment_id" value="<?php echo (int)$p['id']; ?>" />
+                                            <button type="submit" name="delete_payment" value="1" class="btn btn-sm" style="background-color: #ef4444; border-color: #ef4444; color: #ffffff; padding: 4px 8px; border-radius: 6px;" title="Delete Order">
+                                                <i class="fas fa-trash-alt"></i>
+                                            </button>
+                                        </form>
                                     </div>
                                 </td>
                             </tr>
