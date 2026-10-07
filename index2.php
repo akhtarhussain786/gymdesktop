@@ -212,12 +212,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
 <body>
 
 <div class="auth-card">
-    <div class="auth-brand">
-        <div class="auth-logo-badge">
-            <img src="gym_logo.png" alt="Logo" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
-        </div>
-        <h2>FITISIFY GYM SAAS</h2>
-        <p>Multi-Tenant Gym Management Portal</p>
+    <div class="auth-brand" style="text-align: center; margin-bottom: 26px;">
+        <a href="<?php echo base_url('/'); ?>" style="text-decoration: none; display: inline-flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <div style="width: 44px; height: 44px; background: #151b23; border: 1px solid rgba(204, 255, 0, 0.35); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 0 16px rgba(204, 255, 0, 0.2);">
+                <i class="fa-solid fa-bolt" style="color: #ccff00; font-size: 1.4rem;"></i>
+            </div>
+            <span style="font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif; font-size: 1.85rem; font-weight: 900; color: #ffffff; letter-spacing: -0.5px; display: inline-flex; align-items: center; gap: 6px;">
+                FITISIFY <span style="background: #ccff00; color: #05080d; font-size: 0.8rem; font-weight: 900; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.5px; line-height: 1.1;">OS</span>
+            </span>
+        </a>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin: 2px 0 0 0;">Multi-Tenant Gym Management Portal</p>
     </div>
 
     <?php if (empty($login_error) && !empty($flash['message'])): ?>
