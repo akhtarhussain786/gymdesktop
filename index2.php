@@ -214,7 +214,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
 <div class="auth-card">
     <div class="auth-brand">
         <div class="auth-logo-badge">
-            <i class="fas fa-cubes"></i>
+            <img src="gym_logo.png" alt="Logo" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">
         </div>
         <h2>FITISIFY GYM SAAS</h2>
         <p>Multi-Tenant Gym Management Portal</p>
