@@ -786,3 +786,161 @@ class AdminSettingsData {
     );
   }
 }
+
+// 12. SaaS Subscription Models
+class AdminSaasSubscriptionInfo {
+  final int planId;
+  final String planName;
+  final String subscriptionStart;
+  final String subscriptionExpiry;
+  final int daysRemaining;
+  final String state; // active, expiring_soon, grace_period, expired
+  final bool isActive;
+  final bool canWrite;
+  final String? message;
+  final int maxMembers;
+  final int maxStaff;
+  final int currentMembers;
+  final int currentStaff;
+
+  AdminSaasSubscriptionInfo({
+    required this.planId,
+    required this.planName,
+    required this.subscriptionStart,
+    required this.subscriptionExpiry,
+    required this.daysRemaining,
+    required this.state,
+    required this.isActive,
+    required this.canWrite,
+    this.message,
+    required this.maxMembers,
+    required this.maxStaff,
+    required this.currentMembers,
+    required this.currentStaff,
+  });
+
+  factory AdminSaasSubscriptionInfo.fromJson(Map<String, dynamic> json) {
+    return AdminSaasSubscriptionInfo(
+      planId: (json['plan_id'] is int) ? json['plan_id'] : int.tryParse('${json['plan_id']}') ?? 0,
+      planName: json['plan_name']?.toString() ?? 'Standard SaaS Plan',
+      subscriptionStart: json['subscription_start']?.toString() ?? '',
+      subscriptionExpiry: json['subscription_expiry']?.toString() ?? '',
+      daysRemaining: (json['days_remaining'] is int) ? json['days_remaining'] : int.tryParse('${json['days_remaining']}') ?? 0,
+      state: json['state']?.toString() ?? 'active',
+      isActive: json['is_active'] == true || json['is_active'] == 1,
+      canWrite: json['can_write'] == true || json['can_write'] == 1,
+      message: json['message']?.toString(),
+      maxMembers: (json['max_members'] is int) ? json['max_members'] : int.tryParse('${json['max_members']}') ?? 100,
+      maxStaff: (json['max_staff'] is int) ? json['max_staff'] : int.tryParse('${json['max_staff']}') ?? 10,
+      currentMembers: (json['current_members'] is int) ? json['current_members'] : int.tryParse('${json['current_members']}') ?? 0,
+      currentStaff: (json['current_staff'] is int) ? json['current_staff'] : int.tryParse('${json['current_staff']}') ?? 0,
+    );
+  }
+}
+
+class AdminSaasPlanItem {
+  final int id;
+  final String name;
+  final String slug;
+  final double priceMonthly;
+  final double priceQuarterly;
+  final double priceYearly;
+  final int trialDays;
+  final int gracePeriodDays;
+  final int maxMembers;
+  final int maxStaff;
+  final int maxBranches;
+  final List<String> features;
+  final bool isCurrent;
+
+  AdminSaasPlanItem({
+    required this.id,
+    required this.name,
+    required this.slug,
+    required this.priceMonthly,
+    required this.priceQuarterly,
+    required this.priceYearly,
+    required this.trialDays,
+    required this.gracePeriodDays,
+    required this.maxMembers,
+    required this.maxStaff,
+    required this.maxBranches,
+    required this.features,
+    required this.isCurrent,
+  });
+
+  factory AdminSaasPlanItem.fromJson(Map<String, dynamic> json) {
+    var rawFeatures = json['features'];
+    List<String> parsedFeatures = [];
+    if (rawFeatures is List) {
+      parsedFeatures = rawFeatures.map((e) => e.toString()).toList();
+    }
+
+    return AdminSaasPlanItem(
+      id: (json['id'] is int) ? json['id'] : int.tryParse('${json['id']}') ?? 0,
+      name: json['name']?.toString() ?? '',
+      slug: json['slug']?.toString() ?? '',
+      priceMonthly: (json['price_monthly'] is num) ? (json['price_monthly'] as num).toDouble() : double.tryParse('${json['price_monthly']}') ?? 0.0,
+      priceQuarterly: (json['price_quarterly'] is num) ? (json['price_quarterly'] as num).toDouble() : double.tryParse('${json['price_quarterly']}') ?? 0.0,
+      priceYearly: (json['price_yearly'] is num) ? (json['price_yearly'] as num).toDouble() : double.tryParse('${json['price_yearly']}') ?? 0.0,
+      trialDays: (json['trial_days'] is int) ? json['trial_days'] : int.tryParse('${json['trial_days']}') ?? 0,
+      gracePeriodDays: (json['grace_period_days'] is int) ? json['grace_period_days'] : int.tryParse('${json['grace_period_days']}') ?? 7,
+      maxMembers: (json['max_members'] is int) ? json['max_members'] : int.tryParse('${json['max_members']}') ?? 100,
+      maxStaff: (json['max_staff'] is int) ? json['max_staff'] : int.tryParse('${json['max_staff']}') ?? 10,
+      maxBranches: (json['max_branches'] is int) ? json['max_branches'] : int.tryParse('${json['max_branches']}') ?? 1,
+      features: parsedFeatures,
+      isCurrent: json['is_current'] == true,
+    );
+  }
+}
+
+class AdminSaasPaymentHistoryItem {
+  final int id;
+  final String planName;
+  final String billingCycle;
+  final double amount;
+  final double taxAmount;
+  final double discountAmount;
+  final double totalPayable;
+  final String paymentMethod;
+  final String transactionRef;
+  final String status;
+  final String createdAt;
+  final String startDate;
+  final String endDate;
+
+  AdminSaasPaymentHistoryItem({
+    required this.id,
+    required this.planName,
+    required this.billingCycle,
+    required this.amount,
+    required this.taxAmount,
+    required this.discountAmount,
+    required this.totalPayable,
+    required this.paymentMethod,
+    required this.transactionRef,
+    required this.status,
+    required this.createdAt,
+    required this.startDate,
+    required this.endDate,
+  });
+
+  factory AdminSaasPaymentHistoryItem.fromJson(Map<String, dynamic> json) {
+    return AdminSaasPaymentHistoryItem(
+      id: (json['id'] is int) ? json['id'] : int.tryParse('${json['id']}') ?? 0,
+      planName: json['plan_name']?.toString() ?? 'SaaS Plan',
+      billingCycle: json['billing_cycle']?.toString() ?? 'monthly',
+      amount: (json['amount'] is num) ? (json['amount'] as num).toDouble() : double.tryParse('${json['amount']}') ?? 0.0,
+      taxAmount: (json['tax_amount'] is num) ? (json['tax_amount'] as num).toDouble() : double.tryParse('${json['tax_amount']}') ?? 0.0,
+      discountAmount: (json['discount_amount'] is num) ? (json['discount_amount'] as num).toDouble() : double.tryParse('${json['discount_amount']}') ?? 0.0,
+      totalPayable: (json['total_payable'] is num) ? (json['total_payable'] as num).toDouble() : double.tryParse('${json['total_payable']}') ?? 0.0,
+      paymentMethod: json['payment_method']?.toString() ?? 'cashfree',
+      transactionRef: json['transaction_ref']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'approved',
+      createdAt: json['created_at']?.toString() ?? '',
+      startDate: json['start_date']?.toString() ?? '',
+      endDate: json['end_date']?.toString() ?? '',
+    );
+  }
+}
+

@@ -27,12 +27,16 @@ class AdminProvider extends ChangeNotifier {
   int _openInquiriesCount = 0;
   AdminReportsData? _reportsData;
   AdminSettingsData? _settingsData;
+  AdminSaasSubscriptionInfo? _saasSubscription;
+  List<AdminSaasPlanItem> _saasPlans = [];
+  List<AdminSaasPaymentHistoryItem> _saasHistory = [];
 
   bool _isDashboardLoading = false;
   bool _isMembersLoading = false;
   bool _isDetailLoading = false;
   bool _isActionLoading = false;
   bool _isSectionLoading = false;
+  bool _isSaasLoading = false;
 
   String? _errorMessage;
   String _activeFilter = 'all';
@@ -63,6 +67,11 @@ class AdminProvider extends ChangeNotifier {
   int get openInquiriesCount => _openInquiriesCount;
   AdminReportsData? get reportsData => _reportsData;
   AdminSettingsData? get settingsData => _settingsData;
+
+  AdminSaasSubscriptionInfo? get saasSubscription => _saasSubscription;
+  List<AdminSaasPlanItem> get saasPlans => _saasPlans;
+  List<AdminSaasPaymentHistoryItem> get saasHistory => _saasHistory;
+  bool get isSaasLoading => _isSaasLoading;
 
   bool get isDashboardLoading => _isDashboardLoading;
   bool get isMembersLoading => _isMembersLoading;
@@ -930,4 +939,76 @@ class AdminProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  // 19. SaaS Subscription & Cashfree Renewals
+  Future<void> fetchSaasSubscription() async {
+    _isSaasLoading = true;
+    notifyListeners();
+    try {
+      final data = await ApiService.get(ApiConfig.adminSubscription, isAdmin: true);
+      if (data != null) {
+        if (data['current_subscription'] != null) {
+          _saasSubscription = AdminSaasSubscriptionInfo.fromJson(data['current_subscription'] as Map<String, dynamic>);
+        }
+        if (data['plans'] is List) {
+          _saasPlans = (data['plans'] as List).map((e) => AdminSaasPlanItem.fromJson(e as Map<String, dynamic>)).toList();
+        }
+        if (data['payment_history'] is List) {
+          _saasHistory = (data['payment_history'] as List).map((e) => AdminSaasPaymentHistoryItem.fromJson(e as Map<String, dynamic>)).toList();
+        }
+      }
+    } catch (_) {} finally {
+      _isSaasLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>?> createSaasCashfreeOrder({
+    required int planId,
+    required String billingCycle,
+    String? couponCode,
+  }) async {
+    _isActionLoading = true;
+    notifyListeners();
+    try {
+      final res = await ApiService.post(
+        ApiConfig.adminSubscription,
+        body: {
+          'action': 'create_order',
+          'plan_id': planId,
+          'billing_cycle': billingCycle,
+          'coupon_code': couponCode ?? '',
+        },
+        isAdmin: true,
+      );
+      return res;
+    } finally {
+      _isActionLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> verifySaasOrder(String orderId) async {
+    _isActionLoading = true;
+    notifyListeners();
+    try {
+      final res = await ApiService.post(
+        ApiConfig.adminSubscription,
+        body: {
+          'action': 'verify_order',
+          'order_id': orderId,
+        },
+        isAdmin: true,
+      );
+      await fetchSaasSubscription();
+      await fetchDashboard(refresh: true);
+      return res != null && res['verified'] == true;
+    } catch (_) {
+      return false;
+    } finally {
+      _isActionLoading = false;
+      notifyListeners();
+    }
+  }
 }
+

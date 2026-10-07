@@ -15,6 +15,7 @@ import 'admin_gym_qr_screen.dart';
 import 'admin_member_detail_screen.dart';
 import 'admin_members_screen.dart';
 import 'admin_reports_screen.dart';
+import 'admin_saas_subscription_screen.dart';
 import 'admin_staffs_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -37,7 +38,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _loadDashboard({bool refresh = false}) async {
-    await context.read<AdminProvider>().fetchDashboard(refresh: refresh);
+    await Future.wait([
+      context.read<AdminProvider>().fetchDashboard(refresh: refresh),
+      context.read<AdminProvider>().fetchSaasSubscription(),
+    ]);
   }
 
   void _openCollectDialog(AdminDueMember member) {
@@ -73,9 +77,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final admin = context.watch<AdminProvider>();
     final auth = context.watch<AuthProvider>();
     final dash = admin.dashboardData;
+    final saas = admin.saasSubscription;
     final currency = dash?.gym.currency ?? auth.currentTenant?.currency ?? '₹';
     final gymName = dash?.gym.name ?? auth.currentTenant?.gymName ?? 'FITISIFY OS';
     final adminUser = auth.adminUser;
+
+    final isSaasExpired = saas != null && (saas.state == 'expired' || saas.daysRemaining < 0);
+    final isSaasExpiringSoon = saas != null && saas.daysRemaining <= 7 && !isSaasExpired;
 
     return Scaffold(
       backgroundColor: AppColors.bg(context),
@@ -132,6 +140,63 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // SaaS Expiry Alert Banner
+                        if (isSaasExpired || isSaasExpiringSoon) ...[
+                          InkWell(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const AdminSaasSubscriptionScreen()),
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: (isSaasExpired ? AppColors.danger : const Color(0xFFFF9F43)).withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isSaasExpired ? AppColors.danger : const Color(0xFFFF9F43),
+                                  width: 1.2,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isSaasExpired ? Icons.cancel_rounded : Icons.alarm_rounded,
+                                    color: isSaasExpired ? AppColors.danger : const Color(0xFFFF9F43),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          isSaasExpired
+                                              ? '🚨 SaaS Software License Expired!'
+                                              : '⚠️ SaaS License Expiring in ${saas.daysRemaining} Days (${saas.subscriptionExpiry})',
+                                          style: TextStyle(
+                                            color: isSaasExpired ? AppColors.danger : const Color(0xFFFF9F43),
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        const Text(
+                                          'Tap here to renew via Cashfree payment gateway.',
+                                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Colors.white54),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+
                         // 1. KPI Cards Grid
                         if (dash != null) ...[
                           Row(

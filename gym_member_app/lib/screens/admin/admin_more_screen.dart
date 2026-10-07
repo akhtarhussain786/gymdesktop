@@ -15,6 +15,7 @@ import 'admin_gym_qr_screen.dart';
 import 'admin_inquiries_screen.dart';
 import 'admin_rates_screen.dart';
 import 'admin_reports_screen.dart';
+import 'admin_saas_subscription_screen.dart';
 import 'admin_settings_screen.dart';
 import 'admin_staffs_screen.dart';
 
@@ -275,8 +276,16 @@ class AdminMoreScreen extends StatelessWidget {
             _sectionHeader('GYM SETTINGS & SYSTEM'),
             _menuTile(
               context,
+              icon: Icons.bolt_rounded,
+              title: 'SaaS Subscription & Billing',
+              subtitle: 'Check subscription expiry, renew via Cashfree',
+              color: AppColors.lime,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminSaasSubscriptionScreen())),
+            ),
+            _menuTile(
+              context,
               icon: Icons.settings_rounded,
-              title: 'Gym Branding & UPI ID',
+              title: 'Gym Branding & Settings',
               subtitle: 'Update gym address, phone & payment UPI',
               color: const Color(0xFF6C5CE7),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminSettingsScreen())),
