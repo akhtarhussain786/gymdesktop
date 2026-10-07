@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../common/in_app_payment_checkout_screen.dart';
 
 class AdminSaasSubscriptionScreen extends StatefulWidget {
   const AdminSaasSubscriptionScreen({super.key});
@@ -168,7 +168,13 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                           ? null
                           : () async {
                               Navigator.pop(ctx);
-                              _initiatePaymentFlow(plan.id, _selectedCycle, _couponController.text.trim());
+                              _initiatePaymentFlow(
+                                plan: plan,
+                                cycle: _selectedCycle,
+                                coupon: _couponController.text.trim(),
+                                price: price,
+                                currency: currency,
+                              );
                             },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.lime,
@@ -191,7 +197,13 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     );
   }
 
-  Future<void> _initiatePaymentFlow(int planId, String cycle, String coupon) async {
+  Future<void> _initiatePaymentFlow({
+    required AdminSaasPlanItem plan,
+    required String cycle,
+    required String coupon,
+    required double price,
+    required String currency,
+  }) async {
     if (_isCreatingOrder) return;
 
     setState(() {
@@ -231,7 +243,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     final admin = context.read<AdminProvider>();
     try {
       final res = await admin.createSaasCashfreeOrder(
-        planId: planId,
+        planId: plan.id,
         billingCycle: cycle,
         couponCode: coupon.isNotEmpty ? coupon : null,
       );
@@ -241,33 +253,41 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         Navigator.of(context, rootNavigator: true).pop();
       }
 
-      if (res != null && res['payment_session_id'] != null && res['order_id'] != null) {
+      if (res != null && res['order_id'] != null && res['checkout_url'] != null) {
         final orderId = res['order_id'].toString();
-        final checkoutUrl = res['checkout_url']?.toString();
+        final checkoutUrl = res['checkout_url'].toString();
+        final finalPayable = (res['total_payable'] != null) ? (double.tryParse('${res['total_payable']}') ?? price) : price;
         _activeOrderId = orderId;
 
-        // Launch Cashfree hosted drop-in checkout page directly
-        // This provides 100% reliable UPI (Google Pay, PhonePe, Paytm, BHIM), QR, Cards & Net Banking
-        // without triggering the Android native SDK's package store restriction on debug/sideload builds.
-        if (checkoutUrl != null && checkoutUrl.isNotEmpty) {
-          try {
-            final uri = Uri.parse(checkoutUrl);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            }
-          } catch (e) {
-            debugPrint('Error launching checkout URL: $e');
-          }
-        }
-
+        // Open Meesho / Flipkart style In-App Payment Checkout Screen
         if (mounted) {
-          _showPaymentVerificationDialog(orderId, checkoutUrl: checkoutUrl);
+          final isSuccess = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => InAppPaymentCheckoutScreen(
+                orderId: orderId,
+                checkoutUrl: checkoutUrl,
+                planName: plan.name,
+                amount: finalPayable,
+                currency: currency,
+              ),
+            ),
+          );
+
+          if (isSuccess == true && mounted) {
+            // Refresh SaaS data and show celebration success modal!
+            await admin.fetchSaasSubscription();
+            _showRenewalSuccessDialog();
+          } else if (mounted) {
+            // Check status silently in case payment succeeded right before exiting
+            await _triggerVerification(orderId, isBackgroundPoll: true);
+          }
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Payment was not completed. Please try again.'),
+              content: Text('Could not create payment order. Please try again.'),
               backgroundColor: AppColors.danger,
             ),
           );
@@ -290,143 +310,6 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         });
       }
     }
-  }
-
-  void _showPaymentVerificationDialog(String orderId, {String? checkoutUrl}) {
-    _pollingTimer?.cancel();
-    int pollCount = 0;
-
-    // Start auto polling every 3 seconds
-    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      pollCount++;
-      if (pollCount > 40) {
-        timer.cancel(); // Stop polling after 2 minutes
-        return;
-      }
-      await _triggerVerification(orderId, isBackgroundPoll: true);
-    });
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return PopScope(
-              canPop: false,
-              child: AlertDialog(
-                backgroundColor: const Color(0xFF1E1E2C),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-                title: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.lime.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.payment_rounded, color: AppColors.lime, size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Payment Gateway',
-                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
-                    ),
-                  ],
-                ),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 8),
-                    const CircularProgressIndicator(color: AppColors.lime, strokeWidth: 2.5),
-                    const SizedBox(height: 18),
-                    Text(
-                      _isAutoVerifying ? 'Verifying payment...' : 'Pay via Google Pay, PhonePe, Paytm, UPI, or Card',
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '⚡ Subscription activates automatically upon successful payment. No manual admin approval needed!',
-                      style: TextStyle(color: Colors.white60, fontSize: 11.5),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF13131A),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'Order ID: #$orderId',
-                        style: const TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
-                      ),
-                    ),
-                    if (checkoutUrl != null) ...[
-                      const SizedBox(height: 14),
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          final uri = Uri.parse(checkoutUrl);
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF232538),
-                          foregroundColor: const Color(0xFF00CEC9),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            side: const BorderSide(color: Color(0xFF00CEC9), width: 1),
-                          ),
-                        ),
-                        icon: const Icon(Icons.open_in_browser, size: 18, color: Color(0xFF00CEC9)),
-                        label: const Text(
-                          'Open Payment in Browser (GPay / PhonePe)',
-                          style: TextStyle(color: Color(0xFF00CEC9), fontSize: 12, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      _pollingTimer?.cancel();
-                      _activeOrderId = null;
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Payment was not completed. Please try again.'),
-                          backgroundColor: AppColors.warning,
-                        ),
-                      );
-                    },
-                    child: const Text('Cancel / Retry', style: TextStyle(color: Colors.white54)),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _isAutoVerifying ? null : () => _triggerVerification(orderId, isBackgroundPoll: false),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.lime,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: Text(
-                      _isAutoVerifying ? 'Verifying...' : 'Verify Payment',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
   Future<void> _triggerVerification(String orderId, {bool isBackgroundPoll = false}) async {
