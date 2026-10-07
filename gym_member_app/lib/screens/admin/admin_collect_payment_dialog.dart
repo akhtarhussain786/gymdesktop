@@ -498,7 +498,7 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int>(
-                                initialValue: _planMonths,
+                                initialValue: const [1, 3, 6, 12].contains(_planMonths) ? _planMonths : 1,
                                 decoration: const InputDecoration(labelText: 'Plan Duration'),
                                 dropdownColor: AppColors.card(context),
                                 items: const [

@@ -45,8 +45,20 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AdminProvider>().fetchRates();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await context.read<AdminProvider>().fetchRates();
+      if (mounted) {
+        final rates = context.read<AdminProvider>().rates;
+        if (rates.isNotEmpty) {
+          final matched = rates.where((r) => r.name.trim() == _selectedService).firstOrNull ?? rates.first;
+          setState(() {
+            _selectedService = matched.name.trim();
+            final total = matched.charge * _planMonths;
+            _totalAmountController.text = total.toStringAsFixed(0);
+            _paidAmountController.text = total.toStringAsFixed(0);
+          });
+        }
+      }
     });
   }
 
@@ -540,7 +552,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          initialValue: _gender,
+                          initialValue: const ['Male', 'Female', 'Other'].contains(_gender) ? _gender : 'Male',
                           dropdownColor: AppColors.card(context),
                           decoration: const InputDecoration(
                             labelText: 'Gender',
@@ -576,31 +588,51 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                   const SizedBox(height: 12),
 
                   // Service Selector (From rates or default)
-                  DropdownButtonFormField<String>(
-                    initialValue: _selectedService,
-                    dropdownColor: AppColors.card(context),
-                    decoration: const InputDecoration(
-                      labelText: 'Select Workout / Gym Package',
-                      prefixIcon: Icon(Icons.fitness_center_rounded),
-                    ),
-                    items: (admin.rates.isNotEmpty
-                            ? admin.rates.map((r) => r.name).toList()
-                            : ['General Fitness', 'Strength & Cardio', 'Personal Training', 'CrossFit'])
-                        .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                        .toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        setState(() {
-                          _selectedService = v;
-                          // Auto set rate if found
-                          final match = admin.rates.where((r) => r.name == v).firstOrNull;
-                          if (match != null) {
-                            final total = match.charge * _planMonths;
-                            _totalAmountController.text = total.toStringAsFixed(0);
-                            _paidAmountController.text = total.toStringAsFixed(0);
-                          }
-                        });
+                  Builder(
+                    builder: (context) {
+                      final rawServices = (admin.rates.isNotEmpty
+                              ? admin.rates.map((r) => r.name.trim()).toList()
+                              : ['General Fitness', 'Strength & Cardio', 'Personal Training', 'CrossFit']);
+
+                      final availableServices = <String>[];
+                      for (final s in rawServices) {
+                        if (s.isNotEmpty && !availableServices.contains(s)) {
+                          availableServices.add(s);
+                        }
                       }
+                      if (availableServices.isEmpty) {
+                        availableServices.add('General Fitness');
+                      }
+
+                      final currentSelected = availableServices.contains(_selectedService)
+                          ? _selectedService
+                          : availableServices.first;
+
+                      return DropdownButtonFormField<String>(
+                        key: ValueKey(currentSelected),
+                        initialValue: currentSelected,
+                        dropdownColor: AppColors.card(context),
+                        decoration: const InputDecoration(
+                          labelText: 'Select Workout / Gym Package',
+                          prefixIcon: Icon(Icons.fitness_center_rounded),
+                        ),
+                        items: availableServices
+                            .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            setState(() {
+                              _selectedService = v;
+                              final match = admin.rates.where((r) => r.name.trim() == v).firstOrNull;
+                              if (match != null) {
+                                final total = match.charge * _planMonths;
+                                _totalAmountController.text = total.toStringAsFixed(0);
+                                _paidAmountController.text = total.toStringAsFixed(0);
+                              }
+                            });
+                          }
+                        },
+                      );
                     },
                   ),
                   const SizedBox(height: 14),
@@ -762,7 +794,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
 
                         // Payment Method
                         DropdownButtonFormField<String>(
-                          initialValue: _paymentMethod,
+                          initialValue: const ['Cash', 'UPI', 'Card', 'Online'].contains(_paymentMethod) ? _paymentMethod : 'Cash',
                           dropdownColor: AppColors.card(context),
                           decoration: const InputDecoration(
                             labelText: 'Initial Payment Method',
