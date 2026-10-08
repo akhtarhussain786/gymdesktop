@@ -474,7 +474,58 @@ class NotificationEngine {
             }
         }
 
+        if (!$sa || empty($sa['private_key'])) {
+            try {
+                $dbSa = DB::fetchValue("SELECT setting_value FROM settings WHERE setting_key = 'firebase_service_account_json' LIMIT 1");
+                if (!empty($dbSa)) {
+                    $sa = @json_decode($dbSa, true);
+                }
+            } catch (Throwable $e) {}
+        }
+
         return $sa;
+    }
+
+    /**
+     * Save & Validate Firebase Service Account JSON credentials (File + DB fallback)
+     */
+    public static function saveServiceAccountData($jsonString) {
+        $jsonString = trim((string)$jsonString);
+        $sa = @json_decode($jsonString, true);
+        if (!$sa || empty($sa['client_email']) || empty($sa['private_key'])) {
+            return ['success' => false, 'error' => 'Invalid Firebase Service Account JSON. Ensure "client_email" and "private_key" are present.'];
+        }
+
+        // 1. Save to DB settings table (persists across Git deployments)
+        try {
+            DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+            $exists = DB::fetchValue("SELECT COUNT(*) FROM settings WHERE setting_key = 'firebase_service_account_json'");
+            if ($exists) {
+                DB::update('settings', ['setting_value' => $jsonString], "setting_key = 'firebase_service_account_json'");
+            } else {
+                DB::insert('settings', ['setting_key' => 'firebase_service_account_json', 'setting_value' => $jsonString]);
+            }
+        } catch (Throwable $e) {
+            error_log("Failed to save service account to DB: " . $e->getMessage());
+        }
+
+        // 2. Write to local file if writable
+        try {
+            $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
+            @file_put_contents($serviceAccountPath, $jsonString);
+        } catch (Throwable $e) {}
+
+        // 3. Test OAuth2 Token exchange immediately
+        $token = self::getGoogleAccessToken();
+        if (!$token) {
+            return ['success' => false, 'error' => 'Saved, but Google rejected the RSA private key or OAuth2 exchange failed. Please verify credentials.'];
+        }
+
+        return [
+            'success' => true,
+            'project_id' => $sa['project_id'] ?? 'gymsaas-dc468',
+            'client_email' => $sa['client_email']
+        ];
     }
 
     /**

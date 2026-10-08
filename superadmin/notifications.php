@@ -55,7 +55,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('/superadmin/notifications');
     }
 
-    // 2. Instant Single-Device Test Push Action
+    // 2. Save Firebase Service Account JSON Action
+    if ($action === 'save_service_account') {
+        $saJson = trim($_POST['service_account_json'] ?? '');
+        $res = NotificationEngine::saveServiceAccountData($saJson);
+        if ($res['success']) {
+            Auth::auditLog('SAVE_FIREBASE_SERVICE_ACCOUNT', "Updated Firebase Service Account credentials for project '{$res['project_id']}'");
+            set_flash('success', "✅ Firebase FCM HTTP v1 Service Account saved & verified successfully for project '<strong>{$res['project_id']}</strong>'!");
+        } else {
+            set_flash('error', "❌ " . ($res['error'] ?? 'Invalid Firebase Service Account JSON.'));
+        }
+        redirect('/superadmin/notifications');
+    }
+
+    // 3. Instant Single-Device Test Push Action
     if ($action === 'test_push') {
         $testToken = trim($_POST['test_device_token'] ?? '');
         $testTitle = trim($_POST['test_title'] ?? '🔔 Live Test Push Alert');
@@ -227,6 +240,35 @@ include __DIR__ . '/../includes/topbar.php';
                         <div><strong>Service Account:</strong> <span style="word-break: break-all;"><?php echo e($fcmHealth['client_email']); ?></span></div>
                         <div><strong>Protocol:</strong> <code>HTTP/v1 (OAuth 2.0 Bearer)</code></div>
                         <div><strong>Heads-Up Channel:</strong> <code>gym_high_importance_channel</code></div>
+                    </div>
+                </div>
+
+                <!-- Firebase Service Account Configuration Section -->
+                <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;" onclick="document.getElementById('sa-json-box').style.display = document.getElementById('sa-json-box').style.display === 'none' ? 'block' : 'none';">
+                        <span style="font-size: 0.88rem; font-weight: 700; color: #fff;">
+                            <i class="fas fa-key" style="color: var(--lime);"></i> Firebase Service Account JSON
+                        </span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted); text-decoration: underline;">
+                            <?php echo $fcmHealth['oauth_authenticated'] ? 'Click to Re-configure' : '⚠️ Paste JSON to Activate'; ?>
+                        </span>
+                    </div>
+
+                    <div id="sa-json-box" style="display: <?php echo $fcmHealth['oauth_authenticated'] ? 'none' : 'block'; ?>; margin-top: 12px;">
+                        <form method="POST" action="">
+                            <?php echo Auth::csrfField(); ?>
+                            <input type="hidden" name="action" value="save_service_account">
+
+                            <div class="form-group">
+                                <label class="form-label" style="font-size: 0.78rem;">Paste Firebase Service Account JSON (Private Key) *</label>
+                                <textarea name="service_account_json" class="form-control form-control-sm" rows="5" placeholder='{"type": "service_account", "project_id": "gymsaas-dc468", "private_key": "-----BEGIN PRIVATE KEY-----...", "client_email": "..."}' required style="font-family: monospace; font-size: 0.75rem;"></textarea>
+                                <small style="color: var(--text-muted); font-size: 0.72rem;">Saved securely in database so it survives Git deployments.</small>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary btn-sm" style="width: 100%; font-weight: 700;">
+                                <i class="fas fa-save"></i> Save & Verify Service Account
+                            </button>
+                        </form>
                     </div>
                 </div>
 
