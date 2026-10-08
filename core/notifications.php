@@ -353,32 +353,200 @@ class NotificationEngine {
     }
 
     /**
-     * Dispatch Google Firebase Cloud Messaging (FCM) Push
+     * Get Google OAuth2 Access Token using Firebase Service Account JSON (JWT RS256)
+     */
+    public static function getGoogleAccessToken() {
+        static $cachedToken = null;
+        static $tokenExpiry = 0;
+
+        if ($cachedToken !== null && time() < ($tokenExpiry - 120)) {
+            return $cachedToken;
+        }
+
+        $sa = null;
+        $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
+        if (file_exists($serviceAccountPath)) {
+            $jsonContent = @file_get_contents($serviceAccountPath);
+            $sa = @json_decode($jsonContent, true);
+        }
+
+        if (!$sa || empty($sa['private_key'])) {
+            $envSa = getenv('FIREBASE_SERVICE_ACCOUNT_JSON');
+            if ($envSa) {
+                $sa = @json_decode($envSa, true);
+            }
+        }
+
+        if (!$sa || empty($sa['private_key'])) {
+            $envSaB64 = getenv('FIREBASE_SERVICE_ACCOUNT_BASE64');
+            if ($envSaB64) {
+                $sa = @json_decode(base64_decode($envSaB64), true);
+            }
+        }
+
+        if (!$sa || empty($sa['client_email']) || empty($sa['private_key'])) {
+            return null;
+        }
+
+        $now = time();
+        $jwtHeader = self::base64UrlEncode(json_encode([
+            'alg' => 'RS256',
+            'typ' => 'JWT'
+        ]));
+
+        $jwtClaims = self::base64UrlEncode(json_encode([
+            'iss' => $sa['client_email'],
+            'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
+            'aud' => $sa['token_uri'] ?? 'https://oauth2.googleapis.com/token',
+            'exp' => $now + 3600,
+            'iat' => $now
+        ]));
+
+        $signatureInput = $jwtHeader . '.' . $jwtClaims;
+        $signature = '';
+        $privateKey = $sa['private_key'];
+
+        $keyResource = openssl_pkey_get_private($privateKey);
+        if (!$keyResource) {
+            error_log("FCM v1: Invalid private key in firebase_service_account.json");
+            return null;
+        }
+
+        if (!openssl_sign($signatureInput, $signature, $keyResource, OPENSSL_ALGO_SHA256)) {
+            error_log("FCM v1: Failed to sign JWT with RSA key");
+            return null;
+        }
+
+        $jwt = $signatureInput . '.' . self::base64UrlEncode($signature);
+
+        // Exchange JWT for OAuth2 Access Token
+        $ch = curl_init($sa['token_uri'] ?? 'https://oauth2.googleapis.com/token');
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+            'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            'assertion' => $jwt
+        ]));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode === 200 && $response) {
+            $data = json_decode($response, true);
+            if (!empty($data['access_token'])) {
+                $cachedToken = $data['access_token'];
+                $tokenExpiry = $now + (int)($data['expires_in'] ?? 3600);
+                return $cachedToken;
+            }
+        }
+
+        error_log("FCM v1: OAuth token exchange failed: HTTP $httpCode, Response: $response");
+        return null;
+    }
+
+    /**
+     * Dispatch Google Firebase Cloud Messaging (FCM) Push (FCM v1 with Legacy fallback)
      */
     public static function dispatchFcm(array $tokens, $title, $body, array $payload = []) {
         if (empty($tokens)) {
             return ['status' => 'skipped', 'message' => 'No active device tokens found.'];
         }
 
+        $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
+        $serviceAccount = file_exists($serviceAccountPath) ? @json_decode(@file_get_contents($serviceAccountPath), true) : null;
+        $projectId = $serviceAccount['project_id'] ?? 'gymsaas-dc468';
+
+        $accessToken = self::getGoogleAccessToken();
+
+        // 1. If Google FCM v1 Access Token is available (Recommended Modern API)
+        if ($accessToken) {
+            $totalSuccess = 0;
+            $totalFail = 0;
+
+            foreach ($tokens as $token) {
+                if (empty($token) || strlen($token) < 20) continue;
+
+                $stringPayload = [];
+                foreach ($payload as $k => $v) {
+                    $stringPayload[(string)$k] = is_scalar($v) ? (string)$v : json_encode($v);
+                }
+
+                $message = [
+                    'message' => [
+                        'token' => $token,
+                        'notification' => [
+                            'title' => (string)$title,
+                            'body' => (string)$body,
+                        ],
+                        'data' => array_merge($stringPayload, [
+                            'title' => (string)$title,
+                            'body' => (string)$body,
+                            'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
+                        ]),
+                        'android' => [
+                            'priority' => 'HIGH',
+                            'notification' => [
+                                'sound' => 'default',
+                                'channel_id' => 'gym_alerts_channel',
+                                'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
+                            ]
+                        ]
+                    ]
+                ];
+
+                $ch = curl_init("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send");
+                curl_setopt($ch, CURLOPT_POST, true);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                    'Authorization: Bearer ' . $accessToken,
+                    'Content-Type: application/json'
+                ]);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
+
+                $response = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+
+                if ($httpCode === 200) {
+                    $totalSuccess++;
+                } else {
+                    $totalFail++;
+                    error_log("FCM v1 send error for device $token: HTTP $httpCode $response");
+                }
+            }
+
+            return [
+                'status' => 'dispatched_v1',
+                'api' => 'fcm_v1',
+                'project_id' => $projectId,
+                'success_count' => $totalSuccess,
+                'fail_count' => $totalFail,
+                'total_devices' => count($tokens)
+            ];
+        }
+
+        // 2. Fallback to Legacy FCM key if configured
         $fcmServerKey = getenv('FCM_SERVER_KEY') ?: '';
         if (empty($fcmServerKey)) {
-            // Check global settings table
             try {
                 $fcmServerKey = DB::fetchValue("SELECT setting_value FROM settings WHERE setting_key = 'fcm_server_key' LIMIT 1") ?: '';
             } catch (Throwable $e) {}
         }
 
-        // If no server key configured yet, log in database and return ready status
         if (empty($fcmServerKey)) {
-            error_log("FCM Notice: FCM_SERVER_KEY is not configured yet in .env or settings. Push queued for " . count($tokens) . " devices.");
             return [
-                'status' => 'queued',
-                'message' => 'FCM Server Key not configured. Push recorded in In-App notification feed.',
+                'status' => 'recorded_in_app',
+                'message' => 'Push recorded in In-App notification feed.',
                 'device_count' => count($tokens)
             ];
         }
 
-        // Batch tokens in chunks of 500 (FCM limit)
+        // Batch tokens in chunks of 500 for legacy endpoint
         $chunks = array_chunk($tokens, 500);
         $totalSuccess = 0;
         $totalFail = 0;
@@ -426,11 +594,16 @@ class NotificationEngine {
         }
 
         return [
-            'status' => 'dispatched',
+            'status' => 'dispatched_legacy',
+            'api' => 'legacy',
             'success_count' => $totalSuccess,
             'fail_count' => $totalFail,
             'total_devices' => count($tokens)
         ];
+    }
+
+    private static function base64UrlEncode($data) {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
     private static function formatTimeAgo($datetime) {

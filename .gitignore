@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+core/firebase_service_account.json
+
 
 # Logs
 *.log
