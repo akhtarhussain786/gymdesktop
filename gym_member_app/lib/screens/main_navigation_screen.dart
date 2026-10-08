@@ -276,43 +276,47 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final activeBg = isDark ? AppColors.lime.withValues(alpha: 0.12) : const Color(0xFF0F172A).withValues(alpha: 0.08);
     final activeBorder = isDark ? AppColors.limeBorder : const Color(0xFF0F172A).withValues(alpha: 0.15);
 
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _currentIndex = index;
-        });
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? activeBg : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? activeBorder : Colors.transparent,
-            width: 1,
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? activeBg : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected ? activeBorder : Colors.transparent,
+              width: 1,
+            ),
           ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isSelected ? activeIcon : icon,
-              color: isSelected ? activeColor : AppColors.textMuted(context),
-              size: 20,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: GoogleFonts.plusJakartaSans(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isSelected ? activeIcon : icon,
                 color: isSelected ? activeColor : AppColors.textMuted(context),
-                fontSize: 10.5,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                size: 20,
               ),
-            ),
-          ],
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: GoogleFonts.plusJakartaSans(
+                  color: isSelected ? activeColor : AppColors.textMuted(context),
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );

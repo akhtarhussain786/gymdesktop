@@ -491,17 +491,22 @@ class _RenewMembershipDialogState extends State<RenewMembershipDialog> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Total Price (Backend Verified)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$_selectedPlanName ($_selectedMonths Months)',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Total Price (Backend Verified)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$_selectedPlanName ($_selectedMonths Months)',
+                      style: theme.textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 12),
               Text(
                 '$currency${_calculatedPrice.toStringAsFixed(2)}',
                 style: TextStyle(

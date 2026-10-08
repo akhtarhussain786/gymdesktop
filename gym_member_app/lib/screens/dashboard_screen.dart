@@ -592,13 +592,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'TODAY\'S WORKOUT',
-                  style: GoogleFonts.outfit(
-                    color: AppColors.textPrimary(context),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    letterSpacing: 0.6,
+                Expanded(
+                  child: Text(
+                    'TODAY\'S WORKOUT',
+                    style: GoogleFonts.outfit(
+                      color: AppColors.textPrimary(context),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      letterSpacing: 0.6,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 TextButton(
@@ -630,22 +634,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.fitness_center_rounded, color: AppColors.lime, size: 20),
-                            const SizedBox(width: 10),
-                            Text(
-                              workout.name,
-                              style: GoogleFonts.outfit(
-                                color: AppColors.textPrimary(context),
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
+                        Expanded(
+                          child: Row(
+                            children: [
+                              const Icon(Icons.fitness_center_rounded, color: AppColors.lime, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  workout.name,
+                                  style: GoogleFonts.outfit(
+                                    color: AppColors.textPrimary(context),
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         StatusBadge(status: workout.level),
                       ],
                     ),
@@ -687,13 +697,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'NUTRITION & MACROS',
-                  style: GoogleFonts.outfit(
-                    color: AppColors.textPrimary(context),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    letterSpacing: 0.6,
+                Expanded(
+                  child: Text(
+                    'NUTRITION & MACROS',
+                    style: GoogleFonts.outfit(
+                      color: AppColors.textPrimary(context),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      letterSpacing: 0.6,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 TextButton(
@@ -725,22 +739,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.restaurant_rounded, color: AppColors.cyan, size: 20),
-                            const SizedBox(width: 10),
-                            Text(
-                              diet.name,
-                              style: GoogleFonts.outfit(
-                                color: AppColors.textPrimary(context),
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
+                        Expanded(
+                          child: Row(
+                            children: [
+                              const Icon(Icons.restaurant_rounded, color: AppColors.cyan, size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  diet.name,
+                                  style: GoogleFonts.outfit(
+                                    color: AppColors.textPrimary(context),
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         StatusBadge(status: '${diet.calories} kcal'),
                       ],
                     ),
@@ -849,13 +869,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'GYM ANNOUNCEMENTS',
-                    style: GoogleFonts.outfit(
-                      color: AppColors.textPrimary(context),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      letterSpacing: 0.6,
+                  Expanded(
+                    child: Text(
+                      'GYM ANNOUNCEMENTS',
+                      style: GoogleFonts.outfit(
+                        color: AppColors.textPrimary(context),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        letterSpacing: 0.6,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   TextButton(

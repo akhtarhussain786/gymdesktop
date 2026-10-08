@@ -120,8 +120,11 @@ class _NoticesScreenState extends State<NoticesScreen> {
                                       fontSize: 16,
                                       color: AppColors.darkTextPrimary,
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 Text(
                                   notice.formattedDate,
                                   style: GoogleFonts.plusJakartaSans(

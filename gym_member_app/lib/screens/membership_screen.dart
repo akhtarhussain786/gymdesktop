@@ -113,26 +113,31 @@ class _MembershipScreenState extends State<MembershipScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              plan.planName.toUpperCase(),
-                              style: GoogleFonts.outfit(
-                                color: AppColors.darkTextPrimary,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
+                            Expanded(
+                              child: Text(
+                                plan.planName.toUpperCase(),
+                                style: GoogleFonts.outfit(
+                                  color: AppColors.darkTextPrimary,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            const SizedBox(width: 8),
                             StatusBadge(status: plan.status),
                           ],
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            _buildPlanMeta('Start Date', plan.startDate),
-                            const SizedBox(width: 24),
-                            _buildPlanMeta('Expiry Date', plan.expiryDate),
-                            const SizedBox(width: 24),
-                            _buildPlanMeta('Remaining', '${plan.daysRemaining} Days'),
+                            Expanded(child: _buildPlanMeta('Start Date', plan.startDate)),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildPlanMeta('Expiry Date', plan.expiryDate)),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildPlanMeta('Remaining', '${plan.daysRemaining} Days')),
                           ],
                         ),
                         const SizedBox(height: 20),
@@ -210,14 +215,19 @@ class _MembershipScreenState extends State<MembershipScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  up.planName,
-                                  style: GoogleFonts.outfit(
-                                    color: AppColors.darkTextPrimary,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 16,
+                                Expanded(
+                                  child: Text(
+                                    up.planName,
+                                    style: GoogleFonts.outfit(
+                                      color: AppColors.darkTextPrimary,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 StatusBadge(status: 'Upcoming'),
                               ],
                             ),
@@ -225,20 +235,26 @@ class _MembershipScreenState extends State<MembershipScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Start Date', style: GoogleFonts.plusJakartaSans(fontSize: 11, color: AppColors.darkTextMuted)),
-                                    Text(up.startDate, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.darkTextPrimary)),
-                                  ],
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Start Date', style: GoogleFonts.plusJakartaSans(fontSize: 11, color: AppColors.darkTextMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                      Text(up.startDate, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.darkTextPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ],
+                                  ),
                                 ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Expiry Date', style: GoogleFonts.plusJakartaSans(fontSize: 11, color: AppColors.darkTextMuted)),
-                                    Text(up.expiryDate, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.darkTextPrimary)),
-                                  ],
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Expiry Date', style: GoogleFonts.plusJakartaSans(fontSize: 11, color: AppColors.darkTextMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                      Text(up.expiryDate, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.darkTextPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: 8),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
@@ -331,20 +347,27 @@ class _MembershipScreenState extends State<MembershipScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  r.invoiceNumber,
-                                  style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.darkTextPrimary),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${r.serviceName} • ${r.paymentDate}',
-                                  style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextSecondary, fontSize: 12),
-                                ),
-                              ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    r.invoiceNumber,
+                                    style: GoogleFonts.outfit(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.darkTextPrimary),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${r.serviceName} • ${r.paymentDate}',
+                                    style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextSecondary, fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 8),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
@@ -377,9 +400,27 @@ class _MembershipScreenState extends State<MembershipScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label.toUpperCase(), style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextMuted, fontSize: 10, fontWeight: FontWeight.w800)),
+        Text(
+          label.toUpperCase(),
+          style: GoogleFonts.plusJakartaSans(
+            color: AppColors.darkTextMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         const SizedBox(height: 2),
-        Text(value, style: GoogleFonts.outfit(color: AppColors.darkTextPrimary, fontWeight: FontWeight.w800, fontSize: 14)),
+        Text(
+          value,
+          style: GoogleFonts.outfit(
+            color: AppColors.darkTextPrimary,
+            fontWeight: FontWeight.w800,
+            fontSize: 13.5,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       ],
     );
   }

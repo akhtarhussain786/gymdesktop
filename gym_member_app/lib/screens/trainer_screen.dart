@@ -194,12 +194,14 @@ class _TrainerScreenState extends State<TrainerScreen> {
                         children: [
                           const Icon(Icons.access_time_rounded, size: 18, color: AppColors.lime),
                           const SizedBox(width: 10),
-                          Text(
-                            t.availableTimings,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.darkTextPrimary,
-                              fontSize: 13.5,
+                          Expanded(
+                            child: Text(
+                              t.availableTimings,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.darkTextPrimary,
+                                fontSize: 13.5,
+                              ),
                             ),
                           ),
                         ],
@@ -210,12 +212,14 @@ class _TrainerScreenState extends State<TrainerScreen> {
                           children: [
                             const Icon(Icons.phone_outlined, size: 18, color: AppColors.cyan),
                             const SizedBox(width: 10),
-                            SelectableText(
-                              t.phone,
-                              style: GoogleFonts.plusJakartaSans(
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.darkTextPrimary,
-                                fontSize: 13.5,
+                            Expanded(
+                              child: SelectableText(
+                                t.phone,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.darkTextPrimary,
+                                  fontSize: 13.5,
+                                ),
                               ),
                             ),
                           ],
@@ -227,12 +231,14 @@ class _TrainerScreenState extends State<TrainerScreen> {
                           children: [
                             const Icon(Icons.email_outlined, size: 18, color: AppColors.defaultAccent),
                             const SizedBox(width: 10),
-                            SelectableText(
-                              t.email,
-                              style: GoogleFonts.plusJakartaSans(
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.darkTextPrimary,
-                                fontSize: 13.5,
+                            Expanded(
+                              child: SelectableText(
+                                t.email,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.darkTextPrimary,
+                                  fontSize: 13.5,
+                                ),
                               ),
                             ),
                           ],

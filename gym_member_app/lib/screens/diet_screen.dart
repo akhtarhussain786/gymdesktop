@@ -99,22 +99,28 @@ class _DietScreenState extends State<DietScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.restaurant_rounded, color: AppColors.cyan, size: 22),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    diet.planName.toUpperCase(),
-                                    style: GoogleFonts.outfit(
-                                      color: AppColors.darkTextPrimary,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 17,
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.restaurant_rounded, color: AppColors.cyan, size: 22),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        diet.planName.toUpperCase(),
+                                        style: GoogleFonts.outfit(
+                                          color: AppColors.darkTextPrimary,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 17,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               StatusBadge(
                                 status: '${diet.calories} kcal',
                               ),

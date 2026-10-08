@@ -159,36 +159,49 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               border: Border.all(color: AppColors.border(context)),
                             ),
                             child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
-                                Row(
-                                  children: [
-                                    const Icon(Icons.login_rounded, size: 16, color: AppColors.success),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'In: ${summary.todayCheckIn}',
-                                      style: GoogleFonts.plusJakartaSans(
-                                        color: AppColors.textPrimary(context),
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 13.5,
+                                Expanded(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.login_rounded, size: 16, color: AppColors.success),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          'In: ${summary.todayCheckIn}',
+                                          style: GoogleFonts.plusJakartaSans(
+                                            color: AppColors.textPrimary(context),
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13.5,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                                 Container(width: 1, height: 16, color: AppColors.border(context)),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.logout_rounded, size: 16, color: AppColors.warning),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      summary.todayCheckOut != null ? 'Out: ${summary.todayCheckOut}' : 'Out: Active',
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 13.5,
-                                        color: summary.todayCheckOut != null ? AppColors.textPrimary(context) : AppColors.warning,
+                                Expanded(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.logout_rounded, size: 16, color: AppColors.warning),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          summary.todayCheckOut != null ? 'Out: ${summary.todayCheckOut}' : 'Out: Active',
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13.5,
+                                            color: summary.todayCheckOut != null ? AppColors.textPrimary(context) : AppColors.warning,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),

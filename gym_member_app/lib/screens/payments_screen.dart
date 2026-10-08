@@ -557,6 +557,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                   ],
                                 ),
                               ),
+                              const SizedBox(width: 8),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [

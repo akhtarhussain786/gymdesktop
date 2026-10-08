@@ -159,22 +159,28 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.fitness_center_rounded, color: AppColors.lime, size: 22),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    plan.planName.toUpperCase(),
-                                    style: GoogleFonts.outfit(
-                                      color: AppColors.textPrimary(context),
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 17,
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.fitness_center_rounded, color: AppColors.lime, size: 22),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        plan.planName.toUpperCase(),
+                                        style: GoogleFonts.outfit(
+                                          color: AppColors.textPrimary(context),
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 17,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               StatusBadge(status: plan.level),
                             ],
                           ),
