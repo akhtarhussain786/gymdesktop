@@ -176,8 +176,8 @@ include __DIR__ . '/../includes/topbar.php';
                         <div class="form-group">
                             <label class="form-label">Target Audience</label>
                             <select name="target_audience" id="target-audience" class="form-select" onchange="toggleGymSelector(this.value)">
+                                <option value="everyone" selected>🌍 Everyone (All Active Mobile Devices & Gyms)</option>
                                 <option value="all_gym_owners">👑 All Gym Owners & Staff (Admin App)</option>
-                                <option value="everyone">🌍 Everyone (Gym Owners + All Members)</option>
                                 <option value="all_members">🏋️ All Gym Members Across All Gyms</option>
                                 <option value="specific">🏢 Specific Selected Gyms</option>
                             </select>
