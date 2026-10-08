@@ -502,25 +502,27 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                     const SizedBox(height: 24),
 
                     // 2. Billing Cycle Switcher
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Available SaaS Plans',
                           style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
+                        const SizedBox(height: 10),
                         Container(
-                          padding: const EdgeInsets.all(3),
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
                             color: const Color(0xFF1E1E2C),
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: Colors.white12),
                           ),
                           child: Row(
                             children: [
-                              _cycleOption('monthly', '1 Mo'),
-                              _cycleOption('quarterly', '3 Mo (10% Off)'),
-                              _cycleOption('yearly', '1 Yr (Best)'),
+                              Expanded(child: _cycleOption('monthly', '1 Month')),
+                              Expanded(child: _cycleOption('quarterly', '3 Mo (10% Off)')),
+                              Expanded(child: _cycleOption('yearly', '1 Yr (Best)')),
                             ],
                           ),
                         ),
@@ -582,13 +584,17 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
       onTap: () => setState(() => _selectedCycle = key),
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.lime : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
+        alignment: Alignment.center,
         child: Text(
           label,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.bold,

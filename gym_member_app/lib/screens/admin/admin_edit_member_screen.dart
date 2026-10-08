@@ -276,17 +276,21 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Expiry Date', style: TextStyle(color: Colors.white60, fontSize: 11)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  DateFormat('dd MMMM yyyy (EEEE)').format(_expiryDate),
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                                ),
-                              ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Expiry Date', style: TextStyle(color: Colors.white60, fontSize: 11)),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    DateFormat('dd MMM yyyy (EEE)').format(_expiryDate),
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
@@ -294,6 +298,7 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: const Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.calendar_month_rounded, size: 14, color: AppColors.lime),
                                   SizedBox(width: 4),
