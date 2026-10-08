@@ -98,9 +98,31 @@ class QrCardDialog extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // Member Details
+              // Member Photo Avatar & Details
+              if (member.avatar != null && member.avatar!.isNotEmpty) ...[
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.lime, width: 2),
+                    color: AppColors.darkCardElevated,
+                  ),
+                  child: ClipOval(
+                    child: Image.network(
+                      member.avatar!,
+                      width: 54,
+                      height: 54,
+                      fit: BoxFit.cover,
+                      errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+
               Text(
                 member.fullname,
                 style: GoogleFonts.outfit(

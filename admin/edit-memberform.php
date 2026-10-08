@@ -61,7 +61,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
     $ini_bodytype = trim($_POST['ini_bodytype'] ?? 'Athletic');
     $curr_bodytype = trim($_POST['curr_bodytype'] ?? 'Athletic');
 
-    DB::update('members', [
+    // Optional Avatar / Photo upload
+    $avatarFileName = null;
+    if (!empty($_FILES['avatar']['name']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+        $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif']) && @getimagesize($_FILES['avatar']['tmp_name']) !== false) {
+            $uploadDir = __DIR__ . '/../uploads/avatars';
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0777, true);
+            }
+            $avatarFileName = 'avatar_' . $tenantId . '_' . $memberId . '_' . time() . '.' . $ext;
+            if (@move_uploaded_file($_FILES['avatar']['tmp_name'], $uploadDir . '/' . $avatarFileName)) {
+                $updateMemberData['avatar'] = $avatarFileName;
+                $updateMemberData['photo'] = $avatarFileName;
+            }
+        }
+    }
+
+    $updateMemberData = [
         'fullname' => $fullname,
         'gender' => $gender,
         'services' => $services,
@@ -81,7 +98,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
         'curr_body_type' => $curr_bodytype,
         'body_type' => $curr_bodytype,
         'progress_date' => date('Y-m-d')
-    ], 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
+    ];
+
+    if ($avatarFileName) {
+        $updateMemberData['avatar'] = $avatarFileName;
+        $updateMemberData['photo'] = $avatarFileName;
+    }
+
+    DB::update('members', $updateMemberData, 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
 
     // Sync changes to users table
     // Login stays enabled for Expired/Pending members so they can still see dues and renew.
@@ -91,6 +115,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
         'email' => $email !== '' ? $email : null,
         'phone' => $contact
     ];
+    if ($avatarFileName) {
+        $userUpdate['avatar'] = $avatarFileName;
+    }
 
     // Optional password reset
     if (!empty($_POST['new_password'])) {
@@ -110,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
 include __DIR__ . '/../includes/header.php';
 include __DIR__ . '/../includes/sidebar.php';
 include __DIR__ . '/../includes/topbar.php';
+    $currentAvatarUrl = api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null);
 ?>
 
 <div class="card" style="max-width: 860px; margin: 0 auto;">
@@ -128,8 +156,26 @@ include __DIR__ . '/../includes/topbar.php';
         </div>
     </div>
     <div class="card-body">
-        <form method="POST" action="">
+        <form method="POST" action="" enctype="multipart/form-data">
             <?php echo Auth::csrfField(); ?>
+
+            <!-- Profile Photo Box -->
+            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px;">
+                <div style="width: 72px; height: 72px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--primary); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;" id="avatar-preview-box">
+                    <?php if ($currentAvatarUrl): ?>
+                        <img id="avatar-preview-img" src="<?php echo htmlspecialchars($currentAvatarUrl); ?>" style="width: 100%; height: 100%; object-fit: cover;" alt="Member Avatar" />
+                        <i class="fas fa-camera" id="avatar-preview-icon" style="font-size: 1.5rem; color: var(--text-muted); display: none;"></i>
+                    <?php else: ?>
+                        <i class="fas fa-camera" id="avatar-preview-icon" style="font-size: 1.5rem; color: var(--text-muted);"></i>
+                        <img id="avatar-preview-img" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;" alt="Preview" />
+                    <?php endif; ?>
+                </div>
+                <div style="flex: 1;">
+                    <label class="form-label" style="margin-bottom: 4px;">Member Profile Photo (App & ID Pass)</label>
+                    <input type="file" name="avatar" id="avatar-file-input" class="form-control" accept="image/*" onchange="previewMemberPhoto(this)" style="font-size: 0.85rem;" />
+                    <small style="color: var(--text-muted);">Upload a new photo to update the profile across the Member App & Digital Pass.</small>
+                </div>
+            </div>
 
             <div class="form-row">
                 <div class="form-group">
@@ -249,5 +295,25 @@ include __DIR__ . '/../includes/topbar.php';
         </form>
     </div>
 </div>
+
+<script>
+function previewMemberPhoto(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const previewImg = document.getElementById('avatar-preview-img');
+            const previewIcon = document.getElementById('avatar-preview-icon');
+            if (previewImg) {
+                previewImg.src = e.target.result;
+                previewImg.style.display = 'block';
+            }
+            if (previewIcon) {
+                previewIcon.style.display = 'none';
+            }
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

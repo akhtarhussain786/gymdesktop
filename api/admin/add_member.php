@@ -175,6 +175,9 @@ try {
     if (api_column_exists('members', 'avatar')) {
         $memberCols['avatar'] = $avatarFilename;
     }
+    if (api_column_exists('members', 'photo')) {
+        $memberCols['photo'] = $avatarFilename;
+    }
     if (api_column_exists('members', 'due_amount')) {
         $memberCols['due_amount'] = $dueAmount;
     }
@@ -204,6 +207,9 @@ try {
 
     if (api_column_exists('users', 'avatar')) {
         $userCols['avatar'] = $avatarFilename;
+    }
+    if (api_column_exists('users', 'photo')) {
+        $userCols['photo'] = $avatarFilename;
     }
 
     DB::insert('users', $userCols);

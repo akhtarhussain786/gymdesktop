@@ -31,16 +31,7 @@ $computedExpiry = date('Y-m-d', strtotime(($member['paid_date'] ?: $member['dor'
 $daysRemaining = (int)ceil((strtotime($computedExpiry) - strtotime(date('Y-m-d'))) / 86400);
 
 // Avatar
-$avatarUrl = null;
-if (!empty($member['avatar'])) {
-    if (str_starts_with($member['avatar'], 'http')) {
-        $avatarUrl = $member['avatar'];
-    } elseif (file_exists(__DIR__ . '/../../uploads/avatars/' . $member['avatar'])) {
-        $avatarUrl = base_url('/uploads/avatars/' . $member['avatar']);
-    } else {
-        $avatarUrl = base_url('/img/' . $member['avatar']);
-    }
-}
+$avatarUrl = api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null);
 
 // 2. Invoices & Payments History
 $invoices = DB::fetchAll(

@@ -47,6 +47,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
     $totalAmount = $amount * $plan;
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
+    // Photo / Avatar upload
+    $avatarFileName = null;
+    if (!empty($_FILES['avatar']['name']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
+        $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif']) && @getimagesize($_FILES['avatar']['tmp_name']) !== false) {
+            $uploadDir = __DIR__ . '/../uploads/avatars';
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0777, true);
+            }
+            $avatarFileName = 'avatar_' . $tenantId . '_' . time() . '_' . substr(md5(uniqid()), 0, 6) . '.' . $ext;
+            if (!@move_uploaded_file($_FILES['avatar']['tmp_name'], $uploadDir . '/' . $avatarFileName)) {
+                $avatarFileName = null;
+            }
+        }
+    }
+
     if (empty($fullname) || empty($username)) {
         $error = "Full Name and Username are required fields.";
     } else {
@@ -63,6 +79,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
                 'fullname' => $fullname,
                 'username' => $username,
                 'password' => $passwordHash,
+                'avatar' => $avatarFileName,
+                'photo' => $avatarFileName,
                 'gender' => $gender,
                 'dor' => $dor,
                 'services' => $services,
@@ -87,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
                     'username' => $username,
                     'password' => $passwordHash,
                     'fullname' => $fullname,
+                    'avatar' => $avatarFileName,
                     'email' => $email ?: null,
                     'phone' => $contact ?: null,
                     'role' => 'member',
@@ -171,12 +190,25 @@ include __DIR__ . '/../includes/topbar.php';
             </div>
         <?php endif; ?>
 
-        <form method="POST" action="" id="member-reg-form">
+        <form method="POST" action="" id="member-reg-form" enctype="multipart/form-data">
             <?php echo Auth::csrfField(); ?>
 
             <!-- 1. Personal & Login Details -->
             <div style="font-size: 0.8rem; font-weight: 800; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;">
                 1. Member Personal & Login Details
+            </div>
+
+            <!-- Profile Photo Upload -->
+            <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px;">
+                <div style="width: 72px; height: 72px; border-radius: 50%; background: var(--bg-card); border: 2px dashed var(--primary); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;" id="avatar-preview-box">
+                    <i class="fas fa-camera" id="avatar-preview-icon" style="font-size: 1.5rem; color: var(--text-muted);"></i>
+                    <img id="avatar-preview-img" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;" alt="Preview" />
+                </div>
+                <div style="flex: 1;">
+                    <label class="form-label" style="margin-bottom: 4px;">Member Profile Photo (App & ID Pass)</label>
+                    <input type="file" name="avatar" id="avatar-file-input" class="form-control" accept="image/*" onchange="previewMemberPhoto(this)" style="font-size: 0.85rem;" />
+                    <small style="color: var(--text-muted);">JPG, PNG, WebP up to 5MB. Will be displayed on Member Mobile App.</small>
+                </div>
             </div>
 
             <div class="form-row">
@@ -424,6 +456,22 @@ if (memberSvcEl) {
             }
         }
     });
+}
+
+function previewMemberPhoto(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const previewImg = document.getElementById('avatar-preview-img');
+            const previewIcon = document.getElementById('avatar-preview-icon');
+            if (previewImg && previewIcon) {
+                previewImg.src = e.target.result;
+                previewImg.style.display = 'block';
+                previewIcon.style.display = 'none';
+            }
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
 }
 
 // Initialize on page load

@@ -189,24 +189,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   Row(
                     children: [
-                      // Avatar with Neon Border
+                      // Avatar with Neon Border / Member Photo
                       Container(
-                        padding: const EdgeInsets.all(2),
+                        width: 56,
+                        height: 56,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.lime, width: 1.8),
+                          border: Border.all(color: AppColors.lime, width: 2),
+                          color: AppColors.cardElevated(context),
                         ),
-                        child: CircleAvatar(
-                          radius: 26,
-                          backgroundColor: AppColors.cardElevated(context),
-                          child: Text(
-                            member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
-                            style: GoogleFonts.outfit(
-                              color: AppColors.primaryText(context),
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                        child: ClipOval(
+                          child: (member.avatar != null && member.avatar!.isNotEmpty)
+                              ? Image.network(
+                                  member.avatar!,
+                                  width: 56,
+                                  height: 56,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (ctx, err, stack) => Center(
+                                    child: Text(
+                                      member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
+                                      style: GoogleFonts.outfit(
+                                        color: AppColors.primaryText(context),
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : Center(
+                                  child: Text(
+                                    member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
+                                    style: GoogleFonts.outfit(
+                                      color: AppColors.primaryText(context),
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
                         ),
                       ),
                       const SizedBox(width: 14),

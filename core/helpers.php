@@ -179,3 +179,46 @@ function redirect($url, $flashType = null, $flashMsg = null) {
     header("Location: " . $target);
     exit();
 }
+
+/**
+ * Resolves avatar/photo URL dynamically across uploads/avatars, uploads/members, and img directories.
+ */
+function api_member_avatar_url($avatar = null, $photo = null) {
+    $img = !empty($avatar) ? $avatar : (!empty($photo) ? $photo : null);
+    if (empty($img)) {
+        return null;
+    }
+    $img = trim((string)$img);
+    if ($img === '') {
+        return null;
+    }
+    if (str_starts_with($img, 'http://') || str_starts_with($img, 'https://')) {
+        return $img;
+    }
+    
+    $cleanName = basename($img);
+    $root = dirname(__DIR__);
+    
+    if (file_exists($root . '/uploads/avatars/' . $cleanName)) {
+        return base_url('/uploads/avatars/' . $cleanName);
+    }
+    if (file_exists($root . '/uploads/members/' . $cleanName)) {
+        return base_url('/uploads/members/' . $cleanName);
+    }
+    if (file_exists($root . '/img/' . $cleanName)) {
+        return base_url('/img/' . $cleanName);
+    }
+    if (str_starts_with($img, 'uploads/')) {
+        return base_url('/' . ltrim($img, '/'));
+    }
+    if (str_starts_with($img, 'img/')) {
+        return base_url('/' . ltrim($img, '/'));
+    }
+    if (str_starts_with($cleanName, 'avatar_')) {
+        return base_url('/uploads/avatars/' . $cleanName);
+    }
+    if (str_starts_with($cleanName, 'member_')) {
+        return base_url('/uploads/members/' . $cleanName);
+    }
+    return base_url('/uploads/avatars/' . $cleanName);
+}

@@ -320,7 +320,7 @@ $response = [
         'phone' => $member['contact'] ?? $user['phone'] ?? '',
         'gender' => $member['gender'] ?? '',
         'address' => $member['address'] ?? '',
-        'avatar' => !empty($member['avatar']) ? base_url('/img/' . $member['avatar']) : null,
+        'avatar' => api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null),
         'services' => $member['services'] ?? 'General Fitness',
         'plan_months' => $planMonths,
         'membership_status' => ($daysLeft >= 0) ? 'Active' : 'Expired',

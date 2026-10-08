@@ -133,13 +133,15 @@ if ($method === 'POST') {
             }
             $data = base64_decode($data);
             if ($data !== false) {
-                $uploadDir = __DIR__ . '/../../uploads/members';
+                $uploadDir = __DIR__ . '/../../uploads/avatars';
                 if (!is_dir($uploadDir)) {
                     @mkdir($uploadDir, 0777, true);
                 }
-                $photoName = 'member_' . $tenantId . '_' . $memberId . '_' . time() . '.' . $type;
+                $photoName = 'avatar_' . $tenantId . '_' . $memberId . '_' . time() . '.' . $type;
                 file_put_contents($uploadDir . '/' . $photoName, $data);
                 $updateData['photo'] = $photoName;
+                $updateData['avatar'] = $photoName;
+                DB::query("UPDATE users SET avatar = ? WHERE member_id = ? AND tenant_id = ?", [$photoName, $memberId, $tenantId]);
             }
         }
     }
@@ -172,16 +174,12 @@ if (!$member) {
 $rates = Tenant::getRates($tenantId);
 $trainers = DB::fetchAll("SELECT user_id, fullname, designation FROM staffs WHERE tenant_id = ? AND designation = 'Trainer'", [$tenantId]);
 
-$photoUrl = null;
-if (!empty($member['photo'])) {
-    $photoUrl = base_url('/uploads/members/' . $member['photo']);
-} elseif (!empty($member['avatar'])) {
-    $photoUrl = base_url('/uploads/avatars/' . $member['avatar']);
-}
+$photoUrl = api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null);
 
 ApiResponse::success([
     'member' => array_merge($member, [
         'photo_url' => $photoUrl,
+        'avatar_url' => $photoUrl,
         'expiry_date' => $member['computed_expiry'] ?? date('Y-m-d')
     ]),
     'rates' => $rates,

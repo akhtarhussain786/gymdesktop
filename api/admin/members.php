@@ -78,16 +78,7 @@ $gymName = !empty($tenant['gym_name']) ? $tenant['gym_name'] : 'Our Gym';
 
 $formattedList = [];
 foreach ($members as $m) {
-    $avatarUrl = null;
-    if (!empty($m['avatar'])) {
-        if (str_starts_with($m['avatar'], 'http')) {
-            $avatarUrl = $m['avatar'];
-        } elseif (file_exists(__DIR__ . '/../../uploads/avatars/' . $m['avatar'])) {
-            $avatarUrl = base_url('/uploads/avatars/' . $m['avatar']);
-        } else {
-            $avatarUrl = base_url('/img/' . $m['avatar']);
-        }
-    }
+    $avatarUrl = api_member_avatar_url($m['avatar'] ?? null, $m['photo'] ?? null);
 
     $daysRemaining = (int)($m['days_left'] ?? 0);
     $status = $m['effective_status'] ?? $m['status'] ?? 'Active';

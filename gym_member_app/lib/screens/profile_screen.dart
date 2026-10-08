@@ -186,23 +186,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Row(
                 children: [
+                  // Avatar with Neon Border / Member Photo
                   Container(
-                    padding: const EdgeInsets.all(2),
+                    width: 68,
+                    height: 68,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.lime, width: 2),
+                      color: AppColors.cardElevated(context),
                     ),
-                    child: CircleAvatar(
-                      radius: 30,
-                      backgroundColor: AppColors.cardElevated(context),
-                      child: Text(
-                        member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
-                        style: GoogleFonts.outfit(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.lime,
-                        ),
-                      ),
+                    child: ClipOval(
+                      child: (member.avatar != null && member.avatar!.isNotEmpty)
+                          ? Image.network(
+                              member.avatar!,
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                              errorBuilder: (ctx, err, stack) => Center(
+                                child: Text(
+                                  member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.lime,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Center(
+                              child: Text(
+                                member.fullname.isNotEmpty ? member.fullname[0].toUpperCase() : 'A',
+                                style: GoogleFonts.outfit(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.lime,
+                                ),
+                              ),
+                            ),
                     ),
                   ),
                   const SizedBox(width: 16),
