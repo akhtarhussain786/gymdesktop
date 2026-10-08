@@ -179,6 +179,37 @@ class PushNotificationService {
     );
   }
 
+  /// Trigger instant test notification on physical device
+  static Future<void> showTestNotification() async {
+    const androidDetails = AndroidNotificationDetails(
+      _channelId,
+      _channelName,
+      channelDescription: _channelDescription,
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      icon: '@mipmap/ic_launcher',
+      styleInformation: BigTextStyleInformation(
+        'This is a live test notification verifying high-importance floating banner and sound.',
+        contentTitle: '🔔 WhatsApp Style Test Popup',
+        summaryText: 'FITISIFY Alert',
+      ),
+    );
+
+    const notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true, presentBadge: true),
+    );
+
+    await _localNotifications.show(
+      8888,
+      '🔔 WhatsApp Style Test Popup',
+      'This is a live test notification verifying high-importance floating banner and sound.',
+      notificationDetails,
+    );
+  }
+
   /// Retrieve persistent unique device ID
   static Future<String> _getDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -197,15 +228,20 @@ class PushNotificationService {
   static Future<void> syncDeviceToken({String? customToken}) async {
     try {
       final token = customToken ?? await _messaging.getToken();
-      if (token == null || token.isEmpty) return;
+      if (token == null || token.isEmpty) {
+        debugPrint('FCM getToken returned empty token.');
+        return;
+      }
       _cachedDeviceToken = token;
+      debugPrint('FCM Active Device Token: $token');
 
       final authToken = await SecureStorageService.getToken();
-      if (authToken == null || authToken.isEmpty) return; // User not logged in yet
-
       final userRole = await SecureStorageService.getUserRole();
+      final gymCode = await SecureStorageService.getCurrentGymCode();
       final isAdmin = ['gym_admin', 'staff', 'super_admin', 'trainer'].contains((userRole ?? '').toLowerCase());
-      final endpoint = isAdmin ? ApiConfig.adminDeviceToken : ApiConfig.deviceToken;
+      final endpoint = (isAdmin && authToken != null && authToken.isNotEmpty)
+          ? ApiConfig.adminDeviceToken
+          : ApiConfig.deviceToken;
 
       final deviceId = await _getDeviceId();
 
@@ -214,14 +250,16 @@ class PushNotificationService {
         'device_token': token,
         'device_id': deviceId,
         'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+        'gym_code': gymCode,
       };
 
       await ApiService.post(
         endpoint,
         body: payload,
-        isAdmin: isAdmin,
+        gymCode: gymCode,
+        isAdmin: isAdmin && authToken != null && authToken.isNotEmpty,
       );
-      debugPrint('Device push token synced successfully with backend for ${isAdmin ? "Admin" : "Member"}.');
+      debugPrint('Device push token synced successfully with backend.');
     } catch (e) {
       debugPrint('Failed to sync device push token: $e');
     }

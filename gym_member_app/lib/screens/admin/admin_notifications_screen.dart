@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/config/api_config.dart';
 import '../../core/network/api_service.dart';
+import '../../core/services/push_notification_service.dart';
 import '../../core/theme/app_colors.dart';
 
 class AdminNotificationsScreen extends StatefulWidget {
@@ -166,6 +167,20 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> wit
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_active_rounded, color: Colors.amber),
+            tooltip: 'Test Floating Popup & Sound',
+            onPressed: () {
+              PushNotificationService.showTestNotification();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Triggered live test popup banner!'),
+                  backgroundColor: Color(0xFF10B981),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
             onPressed: _loadData,
