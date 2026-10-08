@@ -970,22 +970,29 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${hist.planName} (${hist.billingCycle})',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Ref: #${hist.transactionRef} • ${hist.createdAt.split(' ').first}',
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${hist.planName} (${hist.billingCycle})',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Ref: #${hist.transactionRef} • ${hist.createdAt.split(' ').first}',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
