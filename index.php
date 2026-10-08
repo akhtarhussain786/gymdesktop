@@ -87,6 +87,16 @@ if (empty($testimonials)) {
 }
 
 $currencies = get_supported_currencies();
+
+// Dynamic Mobile App Release Settings
+$appPlayStoreUrl = get_platform_setting('app_playstore_url', 'https://play.google.com/store/apps/details?id=com.fitisify.gym_member_app');
+$appApkExternalUrl = get_platform_setting('app_apk_external_url', '');
+$appVersion = get_platform_setting('app_version', 'v1.0.4');
+$appMinAndroid = get_platform_setting('app_min_android', 'Android 8.0+');
+$appApkLocalPath = __DIR__ . '/uploads/apk/fitisify_member_app.apk';
+$appApkExists = file_exists($appApkLocalPath);
+$appApkSizeFormatted = $appApkExists ? round(filesize($appApkLocalPath) / (1024 * 1024), 2) . ' MB' : '115 MB';
+$appApkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url('/uploads/apk/fitisify_member_app.apk');
 ?>
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -781,48 +791,109 @@ $currencies = get_supported_currencies();
         </section>
 
         <!-- =================================================================
-             7. MEMBER & ATHLETE EXPERIENCE SECTION (MOBILE PORTAL)
+             7. MEMBER & ATHLETE EXPERIENCE SECTION (MOBILE APP & PORTAL)
              ================================================================= -->
         <section class="section-spacing" id="athlete">
             <div class="container">
                 <div class="member-exp-grid">
                     
-                    <!-- Left: Description of Athlete App -->
+                    <!-- Left: Description of Athlete App & Downloads -->
                     <div class="reveal-fade-left">
-                        <div class="badge-chip badge-chip-cyan">ATHLETE EMPOWERMENT</div>
+                        <div class="badge-chip badge-chip-cyan">
+                            <i class="fa-solid fa-mobile-screen-button"></i> OFFICIAL MEMBER MOBILE APP
+                        </div>
                         <h2 class="section-title" style="text-align: left;">
-                            GIVE MEMBERS AN <br />
-                            <span class="text-lime">ELITE DIGITAL PORTAL.</span>
+                            FITISIFY ATHLETE APP. <br />
+                            <span class="text-lime">POWER IN YOUR POCKET.</span>
                         </h2>
-                        <p style="color: var(--text-body); font-size: 1.08rem; line-height: 1.7; margin-bottom: 28px;">
-                            Delight your athletes with a dedicated self-service mobile and web application. Members can monitor workout streaks, body composition progress, daily meal plans, and present dynamic digital QR passes upon arrival.
+                        <p style="color: var(--text-body); font-size: 1.08rem; line-height: 1.7; margin-bottom: 24px;">
+                            Delight your gym athletes with the official <strong>Fitisify Mobile Application</strong>. Members can check in instantly using biometric QR passes, track workout streaks and body fat metrics, view customized daily diet plans, and download instant GST payment receipts.
                         </p>
 
-                        <div style="display:flex; flex-direction:column; gap:16px; margin-bottom:36px;">
+                        <div style="display:flex; flex-direction:column; gap:16px; margin-bottom:28px;">
                             <div style="display:flex; gap:14px; align-items:flex-start;">
                                 <div style="width:36px; height:36px; border-radius:10px; background:rgba(199,255,46,0.1); display:flex; align-items:center; justify-content:center; color:var(--lime); font-size:1.1rem; flex-shrink:0;">
-                                    <i class="fa-solid fa-fire"></i>
+                                    <i class="fa-solid fa-qrcode"></i>
                                 </div>
                                 <div>
-                                    <h4 style="font-size:1.1rem; margin-bottom:4px;">Workout Streaks & Attendance Heatmap</h4>
-                                    <p style="font-size:0.92rem; color:var(--text-muted); line-height:1.5;">Gamified consistency tracking that drives member retention and habit formation.</p>
+                                    <h4 style="font-size:1.05rem; margin-bottom:2px;">Dynamic Biometric QR Pass</h4>
+                                    <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.4;">Instant contactless turnstile check-in with duplicate scan prevention and dynamic color codes.</p>
                                 </div>
                             </div>
 
                             <div style="display:flex; gap:14px; align-items:flex-start;">
                                 <div style="width:36px; height:36px; border-radius:10px; background:rgba(0,217,255,0.1); display:flex; align-items:center; justify-content:center; color:var(--cyan); font-size:1.1rem; flex-shrink:0;">
-                                    <i class="fa-solid fa-utensils"></i>
+                                    <i class="fa-solid fa-bell"></i>
                                 </div>
                                 <div>
-                                    <h4 style="font-size:1.1rem; margin-bottom:4px;">Custom Nutrition & Diet Regimens</h4>
-                                    <p style="font-size:0.92rem; color:var(--text-muted); line-height:1.5;">Direct meal breakdowns, caloric macros, and hydration targets assigned by gym trainers.</p>
+                                    <h4 style="font-size:1.05rem; margin-bottom:2px;">Real-Time Push Notifications</h4>
+                                    <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.4;">Automated expiry alerts, gym broadcast bulletins, trainer routine updates, and fee receipts.</p>
+                                </div>
+                            </div>
+
+                            <div style="display:flex; gap:14px; align-items:flex-start;">
+                                <div style="width:36px; height:36px; border-radius:10px; background:rgba(16,185,129,0.1); display:flex; align-items:center; justify-content:center; color:#10b981; font-size:1.1rem; flex-shrink:0;">
+                                    <i class="fa-solid fa-fire"></i>
+                                </div>
+                                <div>
+                                    <h4 style="font-size:1.05rem; margin-bottom:2px;">Workout Streaks & Diet Macros</h4>
+                                    <p style="font-size:0.9rem; color:var(--text-muted); line-height:1.4;">Caloric tracking, hydration targets, personal record logs, and trainer-assigned fitness splits.</p>
                                 </div>
                             </div>
                         </div>
 
-                        <a href="index2.php" class="btn btn-ghost-dark">
-                            <i class="fa-solid fa-mobile-screen-button text-lime"></i> Test Customer Portal Login
-                        </a>
+                        <!-- App Download Badges Container -->
+                        <div class="app-download-actions-wrap">
+                            <div class="app-download-buttons">
+                                
+                                <!-- Google Play Store Official Button -->
+                                <a href="<?php echo e($appPlayStoreUrl); ?>" target="_blank" rel="noopener noreferrer" class="btn-store-badge btn-google-play" title="Download on Google Play Store">
+                                    <div class="store-badge-icon">
+                                        <i class="fa-brands fa-google-play"></i>
+                                    </div>
+                                    <div class="store-badge-text">
+                                        <span class="store-badge-sub">GET IT ON</span>
+                                        <span class="store-badge-main">Google Play</span>
+                                    </div>
+                                </a>
+
+                                <!-- Direct Android APK Download Button -->
+                                <a href="<?php echo e($appApkDownloadUrl); ?>" download class="btn-store-badge btn-direct-apk" title="Direct Download Android APK">
+                                    <div class="store-badge-icon text-lime">
+                                        <i class="fa-brands fa-android"></i>
+                                    </div>
+                                    <div class="store-badge-text">
+                                        <span class="store-badge-sub"><i class="fa-solid fa-download"></i> DIRECT DOWNLOAD</span>
+                                        <span class="store-badge-main">Android APK <small style="font-size:0.75rem; color:var(--lime); font-weight:700;">(<?php echo e($appVersion); ?>)</small></span>
+                                    </div>
+                                </a>
+
+                            </div>
+
+                            <!-- Mobile QR Code & Release Meta Card -->
+                            <div class="app-release-meta-box">
+                                <div class="app-qr-code-wrap">
+                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=4&data=<?php echo urlencode($appApkDownloadUrl); ?>" alt="Scan to Download APK" class="app-qr-img" />
+                                </div>
+                                <div class="app-qr-meta-text">
+                                    <div style="font-weight:700; color:#fff; font-size:0.88rem; display:flex; align-items:center; gap:6px;">
+                                        <i class="fa-solid fa-qrcode text-lime"></i> Scan with Camera to Install
+                                    </div>
+                                    <div style="font-size:0.78rem; color:var(--text-muted); margin-top:2px; line-height:1.4;">
+                                        Package: <strong><?php echo e($appApkSizeFormatted); ?></strong> • Requires: <strong><?php echo e($appMinAndroid); ?></strong>
+                                    </div>
+                                    <div style="font-size:0.72rem; color:#10b981; margin-top:3px;">
+                                        <i class="fa-solid fa-shield-halved"></i> 100% Verified Safe Direct APK • SHA-256 Validated
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 8px;">
+                                <a href="index2.php" class="btn btn-ghost-dark btn-sm">
+                                    <i class="fa-solid fa-desktop text-cyan"></i> Launch Web Browser Portal Instead
+                                </a>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Right: Realistic Athlete Phone Mockup -->

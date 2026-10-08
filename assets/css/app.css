@@ -1762,6 +1762,119 @@ a {
 .athlete-stat-val { font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; }
 .athlete-stat-lbl { font-size: 0.68rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
 
+/* Mobile App & APK Download Components */
+.app-download-actions-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 24px;
+}
+.app-download-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+.btn-store-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: #0d1219;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-lg);
+  padding: 12px 22px;
+  text-decoration: none;
+  color: #fff;
+  transition: all 0.28s var(--ease-athletic);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+.btn-store-badge:hover {
+  transform: translateY(-3px);
+  border-color: var(--lime);
+  box-shadow: 0 8px 30px rgba(199, 255, 46, 0.2);
+  color: #fff;
+}
+.btn-store-badge .store-badge-icon {
+  font-size: 1.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-store-badge .store-badge-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.btn-store-badge .store-badge-sub {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+.btn-store-badge .store-badge-main {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.25;
+}
+
+.btn-google-play .store-badge-icon {
+  background: linear-gradient(135deg, #00d9ff 0%, #10b981 50%, #f4c430 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.btn-google-play:hover {
+  border-color: #00d9ff;
+  box-shadow: 0 8px 30px rgba(0, 217, 255, 0.25);
+}
+
+.btn-direct-apk {
+  background: linear-gradient(135deg, rgba(199, 255, 46, 0.08) 0%, #0d1219 100%);
+  border-color: rgba(199, 255, 46, 0.35);
+}
+.btn-direct-apk:hover {
+  border-color: var(--lime);
+  background: linear-gradient(135deg, rgba(199, 255, 46, 0.16) 0%, #111720 100%);
+}
+
+.app-release-meta-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(13, 18, 25, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  max-width: 520px;
+}
+.app-qr-code-wrap {
+  width: 64px;
+  height: 64px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.app-qr-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.app-qr-meta-text {
+  display: flex;
+  flex-direction: column;
+}
+
+
 .scanner-demo-box {
   background: #070a0f; border: 1px solid rgba(199, 255, 46, 0.3); border-radius: var(--radius-xl);
   padding: 36px; position: relative; box-shadow: 0 0 45px rgba(199, 255, 46, 0.14); display: flex; flex-direction: column; align-items: center; text-align: center;

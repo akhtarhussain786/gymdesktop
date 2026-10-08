@@ -21,8 +21,10 @@ gym_member_app/macos/Pods/
 gym_member_app/.idea/
 gym_member_app/*.iml
 
-# Temporary files
+# Temporary files & Large binaries
 scratch/
 backups_url_fix/
+uploads/apk/*.apk
+!uploads/apk/.gitkeep
 .DS_Store
 Thumbs.db

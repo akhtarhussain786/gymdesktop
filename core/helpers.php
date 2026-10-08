@@ -20,7 +20,7 @@ function base_url($path = '') {
     if ($path !== '' && $path !== null) {
         $cleanPath = '/' . ltrim((string)$path, '/');
         // Automatically remove .php extension from script paths (excluding static assets)
-        if (!preg_match('/\.(css|js|png|jpg|jpeg|svg|webp|gif|pdf|mp4|json|xml|ico|woff|woff2|ttf|eot|otf|map|txt)([\?#]|$)/i', $cleanPath)) {
+        if (!preg_match('/\.(css|js|png|jpg|jpeg|svg|webp|gif|pdf|mp4|json|xml|ico|woff|woff2|ttf|eot|otf|map|txt|apk)([\?#]|$)/i', $cleanPath)) {
             $cleanPath = preg_replace('/\.php(?=[\?#]|$)/i', '', $cleanPath);
         }
         if ($cleanPath === '/index') {
@@ -169,7 +169,7 @@ function redirect($url, $flashType = null, $flashMsg = null) {
     }
     $target = (string)$url;
     // Automatically strip .php extension from URL (preserving query parameters and anchors)
-    if (!preg_match('/\.(css|js|png|jpg|jpeg|svg|webp|gif|pdf|mp4|json|xml|ico|woff|woff2|ttf|eot|otf|map|txt)([\?#]|$)/i', $target)) {
+    if (!preg_match('/\.(css|js|png|jpg|jpeg|svg|webp|gif|pdf|mp4|json|xml|ico|woff|woff2|ttf|eot|otf|map|txt|apk)([\?#]|$)/i', $target)) {
         $target = preg_replace('/\.php(?=[\?#]|$)/i', '', $target);
     }
     // If path starts with '/', resolve against base_url() for a fully canonical redirect
@@ -222,3 +222,40 @@ function api_member_avatar_url($avatar = null, $photo = null) {
     }
     return base_url('/uploads/avatars/' . $cleanName);
 }
+
+/**
+ * Retrieve a global platform setting by key with fallback
+ */
+function get_platform_setting($key, $default = '') {
+    try {
+        if (!class_exists('DB')) {
+            require_once __DIR__ . '/db.php';
+        }
+        $val = DB::fetchValue("SELECT setting_value FROM settings WHERE setting_key = ? LIMIT 1", [$key]);
+        return ($val !== null && $val !== false && $val !== '') ? $val : $default;
+    } catch (Throwable $e) {
+        return $default;
+    }
+}
+
+/**
+ * Save or update a global platform setting
+ */
+function set_platform_setting($key, $value) {
+    try {
+        if (!class_exists('DB')) {
+            require_once __DIR__ . '/db.php';
+        }
+        DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+        $exists = DB::fetchValue("SELECT COUNT(*) FROM settings WHERE setting_key = ?", [$key]);
+        if ($exists) {
+            DB::update('settings', ['setting_value' => (string)$value], "setting_key = ?", [$key]);
+        } else {
+            DB::insert('settings', ['setting_key' => $key, 'setting_value' => (string)$value]);
+        }
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+

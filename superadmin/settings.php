@@ -57,10 +57,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_test_email'])) {
     }
 }
 
-// Handle General Settings Update
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_general_settings'])) {
+// Handle Mobile App & APK Release Update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mobile_app_settings'])) {
     Auth::verifyCsrf();
-    redirect('settings.php', 'success', 'Global platform settings updated successfully.');
+    
+    $playstoreUrl = trim($_POST['app_playstore_url'] ?? '');
+    $externalApkUrl = trim($_POST['app_apk_external_url'] ?? '');
+    $appVersion = trim($_POST['app_version'] ?? 'v1.0.4');
+    $minAndroid = trim($_POST['app_min_android'] ?? 'Android 8.0+');
+    $releaseNotes = trim($_POST['app_release_notes'] ?? '');
+    
+    set_platform_setting('app_playstore_url', $playstoreUrl);
+    set_platform_setting('app_apk_external_url', $externalApkUrl);
+    set_platform_setting('app_version', $appVersion);
+    set_platform_setting('app_min_android', $minAndroid);
+    set_platform_setting('app_release_notes', $releaseNotes);
+    
+    $apkUploadMsg = '';
+    if (isset($_FILES['apk_file']) && $_FILES['apk_file']['error'] === UPLOAD_ERR_OK) {
+        $fileTmp = $_FILES['apk_file']['tmp_name'];
+        $fileName = $_FILES['apk_file']['name'];
+        $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        
+        if ($fileExt === 'apk') {
+            $destDir = __DIR__ . '/../uploads/apk';
+            if (!is_dir($destDir)) {
+                mkdir($destDir, 0755, true);
+            }
+            $destPath = $destDir . '/fitisify_member_app.apk';
+            if (move_uploaded_file($fileTmp, $destPath)) {
+                set_platform_setting('app_apk_local_file', 'uploads/apk/fitisify_member_app.apk');
+                set_platform_setting('app_apk_last_updated', date('Y-m-d H:i:s'));
+                $apkUploadMsg = ' New APK file uploaded successfully.';
+            } else {
+                $apkUploadMsg = ' Failed to save uploaded APK file to server directory.';
+            }
+        } else {
+            $apkUploadMsg = ' Invalid file format. Only .apk files are permitted.';
+        }
+    } elseif (isset($_FILES['apk_file']) && $_FILES['apk_file']['error'] === UPLOAD_ERR_INI_SIZE) {
+        $apkUploadMsg = ' Note: Uploaded APK exceeded PHP server limit. You can specify an external download URL or increase php.ini upload_max_filesize.';
+    }
+    
+    Auth::auditLog('SUPER_APP_SETTINGS_UPDATE', "Super Admin updated mobile app release settings & APK.$apkUploadMsg");
+    redirect('settings.php', 'success', 'Mobile app release settings updated successfully.' . $apkUploadMsg);
 }
 
 // Check database orphaned rows
@@ -68,6 +108,19 @@ $orphanCount = DemoSeeder::countOrphans();
 
 // Fetch recent email delivery logs
 $recentLogs = DB::fetchAll("SELECT * FROM email_delivery_logs ORDER BY id DESC LIMIT 10");
+
+// Load Mobile App Release Info
+$appPlayStoreUrl = get_platform_setting('app_playstore_url', 'https://play.google.com/store/apps/details?id=com.fitisify.gym_member_app');
+$appApkExternalUrl = get_platform_setting('app_apk_external_url', '');
+$appVersion = get_platform_setting('app_version', 'v1.0.4');
+$appMinAndroid = get_platform_setting('app_min_android', 'Android 8.0+');
+$appReleaseNotes = get_platform_setting('app_release_notes', 'Official Fitisify Athlete & Member Companion Mobile App with real-time QR gate check-in, dynamic workout logging, automated diet plans, fee payments, and push notifications.');
+
+$apkLocalPath = __DIR__ . '/../uploads/apk/fitisify_member_app.apk';
+$apkExists = file_exists($apkLocalPath);
+$apkSizeFormatted = $apkExists ? round(filesize($apkLocalPath) / (1024 * 1024), 2) . ' MB' : 'Not Uploaded';
+$apkModifiedFormatted = $apkExists ? date('M d, Y H:i A', filemtime($apkLocalPath)) : '-';
+$apkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url('/uploads/apk/fitisify_member_app.apk');
 
 include __DIR__ . '/../includes/header.php';
 include __DIR__ . '/../includes/sidebar.php';
@@ -310,7 +363,102 @@ include __DIR__ . '/../includes/topbar.php';
     </div>
 </div>
 
-<!-- 5. General Platform Settings -->
+<!-- 5. Mobile Application & APK Release Control -->
+<div class="card" style="margin-bottom: 30px;">
+    <div class="card-header">
+        <div class="card-title">
+            <i class="fab fa-android" style="color: #10b981;"></i>
+            <span>Mobile Application & APK Release Management</span>
+        </div>
+        <span class="status-badge <?php echo $apkExists ? 'badge-success' : 'badge-warning'; ?>">
+            <i class="fas <?php echo $apkExists ? 'fa-check-circle' : 'fa-exclamation-triangle'; ?>"></i>
+            <?php echo $apkExists ? 'APK Active (' . $apkSizeFormatted . ')' : 'No APK File Uploaded'; ?>
+        </span>
+    </div>
+    <div class="card-body">
+        <p style="color: var(--text-muted); font-size: 0.88rem; line-height: 1.5; margin-top: 0;">
+            Manage the official <strong>Fitisify Athlete & Member Mobile App</strong> distribution. Configure the Google Play Store landing link, upload or update the direct Android <code>.apk</code> package, and set version metadata displayed on the main website homepage.
+        </p>
+
+        <!-- Current Release Diagnostics Box -->
+        <div style="background: var(--bg-app); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 16px; margin-bottom: 24px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; font-size: 0.86rem;">
+                <div>
+                    <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Current Release Version</span>
+                    <strong style="color: var(--lime); font-size: 1.05rem;"><i class="fas fa-code-branch"></i> <?php echo htmlspecialchars($appVersion); ?></strong>
+                </div>
+                <div>
+                    <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Local Package Size</span>
+                    <strong style="color: var(--text-main); font-size: 1.05rem;"><i class="fas fa-file-archive"></i> <?php echo htmlspecialchars($apkSizeFormatted); ?></strong>
+                </div>
+                <div>
+                    <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Last Modified</span>
+                    <strong style="color: var(--text-main); font-size: 0.92rem;"><i class="far fa-clock"></i> <?php echo htmlspecialchars($apkModifiedFormatted); ?></strong>
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <?php if ($apkExists): ?>
+                        <a href="<?php echo htmlspecialchars($apkDownloadUrl); ?>" download class="btn btn-sm btn-ghost-dark" style="width: 100%; border-color: rgba(199,255,46,0.3); color: var(--lime);">
+                            <i class="fas fa-download"></i> Test Direct Download
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <form method="POST" action="" enctype="multipart/form-data">
+            <?php echo Auth::csrfField(); ?>
+            
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label"><i class="fab fa-google-play" style="color: #38bdf8;"></i> Google Play Store URL</label>
+                    <input type="url" name="app_playstore_url" class="form-control" placeholder="https://play.google.com/store/apps/details?id=..." value="<?php echo htmlspecialchars($appPlayStoreUrl); ?>" />
+                    <small style="color: var(--text-muted); font-size: 0.78rem; margin-top: 4px; display: block;">
+                        The Play Store button on the main homepage will redirect users here.
+                    </small>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label"><i class="fas fa-link" style="color: #f59e0b;"></i> External Direct APK URL (Optional CDN/Drive/S3)</label>
+                    <input type="url" name="app_apk_external_url" class="form-control" placeholder="https://cdn.yourdomain.com/fitisify_member_app.apk" value="<?php echo htmlspecialchars($appApkExternalUrl); ?>" />
+                    <small style="color: var(--text-muted); font-size: 0.78rem; margin-top: 4px; display: block;">
+                        Leave blank to serve directly from the server's <code>uploads/apk/</code> directory.
+                    </small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label"><i class="fas fa-tag"></i> App Version Name / Build</label>
+                    <input type="text" name="app_version" class="form-control" placeholder="e.g. v1.0.4" value="<?php echo htmlspecialchars($appVersion); ?>" required />
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label"><i class="fab fa-android"></i> Minimum OS Requirement</label>
+                    <input type="text" name="app_min_android" class="form-control" placeholder="e.g. Android 8.0+" value="<?php echo htmlspecialchars($appMinAndroid); ?>" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-file-upload" style="color: #10b981;"></i> Upload New Android APK File (.apk)</label>
+                <input type="file" name="apk_file" class="form-control" accept=".apk" style="padding: 9px 14px;" />
+                <small style="color: var(--text-muted); font-size: 0.78rem; margin-top: 4px; display: block;">
+                    Selecting an APK file will replace the current active package in <code>uploads/apk/fitisify_member_app.apk</code>.
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-align-left"></i> App Release Highlights / Description</label>
+                <textarea name="app_release_notes" class="form-control" rows="3" placeholder="Summary of member app features..."><?php echo htmlspecialchars($appReleaseNotes); ?></textarea>
+            </div>
+
+            <div style="margin-top: 24px;">
+                <button type="submit" name="save_mobile_app_settings" value="1" class="btn btn-primary" style="font-weight: 700;">
+                    <i class="fas fa-save"></i> Save & Publish Mobile App Release
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 6. General Platform Settings -->
 <div class="card" style="max-width: 800px; margin-bottom: 30px;">
     <div class="card-header">
         <div class="card-title">
