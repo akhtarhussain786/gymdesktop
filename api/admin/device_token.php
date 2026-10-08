@@ -47,39 +47,38 @@ try {
     );
 } catch (Throwable $e) {}
 
-// Upsert device token for admin user
-$existing = DB::fetchOne("SELECT id FROM device_tokens WHERE device_id = ?", [$deviceId]);
+// Atomic Upsert by UNIQUE device_id for Admin
+$upsertSql = "INSERT INTO device_tokens 
+    (`tenant_id`, `member_id`, `user_id`, `user_role`, `device_token`, `device_id`, `platform`, `status`, `last_active_at`, `created_at`, `updated_at`)
+VALUES 
+    (?, 0, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+    `tenant_id` = VALUES(`tenant_id`),
+    `member_id` = 0,
+    `user_id` = VALUES(`user_id`),
+    `user_role` = VALUES(`user_role`),
+    `device_token` = VALUES(`device_token`),
+    `platform` = VALUES(`platform`),
+    `status` = 'active',
+    `last_active_at` = NOW(),
+    `updated_at` = NOW()";
 
-if ($existing) {
-    DB::update('device_tokens', [
-        'tenant_id' => $tenantId,
-        'user_id' => $userId,
-        'member_id' => null,
-        'user_role' => $userRole,
-        'device_token' => $deviceToken,
-        'platform' => $platform,
-        'status' => 'active',
-        'last_active_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s')
-    ], 'id = ?', [$existing['id']]);
-} else {
-    DB::insert('device_tokens', [
-        'tenant_id' => $tenantId,
-        'user_id' => $userId,
-        'member_id' => null,
-        'user_role' => $userRole,
-        'device_token' => $deviceToken,
-        'device_id' => $deviceId,
-        'platform' => $platform,
-        'status' => 'active',
-        'last_active_at' => date('Y-m-d H:i:s')
-    ]);
-}
+$upsertParams = [
+    (int)$tenantId,
+    (int)$userId,
+    (string)$userRole,
+    (string)$deviceToken,
+    (string)$deviceId,
+    (string)$platform
+];
+
+$upsertRes = DB::query($upsertSql, $upsertParams);
 
 ApiResponse::success([
     'registered' => true,
-    'tenant_id' => $tenantId,
-    'user_id' => $userId,
+    'tenant_id' => (int)$tenantId,
+    'user_id' => (int)$userId,
     'user_role' => $userRole,
-    'platform' => $platform
+    'platform' => $platform,
+    'db_result' => is_array($upsertRes) ? 'saved' : 'updated'
 ], 'Admin push notification token registered.');

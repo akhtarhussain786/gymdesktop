@@ -102,45 +102,45 @@ if (strlen($deviceToken) > 4096 || strlen($deviceId) > 100) {
     ApiResponse::error('Invalid device token or device ID length.', 422);
 }
 
-// Remove any other records with this exact device_token to prevent cross-device duplicates
+// Remove duplicate records with same push token on different device IDs
 try {
     DB::query("DELETE FROM device_tokens WHERE device_token = ? AND device_id != ?", [$deviceToken, $deviceId]);
 } catch (Throwable $e) {}
 
-// Upsert by unique device_id
-$existing = DB::fetchOne("SELECT id FROM device_tokens WHERE device_id = ?", [$deviceId]);
+// Atomic Upsert by UNIQUE device_id
+$upsertSql = "INSERT INTO device_tokens 
+    (`tenant_id`, `member_id`, `user_id`, `user_role`, `device_token`, `device_id`, `platform`, `status`, `last_active_at`, `created_at`, `updated_at`)
+VALUES 
+    (?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+    `tenant_id` = VALUES(`tenant_id`),
+    `member_id` = VALUES(`member_id`),
+    `user_id` = VALUES(`user_id`),
+    `user_role` = VALUES(`user_role`),
+    `device_token` = VALUES(`device_token`),
+    `platform` = VALUES(`platform`),
+    `status` = 'active',
+    `last_active_at` = NOW(),
+    `updated_at` = NOW()";
 
-if ($existing) {
-    DB::update('device_tokens', [
-        'tenant_id' => $tenantId,
-        'member_id' => $memberId,
-        'user_id' => $userId,
-        'user_role' => $userRole,
-        'device_token' => $deviceToken,
-        'platform' => $platform,
-        'status' => 'active',
-        'last_active_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s')
-    ], 'id = ?', [$existing['id']]);
-} else {
-    DB::insert('device_tokens', [
-        'tenant_id' => $tenantId,
-        'member_id' => $memberId,
-        'user_id' => $userId,
-        'user_role' => $userRole,
-        'device_token' => $deviceToken,
-        'device_id' => $deviceId,
-        'platform' => $platform,
-        'status' => 'active',
-        'last_active_at' => date('Y-m-d H:i:s')
-    ]);
-}
+$upsertParams = [
+    (int)$tenantId,
+    $memberId !== null ? (int)$memberId : 0,
+    $userId !== null ? (int)$userId : 0,
+    (string)$userRole,
+    (string)$deviceToken,
+    (string)$deviceId,
+    (string)$platform
+];
+
+$upsertRes = DB::query($upsertSql, $upsertParams);
 
 ApiResponse::success([
     'registered' => true,
-    'tenant_id' => $tenantId,
+    'tenant_id' => (int)$tenantId,
     'member_id' => $memberId,
     'user_id' => $userId,
     'user_role' => $userRole,
-    'platform' => $platform
+    'platform' => $platform,
+    'db_result' => is_array($upsertRes) ? 'saved' : 'updated'
 ], 'Member push notification device token synced.');
