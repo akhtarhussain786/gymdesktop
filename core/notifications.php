@@ -490,8 +490,29 @@ class NotificationEngine {
                             'priority' => 'HIGH',
                             'notification' => [
                                 'sound' => 'default',
-                                'channel_id' => 'gym_alerts_channel',
+                                'channel_id' => 'gym_high_importance_channel',
+                                'notification_priority' => 'PRIORITY_MAX',
+                                'visibility' => 'PUBLIC',
+                                'default_sound' => true,
+                                'default_vibrate_timings' => true,
+                                'default_light_settings' => true,
                                 'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
+                            ]
+                        ],
+                        'apns' => [
+                            'headers' => [
+                                'apns-priority' => '10'
+                            ],
+                            'payload' => [
+                                'aps' => [
+                                    'alert' => [
+                                        'title' => (string)$title,
+                                        'body' => (string)$body
+                                    ],
+                                    'sound' => 'default',
+                                    'badge' => 1,
+                                    'content-available' => 1
+                                ]
                             ]
                         ]
                     ]

@@ -7,8 +7,11 @@ import 'providers/dashboard_provider.dart';
 import 'providers/member_data_provider.dart';
 import 'screens/splash_screen.dart';
 
-void main() {
+import 'core/services/push_notification_service.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await PushNotificationService.initialize();
   runApp(
     MultiProvider(
       providers: [

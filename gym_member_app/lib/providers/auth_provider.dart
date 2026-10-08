@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/config/api_config.dart';
 import '../core/network/api_service.dart';
+import '../core/services/push_notification_service.dart';
 import '../core/storage/secure_storage_service.dart';
 import '../models/gym_tenant.dart';
 import '../models/member_user.dart';
@@ -88,6 +89,7 @@ class AuthProvider extends ChangeNotifier {
               _status = AuthStatus.authenticated;
               _isLoading = false;
               notifyListeners();
+              PushNotificationService.syncDeviceToken();
               return;
             }
           } else {
@@ -98,6 +100,7 @@ class AuthProvider extends ChangeNotifier {
               _status = AuthStatus.authenticated;
               _isLoading = false;
               notifyListeners();
+              PushNotificationService.syncDeviceToken();
               return;
             }
           }
@@ -236,6 +239,10 @@ class AuthProvider extends ChangeNotifier {
       _status = AuthStatus.authenticated;
       _isLoading = false;
       notifyListeners();
+
+      // Automatically sync FCM push notification device token
+      PushNotificationService.syncDeviceToken();
+
       return true;
     } on ApiException catch (e) {
       _errorMessage = e.message;
@@ -256,6 +263,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     // Clear previous tenant's session & tokens
+    await PushNotificationService.unregisterDeviceToken();
     await SecureStorageService.clearSession();
     _authToken = null;
     _currentMember = null;
@@ -268,6 +276,8 @@ class AuthProvider extends ChangeNotifier {
 
   // 4. Logout
   Future<void> logout({bool silent = false}) async {
+    await PushNotificationService.unregisterDeviceToken();
+
     if (!silent) {
       try {
         await ApiService.post(ApiConfig.logout);
