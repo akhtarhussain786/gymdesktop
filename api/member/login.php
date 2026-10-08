@@ -70,151 +70,190 @@ if ($blockReason !== null) {
 }
 
 // 2. Locate User or Member within this specific tenant
-// Check unified users table for matching loginId (username, email, phone, or member_id)
+// Match case-insensitively by Username, Email/Gmail, Phone, or Member ID
+$cleanLogin = strtolower($loginId);
+$numId = is_numeric($loginId) ? (int)$loginId : -1;
+
 $user = DB::fetchOne(
     "SELECT * FROM users 
-     WHERE tenant_id = ? AND (username = ? OR email = ? OR phone = ? OR member_id = ?) 
+     WHERE tenant_id = ? 
+       AND (
+         LOWER(TRIM(username)) = ? 
+         OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?) 
+         OR (phone IS NOT NULL AND phone != '' AND TRIM(phone) = ?) 
+         OR member_id = ?
+       ) 
      LIMIT 1",
-    [$tenantId, $loginId, $loginId, $loginId, (is_numeric($loginId) ? (int)$loginId : -1)]
+    [$tenantId, $cleanLogin, $cleanLogin, $loginId, $numId]
 );
 
-$member = null;
-$isValid = false;
-$userRole = 'member';
+$member = DB::fetchOne(
+    "SELECT * FROM members 
+     WHERE tenant_id = ? 
+       AND (
+         LOWER(TRIM(username)) = ? 
+         OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?) 
+         OR (contact IS NOT NULL AND contact != '' AND TRIM(contact) = ?) 
+         OR user_id = ?
+       ) 
+     LIMIT 1",
+    [$tenantId, $cleanLogin, $cleanLogin, $loginId, $numId]
+);
 
-if ($user) {
-    $userRole = strtolower((string)$user['role']);
-    // Password check (md5/plaintext accepted only as a one-time upgrade path, then rehashed to bcrypt)
+// Cross-link user and member if one was found but not the other
+if ($user && !$member) {
+    if (!empty($user['member_id'])) {
+        $member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [(int)$user['member_id'], $tenantId]);
+    }
+    if (!$member) {
+        $member = DB::fetchOne(
+            "SELECT * FROM members WHERE tenant_id = ? AND (LOWER(TRIM(username)) = ? OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?)) LIMIT 1",
+            [$tenantId, strtolower(trim($user['username'])), strtolower(trim($user['email'] ?? ''))]
+        );
+    }
+} elseif ($member && !$user) {
+    $user = DB::fetchOne(
+        "SELECT * FROM users WHERE tenant_id = ? AND (member_id = ? OR LOWER(TRIM(username)) = ? OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?)) LIMIT 1",
+        [$tenantId, (int)$member['user_id'], strtolower(trim($member['username'])), strtolower(trim($member['email'] ?? ''))]
+    );
+}
+
+$isValid = false;
+$userRole = $user ? strtolower((string)$user['role']) : 'member';
+$needsRehash = false;
+
+// Attempt password verification against user hash
+if ($user && !empty($user['password'])) {
     $pwCheck = api_verify_password($password, $user['password']);
     if ($pwCheck !== false) {
         $isValid = true;
-        if ($pwCheck === 'rehash') {
-            $newHash = password_hash($password, PASSWORD_DEFAULT);
-            DB::update('users', ['password' => $newHash], 'id = ? AND tenant_id = ?', [$user['id'], $tenantId]);
-        }
+        if ($pwCheck === 'rehash') $needsRehash = true;
     }
+}
 
-    if ($isValid) {
+// Fallback: try password against member hash if user check did not pass
+if (!$isValid && $member && !empty($member['password'])) {
+    $pwCheck = api_verify_password($password, $member['password']);
+    if ($pwCheck !== false) {
+        $isValid = true;
+        if ($pwCheck === 'rehash') $needsRehash = true;
+    }
+}
+
+if ($isValid) {
+    // If Admin / Staff / Trainer, return authenticated staff session
+    if ($user && in_array($userRole, ['gym_admin', 'staff', 'super_admin', 'trainer'], true)) {
         if ($user['status'] !== 'active') {
             ApiResponse::forbidden('Your account is currently ' . $user['status'] . '. Please contact gym support.');
         }
 
-        // If this is an Admin / Staff user, we don't require a members table row
-        if (in_array($userRole, ['gym_admin', 'staff', 'super_admin', 'trainer'], true)) {
-            api_rate_clear('login', $rateKeyUser);
+        api_rate_clear('login', $rateKeyUser);
 
-            $userId = (int)$user['id'];
-            $rawToken = bin2hex(random_bytes(32));
-            $tokenHash = hash('sha256', $rawToken);
-            $expiryDate = gmdate('Y-m-d H:i:s', time() + 90 * 86400);
+        $userId = (int)$user['id'];
+        $rawToken = bin2hex(random_bytes(32));
+        $tokenHash = hash('sha256', $rawToken);
+        $expiryDate = gmdate('Y-m-d H:i:s', time() + 90 * 86400);
 
-            // Clean expired tokens
-            DB::query("DELETE FROM member_tokens WHERE tenant_id = ? AND user_id = ? AND expires_at < ?", [$tenantId, $userId, gmdate('Y-m-d H:i:s')]);
+        // Clean expired tokens
+        DB::query("DELETE FROM member_tokens WHERE tenant_id = ? AND user_id = ? AND expires_at < ?", [$tenantId, $userId, gmdate('Y-m-d H:i:s')]);
 
-            $tokenRow = [
-                'tenant_id' => (int)$tenantId,
-                'member_id' => 0,
-                'user_id' => (int)$userId,
-                'token_hash' => (string)$tokenHash,
-                'device_id' => mb_substr((string)$deviceId, 0, 100),
-                'device_name' => mb_substr((string)($deviceName ?: 'Mobile Device'), 0, 100),
-                'platform' => (string)$platform,
-                'expires_at' => (string)$expiryDate
-            ];
-            $cols = array_keys($tokenRow);
-            DB::execute(
-                "INSERT INTO `member_tokens` (`" . implode('`, `', $cols) . "`) VALUES (" . implode(', ', array_fill(0, count($cols), '?')) . ")",
-                array_values($tokenRow)
-            );
+        $tokenRow = [
+            'tenant_id' => (int)$tenantId,
+            'member_id' => 0,
+            'user_id' => (int)$userId,
+            'token_hash' => (string)$tokenHash,
+            'device_id' => mb_substr((string)$deviceId, 0, 100),
+            'device_name' => mb_substr((string)($deviceName ?: 'Mobile Device'), 0, 100),
+            'platform' => (string)$platform,
+            'expires_at' => (string)$expiryDate
+        ];
+        $cols = array_keys($tokenRow);
+        DB::execute(
+            "INSERT INTO `member_tokens` (`" . implode('`, `', $cols) . "`) VALUES (" . implode(', ', array_fill(0, count($cols), '?')) . ")",
+            array_values($tokenRow)
+        );
 
-            $adminResponse = [
-                'token' => $rawToken,
+        $adminResponse = [
+            'token' => $rawToken,
+            'role' => $userRole,
+            'expires_at' => $expiryDate,
+            'user' => [
+                'id' => $userId,
+                'username' => $user['username'],
+                'fullname' => $user['fullname'],
                 'role' => $userRole,
-                'expires_at' => $expiryDate,
-                'user' => [
-                    'id' => $userId,
-                    'username' => $user['username'],
-                    'fullname' => $user['fullname'],
-                    'role' => $userRole,
-                    'email' => $user['email'] ?? '',
-                    'phone' => $user['phone'] ?? '',
-                    'avatar' => !empty($user['avatar']) ? base_url('/uploads/avatars/' . $user['avatar']) : null
-                ],
-                'tenant' => [
-                    'id' => $tenantId,
-                    'gym_code' => $tenant['gym_code'] ?: 'GYM-' . $tenantId,
-                    'gym_name' => $tenant['gym_name'],
-                    'slug' => $tenant['slug'],
-                    'logo' => $tenant['logo'] ? base_url('/img/' . $tenant['logo']) : null,
-                    'primary_color' => $tenant['primary_color'] ?: '#2563eb',
-                    'secondary_color' => $tenant['secondary_color'] ?: '#10b981',
-                    'currency' => $tenant['currency'] ?: '₹',
-                    'phone' => $tenant['phone'] ?: '',
-                    'email' => $tenant['email'] ?: '',
-                    'address' => $tenant['address'] ?: '',
-                    'upi_id' => $tenant['upi_id'] ?? ''
-                ]
-            ];
-            ApiResponse::success($adminResponse, 'Welcome back, ' . $user['fullname'] . ' (Admin)!');
-        }
-
-        // Otherwise fetch corresponding member record
-        if (!empty($user['member_id'])) {
-            $member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [(int)$user['member_id'], $tenantId]);
-        }
-        if (!$member) {
-            $member = DB::fetchOne("SELECT * FROM members WHERE username = ? AND tenant_id = ?", [$user['username'], $tenantId]);
-        }
+                'email' => $user['email'] ?? '',
+                'phone' => $user['phone'] ?? '',
+                'avatar' => api_member_avatar_url($user['avatar'] ?? null, null)
+            ],
+            'tenant' => [
+                'id' => $tenantId,
+                'gym_code' => $tenant['gym_code'] ?: 'GYM-' . $tenantId,
+                'gym_name' => $tenant['gym_name'],
+                'slug' => $tenant['slug'],
+                'logo' => $tenant['logo'] ? base_url('/img/' . $tenant['logo']) : null,
+                'primary_color' => $tenant['primary_color'] ?: '#2563eb',
+                'secondary_color' => $tenant['secondary_color'] ?: '#10b981',
+                'currency' => $tenant['currency'] ?: '₹',
+                'phone' => $tenant['phone'] ?: '',
+                'email' => $tenant['email'] ?: '',
+                'address' => $tenant['address'] ?: '',
+                'upi_id' => $tenant['upi_id'] ?? ''
+            ]
+        ];
+        ApiResponse::success($adminResponse, 'Welcome back, ' . $user['fullname'] . ' (Admin)!');
     }
-}
 
-// If not found in unified users, check members table directly (legacy/direct member fallback)
-if (!$isValid) {
-    $member = DB::fetchOne(
-        "SELECT * FROM members 
-         WHERE tenant_id = ? AND (username = ? OR email = ? OR contact = ? OR user_id = ?) 
-         LIMIT 1",
-        [$tenantId, $loginId, $loginId, $loginId, (is_numeric($loginId) ? (int)$loginId : -1)]
-    );
+    // Member authentication branch
+    if (!$member) {
+        $recordLoginFailure();
+        ApiResponse::error('Member account record not found in this gym.', 404);
+    }
 
-    if ($member) {
-        $pwCheck = api_verify_password($password, $member['password']);
-        if ($pwCheck !== false) {
-            $isValid = true;
-            $newHash = $member['password'];
-            if ($pwCheck === 'rehash') {
-                $newHash = password_hash($password, PASSWORD_DEFAULT);
-                DB::update('members', ['password' => $newHash], 'user_id = ? AND tenant_id = ?', [$member['user_id'], $tenantId]);
-            }
+    // Auto-create or sync users row for member
+    $newHash = password_hash($password, PASSWORD_DEFAULT);
+    if (!$user) {
+        $insertedUserId = DB::insert('users', [
+            'tenant_id' => $tenantId,
+            'branch_id' => $member['branch_id'] ?? 1,
+            'role' => 'member',
+            'username' => $member['username'],
+            'password' => $newHash,
+            'email' => !empty($member['email']) ? $member['email'] : null,
+            'fullname' => $member['fullname'],
+            'phone' => $member['contact'] ?? null,
+            'status' => 'active',
+            'member_id' => $member['user_id'],
+            'avatar' => $member['avatar'] ?? $member['photo'] ?? null
+        ]);
+        $user = DB::fetchOne("SELECT * FROM users WHERE id = ?", [$insertedUserId]);
+    } else {
+        if (strtolower((string)$user['status']) !== 'active') {
+            ApiResponse::forbidden('Your account is currently ' . $user['status'] . '. Please contact gym support.');
+        }
 
-            $existingUser = DB::fetchOne("SELECT id FROM users WHERE tenant_id = ? AND member_id = ? AND role = 'member'", [$tenantId, $member['user_id']]);
-            if (!$existingUser) {
-                $insertedUserId = DB::insert('users', [
-                    'tenant_id' => $tenantId,
-                    'branch_id' => $member['branch_id'] ?? 1,
-                    'role' => 'member',
-                    'username' => $member['username'],
-                    'password' => $newHash,
-                    'email' => $member['email'] ?? $member['username'] . '@gym.com',
-                    'fullname' => $member['fullname'],
-                    'phone' => $member['contact'],
-                    'status' => 'active',
-                    'member_id' => $member['user_id']
-                ]);
-                $user = DB::fetchOne("SELECT * FROM users WHERE id = ?", [$insertedUserId]);
-            } else {
-                $user = DB::fetchOne("SELECT * FROM users WHERE id = ?", [$existingUser['id']]);
-                if ($user && strtolower((string)$user['status']) !== 'active') {
-                    ApiResponse::forbidden('Your account is currently ' . $user['status'] . '. Please contact gym support.');
-                }
-            }
+        $syncUpdate = [];
+        if (empty($user['member_id'])) {
+            $syncUpdate['member_id'] = $member['user_id'];
+        }
+        if (empty($user['email']) && !empty($member['email'])) {
+            $syncUpdate['email'] = $member['email'];
+        }
+        if ($needsRehash) {
+            $syncUpdate['password'] = $newHash;
+        }
+        if (!empty($syncUpdate)) {
+            DB::update('users', $syncUpdate, 'id = ? AND tenant_id = ?', [$user['id'], $tenantId]);
+        }
+        if ($needsRehash) {
+            DB::update('members', ['password' => $newHash], 'user_id = ? AND tenant_id = ?', [$member['user_id'], $tenantId]);
         }
     }
 }
 
 if (!$isValid || !$member) {
     $recordLoginFailure();
-    ApiResponse::error('Invalid login credentials for this gym.', 401);
+    ApiResponse::error('Invalid username, email, or password for this gym.', 401);
 }
 
 // Inactive / suspended / deleted members must not obtain a session

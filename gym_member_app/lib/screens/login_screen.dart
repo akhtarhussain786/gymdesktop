@@ -228,18 +228,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 18),
                       ],
 
-                      // Login ID
+                      // Login ID (Username or Gmail/Email)
                       TextFormField(
                         controller: _loginIdController,
+                        keyboardType: TextInputType.emailAddress,
                         style: GoogleFonts.plusJakartaSans(color: AppColors.darkTextPrimary, fontSize: 14),
                         decoration: const InputDecoration(
-                          labelText: 'Username or Email',
-                          hintText: 'Enter member username',
+                          labelText: 'Username or Gmail / Email',
+                          hintText: 'e.g. rahul123 or rahul@gmail.com',
                           prefixIcon: Icon(Icons.person_outline_rounded, color: AppColors.darkTextMuted),
                         ),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
-                            return 'Please enter your username';
+                            return 'Please enter your username or email';
                           }
                           return null;
                         },

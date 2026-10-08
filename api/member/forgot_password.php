@@ -35,10 +35,17 @@ if (!$tenant) {
     ApiResponse::success(null, $genericMessage);
 }
 
-$tenantId = (int)$tenant['id'];
+$cleanIdent = strtolower($email);
 $member = DB::fetchOne(
-    "SELECT * FROM members WHERE tenant_id = ? AND (email = ? OR username = ? OR contact = ?) LIMIT 1",
-    [$tenantId, $email, $email, $email]
+    "SELECT * FROM members 
+     WHERE tenant_id = ? 
+       AND (
+         (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?) 
+         OR LOWER(TRIM(username)) = ? 
+         OR (contact IS NOT NULL AND contact != '' AND TRIM(contact) = ?)
+       ) 
+     LIMIT 1",
+    [$tenantId, $cleanIdent, $cleanIdent, $email]
 );
 
 if ($member && !api_member_is_blocked($member)) {
