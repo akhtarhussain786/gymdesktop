@@ -115,7 +115,7 @@ include __DIR__ . '/../includes/topbar.php';
 ?>
 
 <!-- Top Metrics Row -->
-<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 24px;">
+<div class="notifications-metrics-grid">
     <div class="card" style="padding: 22px 24px; border-left: 4px solid var(--lime); margin-bottom: 0;">
         <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">Target Gym Owners</div>
         <div style="font-family: 'Outfit', sans-serif; font-size: 2.2rem; font-weight: 900; color: #fff; margin-top: 4px; line-height: 1.1;"><?php echo number_format($totalGymOwners); ?></div>
@@ -143,8 +143,8 @@ include __DIR__ . '/../includes/topbar.php';
     </div>
 </div>
 
-<!-- Main 2-Column Workspace Grid -->
-<div class="notifications-workspace-grid" style="display: grid; grid-template-columns: 1.25fr 0.95fr; gap: 24px; margin-bottom: 24px; align-items: start;">
+<!-- Main 2-Column Workspace Grid (57% Left / 43% Right) -->
+<div class="notifications-workspace-grid">
     <!-- Left: Compose Broadcast Form -->
     <div class="card" style="margin-bottom: 0;">
         <div class="card-header">
