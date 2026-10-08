@@ -545,9 +545,9 @@ class NotificationEngine {
             $authOk = !empty($token);
         }
 
-        $totalActiveTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
-        $adminTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND (user_role IN ('gym_admin', 'staff', 'super_admin') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin')))");
-        $memberTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND (member_id IS NOT NULL OR user_role = 'member')");
+        $totalActiveTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE device_token IS NOT NULL AND device_token != ''");
+        $adminTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE (user_role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer')) OR tenant_id > 0) AND device_token IS NOT NULL AND device_token != ''");
+        $memberTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE (member_id IS NOT NULL OR user_role = 'member' OR (user_id IS NULL AND member_id IS NULL)) AND device_token IS NOT NULL AND device_token != ''");
 
         return [
             'fcm_v1_configured' => $hasKeyFile,

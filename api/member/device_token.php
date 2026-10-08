@@ -11,6 +11,17 @@ require_once __DIR__ . '/middleware.php';
 
 NotificationEngine::ensureSchema();
 
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $count = (int)DB::fetchValue("SELECT COUNT(*) FROM device_tokens");
+    $activeCount = (int)DB::fetchValue("SELECT COUNT(*) FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '')");
+    $rows = DB::fetchAll("SELECT id, tenant_id, user_id, member_id, user_role, platform, status, last_active_at, updated_at, SUBSTRING(device_token, 1, 16) as token_preview FROM device_tokens ORDER BY id DESC LIMIT 20");
+    ApiResponse::success([
+        'total_tokens' => $count,
+        'active_tokens' => $activeCount,
+        'recent_devices' => $rows
+    ], 'Device tokens diagnostic');
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     ApiResponse::error('Method not allowed', 405);
 }

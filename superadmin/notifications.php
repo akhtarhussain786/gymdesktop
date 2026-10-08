@@ -96,7 +96,7 @@ $fcmHealth = NotificationEngine::getFcmHealth();
 $totalGymOwners = (int)DB::fetchValue("SELECT COUNT(*) FROM users WHERE role IN ('gym_admin', 'staff') AND status = 'active'");
 
 // Fetch Recent Registered Devices for Test Selector
-$recentDevices = DB::fetchAll("SELECT d.*, t.gym_name, u.fullname as user_name FROM device_tokens d LEFT JOIN tenants t ON d.tenant_id = t.id LEFT JOIN users u ON d.user_id = u.id WHERE d.status = 'active' ORDER BY d.updated_at DESC LIMIT 15");
+$recentDevices = DB::fetchAll("SELECT d.*, t.gym_name, u.fullname as user_name FROM device_tokens d LEFT JOIN tenants t ON d.tenant_id = t.id LEFT JOIN users u ON d.user_id = u.id WHERE d.device_token IS NOT NULL AND d.device_token != '' ORDER BY d.id DESC LIMIT 30");
 
 // Fetch Sent Notification History
 $history = DB::fetchAll(
