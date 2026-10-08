@@ -114,115 +114,108 @@ include __DIR__ . '/../includes/sidebar.php';
 include __DIR__ . '/../includes/topbar.php';
 ?>
 
-<!-- Metrics Banner -->
-<div class="row" style="margin-bottom: 24px;">
-    <div class="col-md-4">
-        <div class="card" style="padding: 20px; border-left: 4px solid var(--lime);">
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Target Gym Owners</div>
-            <div style="font-size: 2rem; font-weight: 800; color: #fff; margin-top: 4px;"><?php echo number_format($totalGymOwners); ?></div>
-            <div style="font-size: 0.8rem; color: #10b981; margin-top: 4px;"><i class="fas fa-user-shield"></i> Active Gym Admins</div>
+<!-- Top Metrics Row -->
+<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 24px;">
+    <div class="card" style="padding: 22px 24px; border-left: 4px solid var(--lime); margin-bottom: 0;">
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">Target Gym Owners</div>
+        <div style="font-family: 'Outfit', sans-serif; font-size: 2.2rem; font-weight: 900; color: #fff; margin-top: 4px; line-height: 1.1;"><?php echo number_format($totalGymOwners); ?></div>
+        <div style="font-size: 0.82rem; color: #10b981; margin-top: 6px; font-weight: 600;"><i class="fas fa-user-shield"></i> Active Gym Admins</div>
+    </div>
+    <div class="card" style="padding: 22px 24px; border-left: 4px solid #38bdf8; margin-bottom: 0;">
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">Active Push Devices</div>
+        <div style="font-family: 'Outfit', sans-serif; font-size: 2.2rem; font-weight: 900; color: #fff; margin-top: 4px; line-height: 1.1;"><?php echo number_format($fcmHealth['active_devices_total']); ?></div>
+        <div style="font-size: 0.82rem; color: #38bdf8; margin-top: 6px; font-weight: 600;">
+            <i class="fas fa-mobile-alt"></i> <?php echo $fcmHealth['admin_devices']; ?> Admins &bull; <?php echo $fcmHealth['member_devices']; ?> Members
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card" style="padding: 20px; border-left: 4px solid #38bdf8;">
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Active Push Devices</div>
-            <div style="font-size: 2rem; font-weight: 800; color: #fff; margin-top: 4px;"><?php echo number_format($fcmHealth['active_devices_total']); ?></div>
-            <div style="font-size: 0.8rem; color: #38bdf8; margin-top: 4px;">
-                <i class="fas fa-mobile-alt"></i> <?php echo $fcmHealth['admin_devices']; ?> Admins &bull; <?php echo $fcmHealth['member_devices']; ?> Members
-            </div>
+    <div class="card" style="padding: 22px 24px; border-left: 4px solid <?php echo $fcmHealth['oauth_authenticated'] ? '#10b981' : '#ef4444'; ?>; margin-bottom: 0;">
+        <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">Firebase FCM Engine</div>
+        <div style="margin-top: 10px;">
+            <?php if ($fcmHealth['oauth_authenticated']): ?>
+                <span class="status-badge badge-success" style="font-size: 0.85rem; padding: 6px 14px;"><i class="fas fa-check-circle"></i> FCM HTTP v1 Active</span>
+            <?php else: ?>
+                <span class="status-badge badge-danger" style="font-size: 0.85rem; padding: 6px 14px;"><i class="fas fa-exclamation-triangle"></i> Key Missing</span>
+            <?php endif; ?>
         </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card" style="padding: 20px; border-left: 4px solid <?php echo $fcmHealth['oauth_authenticated'] ? '#10b981' : '#ef4444'; ?>;">
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Firebase FCM Engine</div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-top: 10px;">
-                <?php if ($fcmHealth['oauth_authenticated']): ?>
-                    <span class="status-badge badge-success"><i class="fas fa-check-circle"></i> FCM HTTP v1 Active</span>
-                <?php else: ?>
-                    <span class="status-badge badge-danger"><i class="fas fa-exclamation-triangle"></i> Key Missing</span>
-                <?php endif; ?>
-            </div>
-            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 6px;">
-                Project: <code><?php echo e($fcmHealth['project_id']); ?></code>
-            </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 8px;">
+            Project: <code style="color: var(--lime);"><?php echo e($fcmHealth['project_id']); ?></code>
         </div>
     </div>
 </div>
 
-<div class="row">
+<!-- Main 2-Column Workspace Grid -->
+<div class="notifications-workspace-grid" style="display: grid; grid-template-columns: 1.25fr 0.95fr; gap: 24px; margin-bottom: 24px; align-items: start;">
     <!-- Left: Compose Broadcast Form -->
-    <div class="col-md-7">
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title">
-                    <i class="fas fa-paper-plane" style="color: var(--lime);"></i>
-                    <span>Broadcast Notification to Gym Owners & Members</span>
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-header">
+            <div class="card-title">
+                <i class="fas fa-paper-plane" style="color: var(--lime);"></i>
+                <span>Broadcast Notification to Gym Owners & Members</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="">
+                <?php echo Auth::csrfField(); ?>
+                <input type="hidden" name="action" value="send_notification">
+
+                <div class="form-group">
+                    <label class="form-label">Notification Title *</label>
+                    <input type="text" name="title" class="form-control" placeholder="e.g. Important: System Upgrade Scheduled for Sunday" required style="font-weight: 700;" />
                 </div>
-            </div>
-            <div class="card-body">
-                <form method="POST" action="">
-                    <?php echo Auth::csrfField(); ?>
-                    <input type="hidden" name="action" value="send_notification">
 
+                <div class="form-group">
+                    <label class="form-label">Notification Message *</label>
+                    <textarea name="message" class="form-control" rows="4" placeholder="Type your announcement, renewal notice, or update message here..." required></textarea>
+                    <small style="color: var(--text-muted); display: block; margin-top: 6px;">Dispatches real-time high priority popup banner with sound & vibration to mobile devices.</small>
+                </div>
+
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                     <div class="form-group">
-                        <label class="form-label">Notification Title *</label>
-                        <input type="text" name="title" class="form-control" placeholder="e.g. Important: System Upgrade Scheduled for Sunday" required style="font-weight: 700;" />
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Notification Message *</label>
-                        <textarea name="message" class="form-control" rows="4" placeholder="Type your announcement, renewal notice, or update message here..." required></textarea>
-                        <small style="color: var(--text-muted);">Dispatches real-time high priority popup banner with sound & vibration to mobile devices.</small>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Notice Type</label>
-                            <select name="type" class="form-select">
-                                <option value="system_update">🚀 System Update & New Features</option>
-                                <option value="subscription_alert">💳 SaaS Subscription & Renewal Alert</option>
-                                <option value="announcement">📢 Platform Announcement</option>
-                                <option value="offer">🎁 Special SaaS Discount / Offer</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Target Audience</label>
-                            <select name="target_audience" id="target-audience" class="form-select" onchange="toggleGymSelector(this.value)">
-                                <option value="everyone" selected>🌍 Everyone (All Active Mobile Devices & Gyms)</option>
-                                <option value="all_gym_owners">👑 All Gym Owners & Staff (Admin App)</option>
-                                <option value="all_members">🏋️ All Gym Members Across All Gyms</option>
-                                <option value="specific">🏢 Specific Selected Gyms</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-group" id="gym-selector-box" style="display: none;">
-                        <label class="form-label">Select Target Gyms</label>
-                        <select name="gym_ids[]" class="form-select" multiple style="height: 120px;">
-                            <?php foreach ($tenants as $t): ?>
-                                <option value="<?php echo $t['id']; ?>">
-                                    <?php echo e($t['gym_name']); ?> (<?php echo e($t['gym_code'] ?: 'ID: ' . $t['id']); ?>) - <?php echo ucfirst($t['status']); ?>
-                                </option>
-                            <?php endforeach; ?>
+                        <label class="form-label">Notice Type</label>
+                        <select name="type" class="form-select">
+                            <option value="system_update">🚀 System Update & New Features</option>
+                            <option value="subscription_alert">💳 SaaS Subscription & Renewal Alert</option>
+                            <option value="announcement">📢 Platform Announcement</option>
+                            <option value="offer">🎁 Special SaaS Discount / Offer</option>
                         </select>
-                        <small style="color: var(--text-muted);">Hold Ctrl / Cmd to select multiple gyms.</small>
                     </div>
 
-                    <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                        <button type="submit" class="btn btn-primary btn-lg" style="font-weight: 800; padding: 12px 28px;">
-                            <i class="fas fa-paper-plane"></i> Send Push Notification Now
-                        </button>
+                    <div class="form-group">
+                        <label class="form-label">Target Audience</label>
+                        <select name="target_audience" id="target-audience" class="form-select" onchange="toggleGymSelector(this.value)">
+                            <option value="everyone" selected>🌍 Everyone (All Active Mobile Devices & Gyms)</option>
+                            <option value="all_gym_owners">👑 All Gym Owners & Staff (Admin App)</option>
+                            <option value="all_members">🏋️ All Gym Members Across All Gyms</option>
+                            <option value="specific">🏢 Specific Selected Gyms</option>
+                        </select>
                     </div>
-                </form>
-            </div>
+                </div>
+
+                <div class="form-group" id="gym-selector-box" style="display: none;">
+                    <label class="form-label">Select Target Gyms</label>
+                    <select name="gym_ids[]" class="form-select" multiple style="height: 120px;">
+                        <?php foreach ($tenants as $t): ?>
+                            <option value="<?php echo $t['id']; ?>">
+                                <?php echo e($t['gym_name']); ?> (<?php echo e($t['gym_code'] ?: 'ID: ' . $t['id']); ?>) - <?php echo ucfirst($t['status']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="color: var(--text-muted);">Hold Ctrl / Cmd to select multiple gyms.</small>
+                </div>
+
+                <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
+                    <button type="submit" class="btn btn-primary btn-lg" style="font-weight: 800; padding: 12px 28px;">
+                        <i class="fas fa-paper-plane"></i> Send Push Notification Now
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
     <!-- Right: FCM HTTP v1 Configuration & Instant Test Push Tool -->
-    <div class="col-md-5">
+    <div style="display: flex; flex-direction: column; gap: 24px;">
         <!-- FCM HTTP v1 Status Card -->
-        <div class="card">
+        <div class="card" style="margin-bottom: 0;">
             <div class="card-header">
                 <div class="card-title">
                     <i class="fas fa-server" style="color: #38bdf8;"></i>

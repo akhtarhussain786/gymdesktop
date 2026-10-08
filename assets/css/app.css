@@ -169,10 +169,10 @@ a {
   background-color: var(--bg-app);
   color: var(--text-main);
   position: relative;
-  overflow-x: hidden;
+  width: 100%;
 }
 
-/* Sidebar Navigation */
+/* Sidebar Navigation (Fixed Desktop / Drawer Mobile) */
 .app-sidebar {
   width: 270px;
   background-color: var(--bg-surface);
@@ -180,12 +180,30 @@ a {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  z-index: 900;
-  position: sticky;
+  z-index: 950;
+  position: fixed;
   top: 0;
+  left: 0;
+  bottom: 0;
   height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex-shrink: 0;
   transition: transform 0.3s var(--ease-athletic);
+}
+
+.app-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+.app-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+.app-sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--lime);
 }
 
 .sidebar-brand {
@@ -195,6 +213,7 @@ a {
   gap: 12px;
   border-bottom: 1px solid var(--border-color);
   min-height: 68px;
+  flex-shrink: 0;
 }
 
 .brand-logo {
@@ -299,13 +318,14 @@ a {
 }
 
 .sidebar-item.active .sidebar-link i {
-  color: #05080d;
+  color: #05080d !important;
 }
 
 .sidebar-footer {
   padding: 14px 16px;
   border-top: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
 }
 
 .sidebar-user {
@@ -348,13 +368,15 @@ a {
   text-transform: capitalize;
 }
 
-/* Topbar Header */
+/* Topbar & Main Canvas */
 .app-main {
-  flex: 1;
-  min-width: 0;
+  margin-left: 270px;
+  width: calc(100% - 270px);
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
+  position: relative;
 }
 
 .app-topbar {
@@ -433,6 +455,58 @@ a {
 .app-content {
   padding: 28px;
   flex: 1;
+}
+
+/* Universal Row & Column Grid System */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  margin-right: -12px;
+  margin-left: -12px;
+}
+
+.row > [class*="col-"] {
+  padding-right: 12px;
+  padding-left: 12px;
+  width: 100%;
+}
+
+.col-12 { flex: 0 0 100%; max-width: 100%; }
+.col-11 { flex: 0 0 91.666667%; max-width: 91.666667%; }
+.col-10 { flex: 0 0 83.333333%; max-width: 83.333333%; }
+.col-9  { flex: 0 0 75%; max-width: 75%; }
+.col-8  { flex: 0 0 66.666667%; max-width: 66.666667%; }
+.col-7  { flex: 0 0 58.333333%; max-width: 58.333333%; }
+.col-6  { flex: 0 0 50%; max-width: 50%; }
+.col-5  { flex: 0 0 41.666667%; max-width: 41.666667%; }
+.col-4  { flex: 0 0 33.333333%; max-width: 33.333333%; }
+.col-3  { flex: 0 0 25%; max-width: 25%; }
+.col-2  { flex: 0 0 16.666667%; max-width: 16.666667%; }
+.col-1  { flex: 0 0 8.333333%; max-width: 8.333333%; }
+
+@media (min-width: 768px) {
+  .col-md-12 { flex: 0 0 100%; max-width: 100%; }
+  .col-md-11 { flex: 0 0 91.666667%; max-width: 91.666667%; }
+  .col-md-10 { flex: 0 0 83.333333%; max-width: 83.333333%; }
+  .col-md-9  { flex: 0 0 75%; max-width: 75%; }
+  .col-md-8  { flex: 0 0 66.666667%; max-width: 66.666667%; }
+  .col-md-7  { flex: 0 0 58.333333%; max-width: 58.333333%; }
+  .col-md-6  { flex: 0 0 50%; max-width: 50%; }
+  .col-md-5  { flex: 0 0 41.666667%; max-width: 41.666667%; }
+  .col-md-4  { flex: 0 0 33.333333%; max-width: 33.333333%; }
+  .col-md-3  { flex: 0 0 25%; max-width: 25%; }
+  .col-md-2  { flex: 0 0 16.666667%; max-width: 16.666667%; }
+  .col-md-1  { flex: 0 0 8.333333%; max-width: 8.333333%; }
+}
+
+@media (min-width: 992px) {
+  .col-lg-12 { flex: 0 0 100%; max-width: 100%; }
+  .col-lg-8  { flex: 0 0 66.666667%; max-width: 66.666667%; }
+  .col-lg-7  { flex: 0 0 58.333333%; max-width: 58.333333%; }
+  .col-lg-6  { flex: 0 0 50%; max-width: 50%; }
+  .col-lg-5  { flex: 0 0 41.666667%; max-width: 41.666667%; }
+  .col-lg-4  { flex: 0 0 33.333333%; max-width: 33.333333%; }
+  .col-lg-3  { flex: 0 0 25%; max-width: 25%; }
 }
 
 /* Stats Grid & Cards */
@@ -1856,9 +1930,10 @@ pre, code {
 
   .solution-showcase-card,
   .product-showcase-grid,
-  .member-exp-grid {
-    grid-template-columns: 1fr;
-    gap: 32px;
+  .member-exp-grid,
+  .notifications-workspace-grid {
+    grid-template-columns: 1fr !important;
+    gap: 24px;
   }
 }
 
