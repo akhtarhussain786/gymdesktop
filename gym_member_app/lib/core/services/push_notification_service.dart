@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../firebase_options.dart';
 import '../config/api_config.dart';
 import '../network/api_service.dart';
 import '../storage/secure_storage_service.dart';
@@ -14,11 +15,17 @@ import '../storage/secure_storage_service.dart';
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
-    await Firebase.initializeApp();
+    if (Firebase.apps.isEmpty) {
+      if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      } else {
+        await Firebase.initializeApp();
+      }
+    }
   } catch (e) {
-    debugPrint('FCM background init error: $e');
+    debugPrint('[FCM Background] Firebase init error: $e');
   }
-  debugPrint('FCM Background message received: ${message.messageId} - ${message.notification?.title}');
+  debugPrint('[FCM Background] Message received: ${message.messageId} | Title: ${message.notification?.title ?? message.data['title']}');
 }
 
 class PushNotificationService {
@@ -41,19 +48,70 @@ class PushNotificationService {
 
   static bool _initialized = false;
   static String? _cachedDeviceToken;
+  static String? _lastSyncStatus;
 
   /// Global callback when a notification is clicked to trigger in-app navigation
   static Function(Map<String, dynamic> data)? onNotificationClick;
+
+  /// Retrieve active or cached device token
+  static Future<String?> getDeviceToken() async {
+    if (_cachedDeviceToken != null && _cachedDeviceToken!.isNotEmpty) {
+      return _cachedDeviceToken;
+    }
+    try {
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+        _cachedDeviceToken = await _messaging.getToken();
+      }
+    } catch (e) {
+      debugPrint('[FCM] Error retrieving token: $e');
+    }
+    return _cachedDeviceToken;
+  }
+
+  /// Get runtime push diagnostics
+  static Future<Map<String, dynamic>> getDiagnostics() async {
+    final token = await getDeviceToken();
+    final deviceId = await _getDeviceId();
+    final userRole = await SecureStorageService.getUserRole();
+    final gymCode = await SecureStorageService.getCurrentGymCode();
+    final authToken = await SecureStorageService.getToken();
+
+    return {
+      'initialized': _initialized,
+      'has_token': token != null && token.isNotEmpty,
+      'device_token_preview': token != null ? '${token.substring(0, min(12, token.length))}...${token.substring(max(0, token.length - 8))}' : null,
+      'device_id': deviceId,
+      'platform': defaultTargetPlatform.name,
+      'user_role': userRole ?? 'guest',
+      'gym_code': gymCode,
+      'is_authenticated': authToken != null && authToken.isNotEmpty,
+      'last_sync_status': _lastSyncStatus ?? 'Not synced yet',
+      'channel_id': _channelId
+    };
+  }
 
   /// Initialize Firebase Cloud Messaging and Local Notifications
   static Future<void> initialize() async {
     if (_initialized) return;
 
     try {
-      await Firebase.initializeApp();
+      // 1. Initialize Firebase Core safely
+      if (Firebase.apps.isEmpty) {
+        try {
+          if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+            await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+          } else {
+            await Firebase.initializeApp();
+          }
+        } catch (_) {
+          await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+        }
+      }
+
+      // Register background handler for background/terminated push processing
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-      // 1. Request Notification Permissions (iOS & Android 13+)
+      // 2. Request Notification Permissions (iOS & Android 13+)
       final settings = await _messaging.requestPermission(
         alert: true,
         badge: true,
@@ -61,16 +119,16 @@ class PushNotificationService {
         provisional: false,
         criticalAlert: true,
       );
-      debugPrint('FCM Authorization status: ${settings.authorizationStatus}');
+      debugPrint('[FCM] Authorization status: ${settings.authorizationStatus}');
 
-      // 2. Setup Android Notification Channel for Heads-up Alert Banners
+      // 3. Setup Android Notification Channel for Heads-up Alert Banners
       final androidPlugin = _localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       if (androidPlugin != null) {
         await androidPlugin.createNotificationChannel(_androidChannel);
         await androidPlugin.requestNotificationsPermission();
       }
 
-      // 3. Initialize Local Notifications Plugin
+      // 4. Initialize Local Notifications Plugin
       const initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
       const initializationSettingsDarwin = DarwinInitializationSettings(
         requestAlertPermission: true,
@@ -94,45 +152,46 @@ class PushNotificationService {
         },
       );
 
-      // 4. Foreground presentation options (Heads-up banner while app is in foreground)
+      // 5. Foreground presentation options (Heads-up banner while app is in foreground)
       await _messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
         sound: true,
       );
 
-      // 5. Listen to incoming messages in FOREGROUND -> Display heads-up popup banner with sound & vibration
+      // 6. Listen to incoming messages in FOREGROUND -> Display heads-up popup banner with sound & vibration
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        debugPrint('FCM Foreground message received: ${message.notification?.title}');
+        debugPrint('[FCM Foreground] Message received: ${message.notification?.title ?? message.data['title']}');
         _showLocalNotification(message);
       });
 
-      // 6. Handle notification click when app is opened from background
+      // 7. Handle notification click when app is opened from background
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-        debugPrint('FCM Notification opened from background: ${message.data}');
+        debugPrint('[FCM Opened] From background: ${message.data}');
         onNotificationClick?.call(message.data);
       });
 
-      // 7. Handle notification click when app was completely terminated
+      // 8. Handle notification click when app was completely terminated
       final initialMessage = await _messaging.getInitialMessage();
       if (initialMessage != null) {
-        debugPrint('FCM App opened from terminated state by message: ${initialMessage.data}');
+        debugPrint('[FCM Initial] App opened from terminated state: ${initialMessage.data}');
         onNotificationClick?.call(initialMessage.data);
       }
 
-      // 8. Listen for token refreshes
+      // 9. Listen for token refreshes
       _messaging.onTokenRefresh.listen((newToken) {
+        debugPrint('[FCM Refresh] Token refreshed by Firebase: $newToken');
         _cachedDeviceToken = newToken;
         syncDeviceToken(customToken: newToken);
       });
 
       _initialized = true;
-      debugPrint('PushNotificationService initialized successfully.');
+      debugPrint('[FCM] PushNotificationService initialized successfully.');
 
-      // Auto sync token if already logged in
+      // Auto sync device token with backend
       syncDeviceToken();
     } catch (e) {
-      debugPrint('PushNotificationService init failed: $e');
+      debugPrint('[FCM Init Error] $e');
     }
   }
 
@@ -227,18 +286,28 @@ class PushNotificationService {
   /// Synchronize FCM Device Token with the backend API
   static Future<void> syncDeviceToken({String? customToken}) async {
     try {
-      final token = customToken ?? await _messaging.getToken();
+      String? token = customToken;
       if (token == null || token.isEmpty) {
-        debugPrint('FCM getToken returned empty token.');
+        try {
+          token = await _messaging.getToken();
+        } catch (e) {
+          debugPrint('[FCM] getToken error: $e');
+        }
+      }
+
+      if (token == null || token.isEmpty) {
+        _lastSyncStatus = 'Empty token returned from Firebase';
+        debugPrint('[FCM] getToken returned empty token.');
         return;
       }
+
       _cachedDeviceToken = token;
-      debugPrint('FCM Active Device Token: $token');
+      debugPrint('[FCM] Active Device Token: $token');
 
       final authToken = await SecureStorageService.getToken();
-      final userRole = await SecureStorageService.getUserRole();
+      final userRole = await SecureStorageService.getUserRole() ?? 'member';
       final gymCode = await SecureStorageService.getCurrentGymCode();
-      final isAdmin = ['gym_admin', 'staff', 'super_admin', 'trainer'].contains((userRole ?? '').toLowerCase());
+      final isAdmin = ['gym_admin', 'staff', 'super_admin', 'trainer'].contains(userRole.toLowerCase());
       final endpoint = (isAdmin && authToken != null && authToken.isNotEmpty)
           ? ApiConfig.adminDeviceToken
           : ApiConfig.deviceToken;
@@ -251,17 +320,21 @@ class PushNotificationService {
         'device_id': deviceId,
         'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
         'gym_code': gymCode,
+        'user_role': userRole,
       };
 
-      await ApiService.post(
+      final res = await ApiService.post(
         endpoint,
         body: payload,
         gymCode: gymCode,
         isAdmin: isAdmin && authToken != null && authToken.isNotEmpty,
       );
-      debugPrint('Device push token synced successfully with backend.');
+
+      _lastSyncStatus = 'Synced successfully at ${DateTime.now().toIso8601String()}';
+      debugPrint('[FCM] Device push token synced successfully with backend ($endpoint). Response: $res');
     } catch (e) {
-      debugPrint('Failed to sync device push token: $e');
+      _lastSyncStatus = 'Sync error: $e';
+      debugPrint('[FCM] Failed to sync device push token: $e');
     }
   }
 
@@ -284,9 +357,10 @@ class PushNotificationService {
         },
         isAdmin: isAdmin,
       );
-      debugPrint('Device push token unregistered.');
+      _lastSyncStatus = 'Session unlinked on logout';
+      debugPrint('[FCM] Device push token session unlinked on logout.');
     } catch (e) {
-      debugPrint('Failed to unregister device push token: $e');
+      debugPrint('[FCM] Failed to unregister device push token: $e');
     }
   }
 }

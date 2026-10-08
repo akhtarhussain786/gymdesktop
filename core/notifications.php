@@ -1,7 +1,7 @@
 <?php
 /**
- * 2-Tier Hierarchical Notification & Push System
- * Tier 1: SuperAdmin -> Gym Owners / Admins (Broadcast / Targeted)
+ * 2-Tier Hierarchical Notification & Push System (Firebase FCM HTTP v1)
+ * Tier 1: SuperAdmin -> Gym Owners / Admins / Members (Broadcast / Targeted)
  * Tier 2: Gym Owner / Admin -> Gym Members (All, Fee Due, or Specific)
  */
 
@@ -12,7 +12,7 @@ class NotificationEngine {
     private static $schemaInitialized = false;
 
     /**
-     * Auto-ensure database schema exists
+     * Auto-ensure database schema exists with all required columns & indexes
      */
     public static function ensureSchema() {
         if (self::$schemaInitialized) return;
@@ -41,20 +41,30 @@ class NotificationEngine {
 
             DB::query("CREATE TABLE IF NOT EXISTS `device_tokens` (
               `id` int(11) NOT NULL AUTO_INCREMENT,
-              `tenant_id` int(11) NOT NULL,
+              `tenant_id` int(11) DEFAULT 0,
               `member_id` int(11) DEFAULT NULL,
               `user_id` int(11) DEFAULT NULL,
+              `user_role` varchar(50) DEFAULT 'member',
               `device_token` text NOT NULL,
               `device_id` varchar(100) NOT NULL,
               `platform` enum('android','ios','web') NOT NULL DEFAULT 'android',
               `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+              `last_active_at` datetime DEFAULT CURRENT_TIMESTAMP,
               `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
               `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
               PRIMARY KEY (`id`),
-              UNIQUE KEY `idx_tenant_device` (`tenant_id`, `device_id`),
+              UNIQUE KEY `idx_device_unique` (`device_id`),
               KEY `idx_tenant_member` (`tenant_id`, `member_id`),
+              KEY `idx_user_id` (`user_id`),
+              KEY `idx_user_role` (`user_role`),
               KEY `idx_status` (`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+            // Safe column additions if migrating from older schema
+            try {
+                DB::query("ALTER TABLE `device_tokens` ADD COLUMN IF NOT EXISTS `user_role` varchar(50) DEFAULT 'member' AFTER `user_id`");
+                DB::query("ALTER TABLE `device_tokens` ADD COLUMN IF NOT EXISTS `last_active_at` datetime DEFAULT CURRENT_TIMESTAMP AFTER `status`");
+            } catch (Throwable $e) {}
         } catch (Throwable $e) {
             error_log("Notification schema auto-check error: " . $e->getMessage());
         }
@@ -63,25 +73,15 @@ class NotificationEngine {
     }
 
     /**
-     * TIER 1: SuperAdmin -> Gym Owners / Admins
-     * 
-     * @param string $title
-     * @param string $message
-     * @param array $targetTenantIds Empty array means ALL gym owners
-     * @param string $type system_update|subscription_alert|offer|announcement
-     * @param array $data Additional JSON payload
-     * @return array ['success' => bool, 'delivered_count' => int, 'token_count' => int]
-     */
-    /**
      * TIER 1: SuperAdmin -> Broadcast to Gym Owners, Members, or Everyone
      * 
      * @param string $title
      * @param string $message
      * @param array $targetTenantIds Empty array means ALL gym tenants
      * @param string $type system_update|subscription_alert|offer|announcement
-     * @param string $audience all_gym_owners|all_members|everyone|specific
+     * @param string $audience all_gym_owners|all_members|everyone|all|specific
      * @param array $data Additional JSON payload
-     * @return array ['success' => bool, 'delivered_count' => int, 'token_count' => int]
+     * @return array Result with exact accepted/rejected counts and status
      */
     public static function sendToGymOwners($title, $message, array $targetTenantIds = [], $type = 'system_update', $audience = 'all_gym_owners', array $data = []) {
         self::ensureSchema();
@@ -96,71 +96,96 @@ class NotificationEngine {
         $payloadJson = !empty($data) ? json_encode($data) : null;
         $targetType = !empty($targetTenantIds) ? 'specific_gyms' : $audience;
 
-        // 1. Insert Global Broadcast Master Record
-        DB::insert('notifications', [
-            'tenant_id' => !empty($targetTenantIds) && count($targetTenantIds) === 1 ? (int)$targetTenantIds[0] : null,
-            'sender_user_id' => $senderUserId,
-            'sender_role' => 'super_admin',
-            'target_type' => $targetType,
-            'recipient_user_id' => null,
-            'recipient_member_id' => null,
-            'title' => $title,
-            'message' => $message,
-            'type' => $type,
-            'data_payload' => $payloadJson,
-            'is_read' => 0,
-            'created_at' => date('Y-m-d H:i:s')
-        ]);
+        // 1. Insert Global Broadcast Master Record into In-App Feed
+        try {
+            DB::insert('notifications', [
+                'tenant_id' => !empty($targetTenantIds) && count($targetTenantIds) === 1 ? (int)$targetTenantIds[0] : null,
+                'sender_user_id' => $senderUserId,
+                'sender_role' => 'super_admin',
+                'target_type' => $targetType,
+                'recipient_user_id' => null,
+                'recipient_member_id' => null,
+                'title' => $title,
+                'message' => $message,
+                'type' => $type,
+                'data_payload' => $payloadJson,
+                'is_read' => 0,
+                'created_at' => date('Y-m-d H:i:s')
+            ]);
+        } catch (Throwable $e) {
+            error_log("Failed to insert broadcast notification record: " . $e->getMessage());
+        }
 
-        // 2. Determine target device tokens
+        // 2. Determine target device tokens from database
         $tokens = [];
-        if ($targetType === 'all_members') {
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
-            $tokens = array_column($tokenRows, 'device_token');
-        } elseif ($targetType === 'everyone' || $targetType === 'all') {
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
-            $tokens = array_column($tokenRows, 'device_token');
-        } elseif (!empty($targetTenantIds)) {
+        if (!empty($targetTenantIds)) {
             $placeholders = implode(',', array_fill(0, count($targetTenantIds), '?'));
             $tokenRows = DB::fetchAll(
                 "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id IN ($placeholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
                 array_map('intval', $targetTenantIds)
             );
             $tokens = array_column($tokenRows, 'device_token');
+        } elseif ($audience === 'all_members') {
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND (member_id IS NOT NULL OR user_role = 'member') AND device_token IS NOT NULL AND device_token != ''");
+            $tokens = array_column($tokenRows, 'device_token');
+        } elseif ($audience === 'all_gym_owners') {
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND (user_role IN ('gym_admin', 'staff', 'super_admin') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin'))) AND device_token IS NOT NULL AND device_token != ''");
+            $tokens = array_column($tokenRows, 'device_token');
+            // If no specific admin tokens found, include all active tokens as fallback
+            if (empty($tokens)) {
+                $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
+                $tokens = array_column($tokenRows, 'device_token');
+            }
         } else {
-            // Default: all active device tokens (ensures both owners and members receive push)
+            // Everyone / All
             $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
             $tokens = array_column($tokenRows, 'device_token');
+        }
+
+        // Remove duplicates and empty values
+        $tokens = array_values(array_filter(array_unique($tokens)));
+
+        if (empty($tokens)) {
+            return [
+                'success' => true,
+                'status' => 'no_devices_registered',
+                'message' => 'Notification recorded in In-App feed, but 0 active mobile push devices were found for this audience.',
+                'delivered_count' => 0,
+                'token_count' => 0,
+                'accepted_count' => 0,
+                'rejected_count' => 0,
+                'fcm_result' => [
+                    'status' => 'no_devices',
+                    'message' => 'No active device tokens found in database.'
+                ]
+            ];
         }
 
         // 3. Dispatch FCM Push Notification (High Priority Heads-up Popup)
         $fcmResult = self::dispatchFcm($tokens, $title, $message, array_merge($data, [
             'type' => $type,
             'sender' => 'SuperAdmin Headquarters',
-            'action' => 'superadmin_broadcast'
+            'action' => 'superadmin_broadcast',
+            'audience' => $audience
         ]));
 
-        $deliveredCount = count($tokens);
+        $accepted = (int)($fcmResult['success_count'] ?? 0);
+        $failed = (int)($fcmResult['fail_count'] ?? 0);
+        $total = count($tokens);
 
         return [
-            'success' => true,
-            'delivered_count' => $deliveredCount,
-            'token_count' => count($tokens),
+            'success' => $accepted > 0 || ($total > 0 && $fcmResult['status'] === 'dispatched_v1'),
+            'status' => $fcmResult['status'] ?? 'unknown',
+            'delivered_count' => $accepted,
+            'token_count' => $total,
+            'accepted_count' => $accepted,
+            'rejected_count' => $failed,
             'fcm_result' => $fcmResult
         ];
     }
 
     /**
      * TIER 2: Gym Owner / Admin -> Gym Members
-     * 
-     * @param int $tenantId
-     * @param string $title
-     * @param string $message
-     * @param string $target 'all_members' | 'due_members' | 'specific_member'
-     * @param array $memberIds Specific member user_ids (if target is specific_member)
-     * @param string $type announcement|fee_reminder|timing_change|offer|general
-     * @param array $data Additional JSON payload
-     * @return array ['success' => bool, 'delivered_count' => int, 'token_count' => int]
      */
     public static function sendToMembers($tenantId, $title, $message, $target = 'all_members', array $memberIds = [], $type = 'announcement', array $data = []) {
         self::ensureSchema();
@@ -182,7 +207,6 @@ class NotificationEngine {
             $params = array_merge([$tenantId], array_map('intval', $memberIds));
             $targetMembers = DB::fetchAll("SELECT user_id, fullname, contact, email FROM members WHERE tenant_id = ? AND user_id IN ($placeholders)", $params);
         } elseif ($target === 'due_members') {
-            // Members with due_amount > 0 OR expiring within 3 days or already expired
             $targetMembers = DB::fetchAll(
                 "SELECT user_id, fullname, contact, email, amount, plan, paid_date,
                         DATEDIFF(DATE_ADD(COALESCE(paid_date, dor), INTERVAL GREATEST(1, CAST(plan AS UNSIGNED)) MONTH), CURDATE()) as days_left
@@ -195,29 +219,12 @@ class NotificationEngine {
                 [$tenantId]
             );
         } else {
-            // All active members
             $targetMembers = DB::fetchAll("SELECT user_id, fullname, contact, email FROM members WHERE tenant_id = ? AND status = 'Active'", [$tenantId]);
         }
 
-        // Broadcast row in notifications for quick dashboard/list lookup
-        DB::insert('notifications', [
-            'tenant_id' => $tenantId,
-            'sender_user_id' => $senderUserId,
-            'sender_role' => 'gym_admin',
-            'target_type' => $target,
-            'recipient_user_id' => null,
-            'recipient_member_id' => ($target === 'specific_member' && count($memberIds) === 1) ? (int)$memberIds[0] : null,
-            'title' => $title,
-            'message' => $message,
-            'type' => $type,
-            'data_payload' => $payloadJson,
-            'is_read' => 0,
-            'created_at' => date('Y-m-d H:i:s')
-        ]);
-
-        // Insert individually for specific member targeting if few recipients
-        if (!empty($targetMembers) && count($targetMembers) <= 100) {
-            foreach ($targetMembers as $m) {
+        // 1. Insert In-App Notification Feed records
+        foreach ($targetMembers as $m) {
+            try {
                 DB::insert('notifications', [
                     'tenant_id' => $tenantId,
                     'sender_user_id' => $senderUserId,
@@ -232,47 +239,70 @@ class NotificationEngine {
                     'is_read' => 0,
                     'created_at' => date('Y-m-d H:i:s')
                 ]);
-            }
+            } catch (Throwable $e) {}
         }
 
-        // Also add to legacy announcements table if exists so older screens display it seamlessly
-        try {
-            DB::insert('announcements', [
-                'tenant_id' => $tenantId,
-                'branch_id' => 1,
-                'message' => $title . ': ' . $message,
-                'date' => date('Y-m-d')
-            ]);
-        } catch (Throwable $e) {}
-
-        // Fetch active FCM device tokens for target members
+        // 2. Fetch active device tokens strictly scoped to this tenant
         $tokens = [];
-        if ($target === 'all_members') {
+        if ($target === 'specific_member' && !empty($memberIds)) {
+            $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+            $params = array_merge([$tenantId], array_map('intval', $memberIds));
+            $tokenRows = DB::fetchAll(
+                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($placeholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
+                $params
+            );
+            $tokens = array_column($tokenRows, 'device_token');
+        } elseif ($target === 'due_members' && !empty($targetMembers)) {
+            $dueMemberIds = array_column($targetMembers, 'user_id');
+            if (!empty($dueMemberIds)) {
+                $placeholders = implode(',', array_fill(0, count($dueMemberIds), '?'));
+                $params = array_merge([$tenantId], array_map('intval', $dueMemberIds));
+                $tokenRows = DB::fetchAll(
+                    "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($placeholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
+                    $params
+                );
+                $tokens = array_column($tokenRows, 'device_token');
+            }
+        } else {
             $tokenRows = DB::fetchAll(
                 "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
                 [$tenantId]
             );
             $tokens = array_column($tokenRows, 'device_token');
-        } elseif (!empty($targetMembers)) {
-            $mIds = array_map(fn($m) => (int)$m['user_id'], $targetMembers);
-            $mPlaceholders = implode(',', array_fill(0, count($mIds), '?'));
-            $tokenRows = DB::fetchAll(
-                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($mPlaceholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
-                array_merge([$tenantId], $mIds)
-            );
-            $tokens = array_column($tokenRows, 'device_token');
         }
 
+        $tokens = array_values(array_filter(array_unique($tokens)));
+
+        if (empty($tokens)) {
+            return [
+                'success' => true,
+                'status' => 'no_devices_registered',
+                'message' => 'In-app notification saved, but 0 active member push devices found.',
+                'delivered_count' => count($targetMembers),
+                'token_count' => 0,
+                'accepted_count' => 0,
+                'rejected_count' => 0
+            ];
+        }
+
+        // 3. Dispatch FCM Push Notification
         $fcmResult = self::dispatchFcm($tokens, $title, $message, array_merge($data, [
             'type' => $type,
-            'tenant_id' => $tenantId,
-            'action' => 'member_notice'
+            'tenant_id' => (string)$tenantId,
+            'sender' => 'Gym Management',
+            'action' => 'member_broadcast'
         ]));
 
+        $accepted = (int)($fcmResult['success_count'] ?? 0);
+        $failed = (int)($fcmResult['fail_count'] ?? 0);
+
         return [
-            'success' => true,
+            'success' => $accepted > 0 || count($tokens) > 0,
+            'status' => $fcmResult['status'] ?? 'unknown',
             'delivered_count' => count($targetMembers),
             'token_count' => count($tokens),
+            'accepted_count' => $accepted,
+            'rejected_count' => $failed,
             'fcm_result' => $fcmResult
         ];
     }
@@ -289,8 +319,8 @@ class NotificationEngine {
         $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at
                 FROM notifications
                 WHERE (
-                    (tenant_id = ? AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'broadcast', 'due_members', 'all', 'everyone')))
-                    OR (tenant_id IS NULL AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'all_gym_owners', 'broadcast', 'global', 'all', 'everyone')))
+                    (tenant_id = ? AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'all', 'everyone')))
+                    OR (tenant_id IS NULL AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'all', 'everyone', 'global')))
                 )
                 ORDER BY id DESC LIMIT ?";
 
@@ -354,27 +384,7 @@ class NotificationEngine {
             return $cachedToken;
         }
 
-        $sa = null;
-        $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
-        if (file_exists($serviceAccountPath)) {
-            $jsonContent = @file_get_contents($serviceAccountPath);
-            $sa = @json_decode($jsonContent, true);
-        }
-
-        if (!$sa || empty($sa['private_key'])) {
-            $envSa = getenv('FIREBASE_SERVICE_ACCOUNT_JSON');
-            if ($envSa) {
-                $sa = @json_decode($envSa, true);
-            }
-        }
-
-        if (!$sa || empty($sa['private_key'])) {
-            $envSaB64 = getenv('FIREBASE_SERVICE_ACCOUNT_BASE64');
-            if ($envSaB64) {
-                $sa = @json_decode(base64_decode($envSaB64), true);
-            }
-        }
-
+        $sa = self::getServiceAccountData();
         if (!$sa || empty($sa['client_email']) || empty($sa['private_key'])) {
             return null;
         }
@@ -399,12 +409,12 @@ class NotificationEngine {
 
         $keyResource = openssl_pkey_get_private($privateKey);
         if (!$keyResource) {
-            error_log("FCM v1: Invalid private key in firebase_service_account.json");
+            error_log("FCM v1: Invalid private key in firebase_service_account.json: " . openssl_error_string());
             return null;
         }
 
         if (!openssl_sign($signatureInput, $signature, $keyResource, OPENSSL_ALGO_SHA256)) {
-            error_log("FCM v1: Failed to sign JWT with RSA key");
+            error_log("FCM v1: Failed to sign JWT with RSA key: " . openssl_error_string());
             return null;
         }
 
@@ -415,6 +425,7 @@ class NotificationEngine {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion' => $jwt
@@ -439,30 +450,109 @@ class NotificationEngine {
     }
 
     /**
-     * Dispatch Google Firebase Cloud Messaging (FCM) Push (FCM v1 with Legacy fallback)
+     * Retrieve and parse Firebase Service Account JSON credentials
+     */
+    public static function getServiceAccountData() {
+        $sa = null;
+        $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
+        if (file_exists($serviceAccountPath)) {
+            $jsonContent = @file_get_contents($serviceAccountPath);
+            $sa = @json_decode($jsonContent, true);
+        }
+
+        if (!$sa || empty($sa['private_key'])) {
+            $envSa = getenv('FIREBASE_SERVICE_ACCOUNT_JSON');
+            if ($envSa) {
+                $sa = @json_decode($envSa, true);
+            }
+        }
+
+        if (!$sa || empty($sa['private_key'])) {
+            $envSaB64 = getenv('FIREBASE_SERVICE_ACCOUNT_BASE64');
+            if ($envSaB64) {
+                $sa = @json_decode(base64_decode($envSaB64), true);
+            }
+        }
+
+        return $sa;
+    }
+
+    /**
+     * Health check for FCM HTTP v1 Configuration
+     */
+    public static function getFcmHealth() {
+        $sa = self::getServiceAccountData();
+        $hasKeyFile = !empty($sa['client_email']) && !empty($sa['private_key']);
+        $projectId = $sa['project_id'] ?? 'gymsaas-dc468';
+        $clientEmail = $sa['client_email'] ?? 'Not configured';
+
+        $token = null;
+        $authOk = false;
+        if ($hasKeyFile) {
+            $token = self::getGoogleAccessToken();
+            $authOk = !empty($token);
+        }
+
+        $totalActiveTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
+        $adminTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND (user_role IN ('gym_admin', 'staff', 'super_admin') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin')))");
+        $memberTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND (member_id IS NOT NULL OR user_role = 'member')");
+
+        return [
+            'fcm_v1_configured' => $hasKeyFile,
+            'oauth_authenticated' => $authOk,
+            'project_id' => $projectId,
+            'client_email' => $clientEmail,
+            'active_devices_total' => $totalActiveTokens,
+            'admin_devices' => $adminTokens,
+            'member_devices' => $memberTokens
+        ];
+    }
+
+    /**
+     * Dispatch Google Firebase Cloud Messaging (FCM) Push (FCM HTTP v1 Standard)
+     * 
+     * Handles:
+     * - OAuth2 Bearer Authentication
+     * - Android 13+ High Importance Heads-up Channels
+     * - Auto-pruning invalid / unregistered tokens (UNREGISTERED, NOT_FOUND)
+     * - Per-device detailed reporting
      */
     public static function dispatchFcm(array $tokens, $title, $body, array $payload = []) {
         if (empty($tokens)) {
-            return ['status' => 'skipped', 'message' => 'No active device tokens found.'];
+            return [
+                'status' => 'skipped',
+                'message' => 'No active device tokens found.',
+                'success_count' => 0,
+                'fail_count' => 0,
+                'total_devices' => 0,
+                'details' => []
+            ];
         }
 
-        $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
-        $serviceAccount = file_exists($serviceAccountPath) ? @json_decode(@file_get_contents($serviceAccountPath), true) : null;
-        $projectId = $serviceAccount['project_id'] ?? 'gymsaas-dc468';
-
+        $sa = self::getServiceAccountData();
+        $projectId = $sa['project_id'] ?? 'gymsaas-dc468';
         $accessToken = self::getGoogleAccessToken();
 
-        // 1. If Google FCM v1 Access Token is available (Recommended Modern API)
+        // 1. If Google FCM v1 Access Token is available (Required Modern Standard)
         if ($accessToken) {
             $totalSuccess = 0;
             $totalFail = 0;
+            $prunedCount = 0;
+            $deviceResults = [];
+
+            // Ensure all data payload fields are strictly string key-value pairs
+            $stringPayload = [];
+            foreach ($payload as $k => $v) {
+                $stringPayload[(string)$k] = is_scalar($v) ? (string)$v : json_encode($v);
+            }
+            $stringPayload['title'] = (string)$title;
+            $stringPayload['body'] = (string)$body;
+            $stringPayload['click_action'] = 'FLUTTER_NOTIFICATION_CLICK';
 
             foreach ($tokens as $token) {
-                if (empty($token) || strlen($token) < 20) continue;
-
-                $stringPayload = [];
-                foreach ($payload as $k => $v) {
-                    $stringPayload[(string)$k] = is_scalar($v) ? (string)$v : json_encode($v);
+                $token = trim((string)$token);
+                if (empty($token) || strlen($token) < 20) {
+                    continue;
                 }
 
                 $message = [
@@ -472,11 +562,7 @@ class NotificationEngine {
                             'title' => (string)$title,
                             'body' => (string)$body,
                         ],
-                        'data' => array_merge($stringPayload, [
-                            'title' => (string)$title,
-                            'body' => (string)$body,
-                            'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
-                        ]),
+                        'data' => $stringPayload,
                         'android' => [
                             'priority' => 'HIGH',
                             'notification' => [
@@ -517,18 +603,51 @@ class NotificationEngine {
                 ]);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
                 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 8);
                 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
 
                 $response = curl_exec($ch);
                 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 curl_close($ch);
 
+                $maskedToken = substr($token, 0, 8) . '...' . substr($token, -6);
+
                 if ($httpCode === 200) {
                     $totalSuccess++;
+                    $resJson = json_decode($response, true);
+                    $messageName = $resJson['name'] ?? 'projects/' . $projectId . '/messages/accepted';
+                    $deviceResults[] = [
+                        'token' => $maskedToken,
+                        'status' => 'delivered',
+                        'http_code' => 200,
+                        'message_id' => $messageName
+                    ];
                 } else {
                     $totalFail++;
-                    error_log("FCM v1 send error for device $token: HTTP $httpCode $response");
+                    $errData = json_decode($response, true);
+                    $errStatus = $errData['error']['status'] ?? 'ERROR';
+                    $errMsg = $errData['error']['message'] ?? 'FCM dispatch failed';
+
+                    $deviceResults[] = [
+                        'token' => $maskedToken,
+                        'status' => 'failed',
+                        'http_code' => $httpCode,
+                        'error_status' => $errStatus,
+                        'error_message' => $errMsg
+                    ];
+
+                    error_log("FCM v1 error for device {$maskedToken}: HTTP {$httpCode} [{$errStatus}] {$errMsg}");
+
+                    // Auto-prune uninstalled or expired tokens
+                    if (in_array($errStatus, ['UNREGISTERED', 'NOT_FOUND', 'INVALID_ARGUMENT'], true)
+                        || strpos($errMsg, 'not a valid FCM registration token') !== false
+                        || strpos($errMsg, 'Requested entity was not found') !== false) {
+                        try {
+                            DB::query("DELETE FROM device_tokens WHERE device_token = ?", [$token]);
+                            $prunedCount++;
+                            error_log("FCM v1: Auto-pruned invalid token from database: {$maskedToken}");
+                        } catch (Throwable $e) {}
+                    }
                 }
             }
 
@@ -538,79 +657,55 @@ class NotificationEngine {
                 'project_id' => $projectId,
                 'success_count' => $totalSuccess,
                 'fail_count' => $totalFail,
-                'total_devices' => count($tokens)
+                'pruned_count' => $prunedCount,
+                'total_devices' => count($tokens),
+                'details' => $deviceResults
             ];
         }
 
-        // 2. Fallback to Legacy FCM key if configured
-        $fcmServerKey = getenv('FCM_SERVER_KEY') ?: '';
-        if (empty($fcmServerKey)) {
-            try {
-                $fcmServerKey = DB::fetchValue("SELECT setting_value FROM settings WHERE setting_key = 'fcm_server_key' LIMIT 1") ?: '';
-            } catch (Throwable $e) {}
-        }
-
-        if (empty($fcmServerKey)) {
-            return [
-                'status' => 'recorded_in_app',
-                'message' => 'Push recorded in In-App notification feed.',
-                'device_count' => count($tokens)
-            ];
-        }
-
-        // Batch tokens in chunks of 500 for legacy endpoint
-        $chunks = array_chunk($tokens, 500);
-        $totalSuccess = 0;
-        $totalFail = 0;
-
-        foreach ($chunks as $chunk) {
-            $fcmData = [
-                'registration_ids' => array_values($chunk),
-                'notification' => [
-                    'title' => $title,
-                    'body' => $body,
-                    'sound' => 'default',
-                    'badge' => '1',
-                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
-                ],
-                'data' => array_merge($payload, [
-                    'title' => $title,
-                    'body' => $body,
-                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK'
-                ]),
-                'priority' => 'high'
-            ];
-
-            $ch = curl_init('https://fcm.googleapis.com/fcm/send');
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Authorization: key=' . $fcmServerKey,
-                'Content-Type: application/json'
-            ]);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($fcmData));
-
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-
-            if ($httpCode === 200 && $response) {
-                $res = json_decode($response, true);
-                $totalSuccess += (int)($res['success'] ?? 0);
-                $totalFail += (int)($res['failure'] ?? 0);
-            } else {
-                $totalFail += count($chunk);
-            }
-        }
-
+        // 2. Fallback if Service Account is missing or invalid
+        error_log("FCM v1 Error: Service account private key is not configured or OAuth2 authentication failed.");
         return [
-            'status' => 'dispatched_legacy',
-            'api' => 'legacy',
-            'success_count' => $totalSuccess,
-            'fail_count' => $totalFail,
-            'total_devices' => count($tokens)
+            'status' => 'auth_error',
+            'api' => 'fcm_v1',
+            'message' => 'Firebase Service Account JSON credentials not configured or failed to generate OAuth2 token.',
+            'success_count' => 0,
+            'fail_count' => count($tokens),
+            'total_devices' => count($tokens),
+            'details' => []
+        ];
+    }
+
+    /**
+     * Send Instant Test Push Notification to a Specific FCM Device Token
+     * 
+     * @param string $deviceToken
+     * @param string $title
+     * @param string $body
+     * @return array Diagnostic result with timing, HTTP status, and raw Firebase output
+     */
+    public static function sendTestPush($deviceToken, $title = '🔔 SuperAdmin Test Push Notification', $body = 'Test push received successfully with high-importance sound and banner alert.') {
+        $deviceToken = trim((string)$deviceToken);
+        if (empty($deviceToken)) {
+            return ['success' => false, 'error' => 'Device FCM token is required.'];
+        }
+
+        $startTime = microtime(true);
+        $res = self::dispatchFcm([$deviceToken], $title, $body, [
+            'type' => 'test_alert',
+            'source' => 'superadmin_live_tester',
+            'sent_at' => date('Y-m-d H:i:s')
+        ]);
+        $durationMs = round((microtime(true) - $startTime) * 1000, 2);
+
+        $isSuccess = ($res['success_count'] ?? 0) > 0;
+        return [
+            'success' => $isSuccess,
+            'duration_ms' => $durationMs,
+            'fcm_response' => $res,
+            'message' => $isSuccess
+                ? 'Firebase accepted the push notification in ' . $durationMs . 'ms!'
+                : 'Firebase rejected the push request. Check details below.'
         ];
     }
 

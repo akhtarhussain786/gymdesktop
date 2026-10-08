@@ -1,7 +1,7 @@
 <?php
 /**
- * Universal Device Token Registration Endpoint (Push Notifications)
- * Handles Members, Admins, and Guest App Launches gracefully.
+ * Universal Member Device Token Registration Endpoint (Push Notifications)
+ * Handles Members and Guest App Launches gracefully.
  */
 
 require_once __DIR__ . '/../../core/db.php';
@@ -22,12 +22,13 @@ $deviceId = trim((string)($input['device_id'] ?? ''));
 $platform = strtolower(trim((string)($input['platform'] ?? 'android')));
 $platform = in_array($platform, ['android', 'ios', 'web']) ? $platform : 'android';
 $gymCode = trim((string)($input['gym_code'] ?? ''));
+$userRole = trim((string)($input['user_role'] ?? 'member'));
 
 $tenantId = 0;
 $memberId = null;
 $userId = null;
 
-// Try to resolve authentication if bearer token is present
+// 1. Try to resolve authentication if bearer token is present
 try {
     $token = MemberAuthMiddleware::extractBearerToken();
     if ($token) {
@@ -36,39 +37,41 @@ try {
             $tenantId = (int)($jwt['tenant_id'] ?? 0);
             $memberId = !empty($jwt['member_id']) ? (int)$jwt['member_id'] : null;
             $userId = !empty($jwt['user_id']) ? (int)$jwt['user_id'] : null;
+            $userRole = !empty($jwt['role']) ? $jwt['role'] : 'member';
         }
     }
 } catch (Throwable $e) {}
 
-// Fallback tenant resolution via gym_code
+// 2. Fallback tenant resolution via gym_code
 if (empty($tenantId) && !empty($gymCode)) {
     try {
         $tenantId = (int)DB::fetchValue("SELECT id FROM tenants WHERE gym_code = ? OR slug = ? LIMIT 1", [$gymCode, $gymCode]);
     } catch (Throwable $e) {}
 }
 
+// Handle unregister / logout
 if ($action === 'unregister') {
     if (!empty($deviceId)) {
-        DB::query("DELETE FROM device_tokens WHERE device_id = ?", [$deviceId]);
+        // Disassociate user from this device rather than breaking other devices
+        DB::query("UPDATE device_tokens SET member_id = NULL, user_id = NULL, status = 'inactive', updated_at = NOW() WHERE device_id = ?", [$deviceId]);
     }
-    ApiResponse::success(null, 'Device token unregistered.');
+    ApiResponse::success(null, 'Device token session closed.');
 }
 
 if (empty($deviceToken) || empty($deviceId)) {
     ApiResponse::error('Device token and device ID are required.', 422);
 }
 
-// Ensure table allows flexible upsert
-try {
-    DB::query("ALTER TABLE `device_tokens` MODIFY COLUMN `tenant_id` int(11) DEFAULT 0");
-} catch (Throwable $e) {}
+if (strlen($deviceToken) > 4096 || strlen($deviceId) > 100) {
+    ApiResponse::error('Invalid device token or device ID length.', 422);
+}
 
-// Remove outdated duplicate token mappings
+// Remove any other records with this exact device_token to prevent cross-device duplicates
 try {
     DB::query("DELETE FROM device_tokens WHERE device_token = ? AND device_id != ?", [$deviceToken, $deviceId]);
 } catch (Throwable $e) {}
 
-// Upsert by device_id
+// Upsert by unique device_id
 $existing = DB::fetchOne("SELECT id FROM device_tokens WHERE device_id = ?", [$deviceId]);
 
 if ($existing) {
@@ -76,9 +79,11 @@ if ($existing) {
         'tenant_id' => $tenantId,
         'member_id' => $memberId,
         'user_id' => $userId,
+        'user_role' => $userRole,
         'device_token' => $deviceToken,
         'platform' => $platform,
         'status' => 'active',
+        'last_active_at' => date('Y-m-d H:i:s'),
         'updated_at' => date('Y-m-d H:i:s')
     ], 'id = ?', [$existing['id']]);
 } else {
@@ -86,10 +91,12 @@ if ($existing) {
         'tenant_id' => $tenantId,
         'member_id' => $memberId,
         'user_id' => $userId,
+        'user_role' => $userRole,
         'device_token' => $deviceToken,
         'device_id' => $deviceId,
         'platform' => $platform,
-        'status' => 'active'
+        'status' => 'active',
+        'last_active_at' => date('Y-m-d H:i:s')
     ]);
 }
 
@@ -97,5 +104,7 @@ ApiResponse::success([
     'registered' => true,
     'tenant_id' => $tenantId,
     'member_id' => $memberId,
-    'user_id' => $userId
-], 'Push notification token registered.');
+    'user_id' => $userId,
+    'user_role' => $userRole,
+    'platform' => $platform
+], 'Member push notification device token synced.');

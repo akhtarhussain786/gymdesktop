@@ -11,12 +11,15 @@ $pageSubtitle = 'Send real-time push notifications & announcements to Gym Owners
 
 NotificationEngine::ensureSchema();
 
+$testResult = null;
+
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     Auth::verifyCsrf();
 
     $action = $_POST['action'] ?? 'send_notification';
 
+    // 1. Broadcast Notification Action
     if ($action === 'send_notification') {
         $title = trim($_POST['title'] ?? '');
         $message = trim($_POST['message'] ?? '');
@@ -31,42 +34,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $res = NotificationEngine::sendToGymOwners($title, $message, $targetTenantIds, $type, $targetAudience);
 
             if ($res['success']) {
-                $count = $res['delivered_count'];
-                $tokens = $res['token_count'];
-                Auth::auditLog('SUPER_BROADCAST_NOTIFICATION', "Dispatched notification: '$title' to $count targets ($tokens devices)");
-                set_flash('success', "Notification dispatched successfully! Delivered to {$count} targets ({$tokens} active push devices).");
+                $accepted = $res['accepted_count'] ?? 0;
+                $rejected = $res['rejected_count'] ?? 0;
+                $totalTokens = $res['token_count'] ?? 0;
+
+                if ($res['status'] === 'no_devices_registered' || $totalTokens === 0) {
+                    set_flash('warning', "ℹ️ Notification recorded in In-App feed, but <strong>0 active mobile push devices</strong> were registered for the selected audience.");
+                } elseif ($accepted > 0 && $rejected === 0) {
+                    Auth::auditLog('SUPER_BROADCAST_NOTIFICATION', "Dispatched notification: '$title' to $accepted devices");
+                    set_flash('success', "🚀 Notification dispatched successfully via <strong>Firebase FCM HTTP v1</strong>! Accepted by Firebase for <strong>{$accepted}</strong> active device(s).");
+                } elseif ($accepted > 0 && $rejected > 0) {
+                    set_flash('warning', "⚠️ Partial delivery: Accepted by Firebase for <strong>{$accepted}</strong> device(s), but rejected for <strong>{$rejected}</strong> device(s). Stale tokens have been auto-pruned.");
+                } else {
+                    set_flash('error', "❌ Firebase FCM v1 rejected push delivery for all {$rejected} targeted device(s). Please check device token validity.");
+                }
             } else {
-                set_flash('error', 'Failed to dispatch notification: ' . ($res['error'] ?? 'Unknown error'));
+                set_flash('error', 'Failed to dispatch notification: ' . ($res['error'] ?? ($res['message'] ?? 'Unknown error')));
             }
         }
         redirect('/superadmin/notifications');
     }
 
-    // Update FCM Server Key Settings
-    if ($action === 'save_fcm_key') {
-        $fcmKey = trim($_POST['fcm_server_key'] ?? '');
-        try {
-            DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` text)");
-            $exists = DB::fetchValue("SELECT COUNT(*) FROM settings WHERE setting_key = 'fcm_server_key'");
-            if ($exists) {
-                DB::update('settings', ['setting_value' => $fcmKey], "setting_key = 'fcm_server_key'");
+    // 2. Instant Single-Device Test Push Action
+    if ($action === 'test_push') {
+        $testToken = trim($_POST['test_device_token'] ?? '');
+        $testTitle = trim($_POST['test_title'] ?? '🔔 Live Test Push Alert');
+        $testBody = trim($_POST['test_body'] ?? 'Verifying Firebase FCM HTTP v1 delivery with high-importance popup and sound.');
+
+        if (empty($testToken)) {
+            set_flash('error', 'Please enter or select a valid FCM Device Token.');
+        } else {
+            $testResult = NotificationEngine::sendTestPush($testToken, $testTitle, $testBody);
+            if ($testResult['success']) {
+                set_flash('success', "✅ Test push notification <strong>accepted by Firebase FCM HTTP v1</strong> in {$testResult['duration_ms']}ms! Check the target phone screen.");
             } else {
-                DB::insert('settings', ['setting_key' => 'fcm_server_key', 'setting_value' => $fcmKey]);
+                $errDetails = $testResult['fcm_response']['details'][0]['error_message'] ?? ($testResult['error'] ?? 'Delivery failed');
+                set_flash('error', "❌ Test push delivery failed: " . htmlspecialchars($errDetails));
             }
-            set_flash('success', 'Firebase Cloud Messaging (FCM) Server Key saved successfully!');
-        } catch (Throwable $e) {
-            set_flash('error', 'Failed to save FCM key: ' . $e->getMessage());
         }
-        redirect('/superadmin/notifications');
     }
 }
 
 // Fetch Gym Tenants
 $tenants = DB::fetchAll("SELECT id, gym_name, gym_code, status FROM tenants ORDER BY gym_name ASC");
 
-// Fetch Device Token Stats
+// Fetch FCM & Device Diagnostics
+$fcmHealth = NotificationEngine::getFcmHealth();
 $totalGymOwners = (int)DB::fetchValue("SELECT COUNT(*) FROM users WHERE role IN ('gym_admin', 'staff') AND status = 'active'");
-$totalActiveDevices = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE status = 'active' AND user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff'))");
+
+// Fetch Recent Registered Devices for Test Selector
+$recentDevices = DB::fetchAll("SELECT d.*, t.gym_name, u.fullname as user_name FROM device_tokens d LEFT JOIN tenants t ON d.tenant_id = t.id LEFT JOIN users u ON d.user_id = u.id WHERE d.status = 'active' ORDER BY d.updated_at DESC LIMIT 15");
 
 // Fetch Sent Notification History
 $history = DB::fetchAll(
@@ -78,12 +95,6 @@ $history = DB::fetchAll(
      ORDER BY n.id DESC 
      LIMIT 50"
 );
-
-// Get current FCM key
-$currentFcmKey = '';
-try {
-    $currentFcmKey = DB::fetchValue("SELECT setting_value FROM settings WHERE setting_key = 'fcm_server_key'") ?: '';
-} catch (Throwable $e) {}
 
 include __DIR__ . '/../includes/header.php';
 include __DIR__ . '/../includes/sidebar.php';
@@ -101,34 +112,38 @@ include __DIR__ . '/../includes/topbar.php';
     </div>
     <div class="col-md-4">
         <div class="card" style="padding: 20px; border-left: 4px solid #38bdf8;">
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">FCM Active Devices</div>
-            <div style="font-size: 2rem; font-weight: 800; color: #fff; margin-top: 4px;"><?php echo number_format($totalActiveDevices); ?></div>
-            <div style="font-size: 0.8rem; color: #38bdf8; margin-top: 4px;"><i class="fas fa-mobile-alt"></i> Mobile Push Enabled</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Active Push Devices</div>
+            <div style="font-size: 2rem; font-weight: 800; color: #fff; margin-top: 4px;"><?php echo number_format($fcmHealth['active_devices_total']); ?></div>
+            <div style="font-size: 0.8rem; color: #38bdf8; margin-top: 4px;">
+                <i class="fas fa-mobile-alt"></i> <?php echo $fcmHealth['admin_devices']; ?> Admins &bull; <?php echo $fcmHealth['member_devices']; ?> Members
+            </div>
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card" style="padding: 20px; border-left: 4px solid #a855f7;">
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Notification Engine</div>
+        <div class="card" style="padding: 20px; border-left: 4px solid <?php echo $fcmHealth['oauth_authenticated'] ? '#10b981' : '#ef4444'; ?>;">
+            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Firebase FCM Engine</div>
             <div style="font-size: 1.2rem; font-weight: 800; color: #fff; margin-top: 10px;">
-                <?php if (!empty($currentFcmKey)): ?>
-                    <span class="status-badge badge-success"><i class="fas fa-check-circle"></i> FCM Ready</span>
+                <?php if ($fcmHealth['oauth_authenticated']): ?>
+                    <span class="status-badge badge-success"><i class="fas fa-check-circle"></i> FCM HTTP v1 Active</span>
                 <?php else: ?>
-                    <span class="status-badge badge-warning"><i class="fas fa-bell"></i> In-App Active</span>
+                    <span class="status-badge badge-danger"><i class="fas fa-exclamation-triangle"></i> Key Missing</span>
                 <?php endif; ?>
             </div>
-            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">2-Tier Push Delivery</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 6px;">
+                Project: <code><?php echo e($fcmHealth['project_id']); ?></code>
+            </div>
         </div>
     </div>
 </div>
 
 <div class="row">
-    <!-- Left: Compose Form -->
+    <!-- Left: Compose Broadcast Form -->
     <div class="col-md-7">
         <div class="card">
             <div class="card-header">
                 <div class="card-title">
                     <i class="fas fa-paper-plane" style="color: var(--lime);"></i>
-                    <span>Broadcast Notification to Gym Owners</span>
+                    <span>Broadcast Notification to Gym Owners & Members</span>
                 </div>
             </div>
             <div class="card-body">
@@ -144,7 +159,7 @@ include __DIR__ . '/../includes/topbar.php';
                     <div class="form-group">
                         <label class="form-label">Notification Message *</label>
                         <textarea name="message" class="form-control" rows="4" placeholder="Type your announcement, renewal notice, or update message here..." required></textarea>
-                        <small style="color: var(--text-muted);">Will be delivered immediately to gym owners' notification centers and mobile push tray.</small>
+                        <small style="color: var(--text-muted);">Dispatches real-time high priority popup banner with sound & vibration to mobile devices.</small>
                     </div>
 
                     <div class="form-row">
@@ -161,9 +176,9 @@ include __DIR__ . '/../includes/topbar.php';
                         <div class="form-group">
                             <label class="form-label">Target Audience</label>
                             <select name="target_audience" id="target-audience" class="form-select" onchange="toggleGymSelector(this.value)">
+                                <option value="all_gym_owners">👑 All Gym Owners & Staff (Admin App)</option>
                                 <option value="everyone">🌍 Everyone (Gym Owners + All Members)</option>
                                 <option value="all_members">🏋️ All Gym Members Across All Gyms</option>
-                                <option value="all_gym_owners">👑 All Gym Owners & Staff</option>
                                 <option value="specific">🏢 Specific Selected Gyms</option>
                             </select>
                         </div>
@@ -191,42 +206,71 @@ include __DIR__ . '/../includes/topbar.php';
         </div>
     </div>
 
-    <!-- Right: FCM Server Key & Settings -->
+    <!-- Right: FCM HTTP v1 Configuration & Instant Test Push Tool -->
     <div class="col-md-5">
+        <!-- FCM HTTP v1 Status Card -->
         <div class="card">
             <div class="card-header">
                 <div class="card-title">
-                    <i class="fas fa-cog" style="color: #38bdf8;"></i>
-                    <span>Firebase FCM Configuration</span>
+                    <i class="fas fa-server" style="color: #38bdf8;"></i>
+                    <span>Firebase FCM HTTP v1 Status</span>
                 </div>
             </div>
             <div class="card-body">
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-                    Enter your <strong>Firebase Cloud Messaging (FCM) Server Key</strong> to enable instant background push popups on Android & iOS devices even when the app is closed.
-                </p>
-
-                <form method="POST" action="">
-                    <?php echo Auth::csrfField(); ?>
-                    <input type="hidden" name="action" value="save_fcm_key">
-
-                    <div class="form-group">
-                        <label class="form-label">FCM Server Key / Legacy Authorization Key</label>
-                        <input type="password" name="fcm_server_key" class="form-control" value="<?php echo htmlspecialchars($currentFcmKey); ?>" placeholder="AAAA...:APA91b..." />
+                <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                    <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #fff; font-size: 0.95rem;">
+                        <i class="fas fa-shield-alt" style="color: #38bdf8;"></i>
+                        <span>Google OAuth2 RS256 Engine</span>
                     </div>
+                    <div style="margin-top: 8px; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
+                        <div><strong>Project ID:</strong> <code><?php echo e($fcmHealth['project_id']); ?></code></div>
+                        <div><strong>Service Account:</strong> <span style="word-break: break-all;"><?php echo e($fcmHealth['client_email']); ?></span></div>
+                        <div><strong>Protocol:</strong> <code>HTTP/v1 (OAuth 2.0 Bearer)</code></div>
+                        <div><strong>Heads-Up Channel:</strong> <code>gym_high_importance_channel</code></div>
+                    </div>
+                </div>
 
-                    <div style="display: flex; justify-content: flex-end;">
-                        <button type="submit" class="btn btn-secondary btn-sm">
-                            <i class="fas fa-save"></i> Save FCM Key
+                <!-- Instant Test Push Tool -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--lime);">
+                        <i class="fas fa-bolt"></i> Instant Test Push to Device
+                    </h4>
+                    <form method="POST" action="">
+                        <?php echo Auth::csrfField(); ?>
+                        <input type="hidden" name="action" value="test_push">
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-size: 0.8rem;">Select Active Device / Token</label>
+                            <select class="form-select form-select-sm" onchange="fillTestToken(this.value)">
+                                <option value="">-- Choose from recently active devices --</option>
+                                <?php foreach ($recentDevices as $rd): ?>
+                                    <option value="<?php echo htmlspecialchars($rd['device_token']); ?>">
+                                        <?php echo e($rd['user_name'] ?: ($rd['gym_name'] ?: 'Guest Device')); ?> 
+                                        (<?php echo ucfirst($rd['platform']); ?> - <?php echo e(substr($rd['device_token'], 0, 10)); ?>...)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-size: 0.8rem;">FCM Device Token *</label>
+                            <input type="text" id="test-device-token" name="test_device_token" class="form-control form-control-sm" placeholder="Paste FCM Token here..." required />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-size: 0.8rem;">Test Title</label>
+                            <input type="text" name="test_title" class="form-control form-control-sm" value="🔔 WhatsApp-Style Test Alert" />
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" style="font-size: 0.8rem;">Test Message</label>
+                            <input type="text" name="test_body" class="form-control form-control-sm" value="Firebase FCM v1 push test with high-importance sound & banner." />
+                        </div>
+
+                        <button type="submit" class="btn btn-secondary btn-sm" style="width: 100%; font-weight: 700;">
+                            <i class="fas fa-paper-plane"></i> Send Instant Test Push
                         </button>
-                    </div>
-                </form>
-
-                <div style="background: rgba(204, 255, 0, 0.05); border: 1px solid rgba(204, 255, 0, 0.2); border-radius: 8px; padding: 12px; margin-top: 18px; font-size: 0.8rem; color: var(--text-main);">
-                    <strong><i class="fas fa-lightbulb" style="color: var(--lime);"></i> How Push Delivery Works:</strong>
-                    <ul style="margin: 6px 0 0 16px; padding: 0;">
-                        <li>If FCM Key is provided, notifications trigger background device popups.</li>
-                        <li>In-App Notification Feed (Bell icon) is always active in real-time.</li>
-                    </ul>
+                    </form>
                 </div>
             </div>
         </div>
@@ -283,7 +327,14 @@ include __DIR__ . '/../includes/topbar.php';
                                 </td>
                                 <td>
                                     <span class="status-badge badge-secondary">
-                                        <?php echo $h['target_type'] === 'all_gym_owners' ? '👑 All Gyms' : '🏢 Selected'; ?>
+                                        <?php 
+                                        echo match($h['target_type']) {
+                                            'all_gym_owners' => '👑 All Gyms',
+                                            'all_members' => '🏋️ All Members',
+                                            'everyone' => '🌍 Everyone',
+                                            default => '🏢 Selected'
+                                        };
+                                        ?>
                                     </span>
                                 </td>
                                 <td><?php echo e($h['sender_name'] ?: 'Super Admin'); ?></td>
@@ -304,6 +355,12 @@ function toggleGymSelector(val) {
     const box = document.getElementById('gym-selector-box');
     if (box) {
         box.style.display = (val === 'specific') ? 'block' : 'none';
+    }
+}
+
+function fillTestToken(token) {
+    if (token) {
+        document.getElementById('test-device-token').value = token;
     }
 }
 </script>

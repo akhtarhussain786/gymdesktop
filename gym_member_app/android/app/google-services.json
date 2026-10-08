@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "103827930519182476514",
+    "project_number": "293820686302",
     "project_id": "gymsaas-dc468",
-    "storage_bucket": "gymsaas-dc468.appspot.com"
+    "storage_bucket": "gymsaas-dc468.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:103827930519182476514:android:a1b2c3d4e5f67890",
+        "mobilesdk_app_id": "1:293820686302:android:55c1f153e217860e8dc74f",
         "android_client_info": {
           "package_name": "com.fitisify.memberapp.gymMemberApp"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDummyKeyReplaceIfUsingAuthDirectly"
+          "current_key": "AIzaSyDC6N4BxRB-T051Lzx4kk9jYK0ysiYGxpc"
         }
       ],
       "services": {

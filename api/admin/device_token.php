@@ -1,7 +1,7 @@
 <?php
 /**
  * Admin / Staff Device Token Registration Endpoint (Push Notifications)
- * Scopes device tokens to the authenticated tenant and user_id.
+ * Scopes device tokens to the authenticated tenant, user_id, and role.
  */
 
 require_once __DIR__ . '/middleware.php';
@@ -10,8 +10,9 @@ require_once __DIR__ . '/../../core/notifications.php';
 NotificationEngine::ensureSchema();
 
 $auth = AdminAuthMiddleware::authenticate();
-$tenantId = $auth['tenant_id'];
-$userId = $auth['user_id'];
+$tenantId = (int)$auth['tenant_id'];
+$userId = (int)$auth['user_id'];
+$userRole = !empty($auth['role']) ? strtolower((string)$auth['role']) : 'gym_admin';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     ApiResponse::error('Method not allowed', 405);
@@ -26,9 +27,9 @@ $platform = in_array($platform, ['android', 'ios', 'web']) ? $platform : 'androi
 
 if ($action === 'unregister') {
     if (!empty($deviceId)) {
-        DB::query("DELETE FROM device_tokens WHERE tenant_id = ? AND user_id = ? AND device_id = ?", [$tenantId, $userId, $deviceId]);
+        DB::query("UPDATE device_tokens SET user_id = NULL, status = 'inactive', updated_at = NOW() WHERE device_id = ? AND tenant_id = ?", [$deviceId, $tenantId]);
     }
-    ApiResponse::success(null, 'Device token unregistered.');
+    ApiResponse::success(null, 'Admin device token unregistered.');
 }
 
 if (empty($deviceToken) || empty($deviceId)) {
@@ -38,34 +39,47 @@ if (strlen($deviceToken) > 4096 || strlen($deviceId) > 100) {
     ApiResponse::error('Invalid device token or device ID.', 422);
 }
 
-// Remove any outdated registration with this push token
-DB::query(
-    "DELETE FROM device_tokens WHERE device_token = ? AND NOT (tenant_id = ? AND device_id = ?)",
-    [$deviceToken, $tenantId, $deviceId]
-);
+// Remove any outdated registration with this push token elsewhere
+try {
+    DB::query(
+        "DELETE FROM device_tokens WHERE device_token = ? AND NOT (tenant_id = ? AND device_id = ?)",
+        [$deviceToken, $tenantId, $deviceId]
+    );
+} catch (Throwable $e) {}
 
 // Upsert device token for admin user
-$existing = DB::fetchOne("SELECT id FROM device_tokens WHERE tenant_id = ? AND device_id = ?", [$tenantId, $deviceId]);
+$existing = DB::fetchOne("SELECT id FROM device_tokens WHERE device_id = ?", [$deviceId]);
 
 if ($existing) {
     DB::update('device_tokens', [
-        'user_id' => (int)$userId,
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
         'member_id' => null,
+        'user_role' => $userRole,
         'device_token' => $deviceToken,
         'platform' => $platform,
         'status' => 'active',
+        'last_active_at' => date('Y-m-d H:i:s'),
         'updated_at' => date('Y-m-d H:i:s')
-    ], 'id = ? AND tenant_id = ?', [$existing['id'], $tenantId]);
+    ], 'id = ?', [$existing['id']]);
 } else {
     DB::insert('device_tokens', [
         'tenant_id' => $tenantId,
-        'user_id' => (int)$userId,
+        'user_id' => $userId,
         'member_id' => null,
+        'user_role' => $userRole,
         'device_token' => $deviceToken,
         'device_id' => $deviceId,
         'platform' => $platform,
-        'status' => 'active'
+        'status' => 'active',
+        'last_active_at' => date('Y-m-d H:i:s')
     ]);
 }
 
-ApiResponse::success(null, 'Admin push notification token registered.');
+ApiResponse::success([
+    'registered' => true,
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+    'user_role' => $userRole,
+    'platform' => $platform
+], 'Admin push notification token registered.');
