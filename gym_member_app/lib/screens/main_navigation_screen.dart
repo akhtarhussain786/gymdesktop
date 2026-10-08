@@ -9,6 +9,7 @@ import 'dashboard_screen.dart';
 import 'gym_lookup_screen.dart';
 import 'gym_switcher_dialog.dart';
 import 'login_screen.dart';
+import 'notifications_screen.dart';
 import 'payments_screen.dart';
 import 'profile_screen.dart';
 import 'workouts_screen.dart';
@@ -164,6 +165,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               showDialog(
                 context: context,
                 builder: (_) => const GymSwitcherDialog(),
+              );
+            },
+          ),
+          // Notifications Bell
+          IconButton(
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            icon: const Icon(Icons.notifications_outlined, color: AppColors.lime, size: 20),
+            tooltip: 'Notifications',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationsScreen(isAdmin: false)),
               );
             },
           ),

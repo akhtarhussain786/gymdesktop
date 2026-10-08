@@ -18,6 +18,7 @@ import 'admin_reports_screen.dart';
 import 'admin_saas_subscription_screen.dart';
 import 'admin_settings_screen.dart';
 import 'admin_staffs_screen.dart';
+import '../notifications_screen.dart';
 
 class AdminMoreScreen extends StatelessWidget {
   const AdminMoreScreen({super.key});
@@ -270,6 +271,14 @@ class AdminMoreScreen extends StatelessWidget {
               subtitle: 'Publish notices to all member apps',
               color: const Color(0xFFE84393),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminAnnouncementsScreen())),
+            ),
+            _menuTile(
+              context,
+              icon: Icons.notifications_active_rounded,
+              title: 'Push Notifications & Alerts',
+              subtitle: 'Incoming SuperAdmin alerts & member push logs',
+              color: AppColors.lime,
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen(isAdmin: true))),
             ),
             const SizedBox(height: 16),
 

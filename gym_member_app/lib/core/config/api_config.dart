@@ -54,6 +54,7 @@ class ApiConfig {
   static const String submitRenewalPayment = '/submit_renewal_payment.php';
   static const String createPaymentOrder = '/create_payment_order.php';
   static const String checkPaymentStatus = '/check_payment_status.php';
+  static const String notifications = '/notifications.php';
 
   // Admin Endpoints
   static const String adminDashboard = '/dashboard.php';
@@ -72,6 +73,7 @@ class ApiConfig {
   static const String adminDiet = '/diet.php';
   static const String adminClasses = '/classes.php';
   static const String adminAnnouncements = '/announcements.php';
+  static const String adminNotifications = '/notifications.php';
   static const String adminInquiries = '/inquiries.php';
   static const String adminReports = '/reports.php';
   static const String adminSettings = '/settings.php';

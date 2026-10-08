@@ -62,6 +62,12 @@ $tenant = Tenant::getCurrent();
                     <span>SaaS Payments & Orders</span>
                 </a>
             </li>
+            <li class="sidebar-item <?php echo $currentPage === 'super_notifications' ? 'active' : ''; ?>">
+                <a href="<?php echo base_url('/superadmin/notifications'); ?>" class="sidebar-link">
+                    <i class="fas fa-paper-plane" style="color: var(--lime);"></i>
+                    <span>Push & Broadcast Hub</span>
+                </a>
+            </li>
 
             <!-- 2. Marketing & Leads -->
             <div class="sidebar-section-title">Marketing & Leads</div>
@@ -186,6 +192,12 @@ $tenant = Tenant::getCurrent();
                 <a href="<?php echo base_url('/admin/manage-announcement'); ?>" class="sidebar-link">
                     <i class="fas fa-bullhorn"></i>
                     <span>Announcements</span>
+                </a>
+            </li>
+            <li class="sidebar-item <?php echo $currentPage === 'notifications' ? 'active' : ''; ?>">
+                <a href="<?php echo base_url('/admin/notifications'); ?>" class="sidebar-link">
+                    <i class="fas fa-paper-plane" style="color: var(--lime);"></i>
+                    <span>Push Notifications Hub</span>
                 </a>
             </li>
             <li class="sidebar-item <?php echo $currentPage === 'inquiries' ? 'active' : ''; ?>">
