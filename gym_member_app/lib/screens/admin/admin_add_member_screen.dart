@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/admin_provider.dart';
@@ -29,6 +30,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   final _passwordController = TextEditingController(text: '123456');
   final _totalAmountController = TextEditingController(text: '1000');
   final _paidAmountController = TextEditingController(text: '1000');
+  final _upiRefController = TextEditingController();
 
   String _gender = 'Male';
   String _selectedService = 'General Fitness';
@@ -51,6 +53,8 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     _fullnameController.addListener(_autoSuggestUsername);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await context.read<AdminProvider>().fetchRates();
+      // Preload gym QR for UPI payment
+      context.read<AdminProvider>().fetchGymQr();
       if (mounted) {
         final rates = context.read<AdminProvider>().rates;
         if (rates.isNotEmpty) {
@@ -86,6 +90,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     _passwordController.dispose();
     _totalAmountController.dispose();
     _paidAmountController.dispose();
+    _upiRefController.dispose();
     super.dispose();
   }
 
@@ -280,6 +285,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     final admin = context.read<AdminProvider>();
 
     try {
+      final upiRef = _upiRefController.text.trim();
       final res = await admin.addMember(
         fullname: _fullnameController.text.trim(),
         phone: _phoneController.text.trim(),
@@ -297,6 +303,8 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
         paymentMethod: _paymentMethod,
         password: _passwordController.text.isNotEmpty ? _passwordController.text : '123456',
         dor: DateFormat('yyyy-MM-dd').format(_dor),
+        transactionRef: upiRef.isNotEmpty ? upiRef : null,
+        notes: upiRef.isNotEmpty ? 'UPI Ref / UTR: $upiRef' : null,
         photoPath: !kIsWeb ? _selectedPhoto?.path : null,
         photoBytes: _photoBytes,
       );
@@ -990,14 +998,28 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                           ),
                           items: const [
                             DropdownMenuItem(value: 'Cash', child: Text('Cash at Desk')),
-                            DropdownMenuItem(value: 'UPI', child: Text('UPI / QR Code')),
+                            DropdownMenuItem(value: 'UPI', child: Text('UPI / Dynamic QR Code')),
                             DropdownMenuItem(value: 'Card', child: Text('Credit / Debit Card')),
                             DropdownMenuItem(value: 'Online', child: Text('Online Transfer')),
                           ],
                           onChanged: (v) {
-                            if (v != null) setState(() => _paymentMethod = v);
+                            if (v != null) {
+                              setState(() => _paymentMethod = v);
+                              if (v == 'UPI') {
+                                context.read<AdminProvider>().fetchGymQr(
+                                  amount: _paidAmount > 0 ? _paidAmount : _totalAmount,
+                                  note: 'Member Registration - ${_fullnameController.text.trim()}',
+                                );
+                              }
+                            }
                           },
                         ),
+
+                        // Dynamic UPI QR Section
+                        if (_paymentMethod == 'UPI') ...[
+                          const SizedBox(height: 16),
+                          _buildUpiQrCard(context, currency),
+                        ],
                       ],
                     ),
                   ),
@@ -1044,6 +1066,244 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     );
   }
 
+  Widget _buildUpiQrCard(BuildContext context, String currency) {
+    final admin = context.watch<AdminProvider>();
+    final auth = context.watch<AuthProvider>();
+    final qrData = admin.gymQr;
+    final gymName = qrData?.gymName ?? auth.currentTenant?.gymName ?? 'Our Gym';
+    final upiId = qrData?.upiId ?? auth.currentTenant?.upiId ?? 'gymdesk@upi';
+    final amountToPay = _paidAmount > 0 ? _paidAmount : _totalAmount;
+    final memberName = _fullnameController.text.trim().isNotEmpty ? _fullnameController.text.trim() : 'New Member';
+    final note = 'Member Reg - $memberName';
+
+    final upiPayload = (qrData?.upiPayload != null && qrData!.upiPayload.isNotEmpty)
+        ? qrData.upiPayload
+        : 'upi://pay?pa=$upiId&pn=${Uri.encodeComponent(gymName)}&am=${amountToPay.toStringAsFixed(2)}&cu=INR&tn=${Uri.encodeComponent(note)}';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF13131A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.lime.withOpacity(0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.lime.withOpacity(0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Header Badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.lime.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.lime.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.qr_code_2_rounded, size: 15, color: AppColors.lime),
+                    const SizedBox(width: 5),
+                    Text(
+                      'SCAN TO PAY VIA UPI',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.lime,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '$currency${amountToPay.toStringAsFixed(0)}',
+                style: GoogleFonts.outfit(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.lime,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // High-contrast QR Code Frame
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 10,
+                ),
+              ],
+            ),
+            child: QrImageView(
+              data: upiPayload,
+              version: QrVersions.auto,
+              size: 170,
+              backgroundColor: Colors.white,
+              eyeStyle: const QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: Color(0xFF0F172A),
+              ),
+              dataModuleStyle: const QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // UPI ID & Copy button
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.account_balance_rounded, size: 14, color: Colors.white60),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Gym UPI ID',
+                        style: TextStyle(fontSize: 10, color: Colors.white38),
+                      ),
+                      Text(
+                        upiId,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: upiId));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('UPI ID copied: $upiId'),
+                        backgroundColor: AppColors.success,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.lime.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.copy_rounded, size: 12, color: AppColors.lime),
+                        SizedBox(width: 4),
+                        Text('Copy', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.lime)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Direct launch button for UPI Apps
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final uri = Uri.parse(upiPayload);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } else {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('No supported UPI app found. Please scan the QR code using Google Pay, PhonePe, or Paytm.'),
+                      ),
+                    );
+                  }
+                }
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: AppColors.lime.withOpacity(0.4)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.lime),
+              label: Text(
+                'Open UPI App (GPay / PhonePe / Paytm)',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // UTR / Transaction Ref input
+          TextFormField(
+            controller: _upiRefController,
+            style: const TextStyle(fontSize: 12.5, color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Transaction UTR / Ref ID (Optional)',
+              labelStyle: const TextStyle(fontSize: 11, color: Colors.white60),
+              hintText: 'e.g. 423985729103',
+              hintStyle: const TextStyle(fontSize: 11, color: Colors.white24),
+              isDense: true,
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.04),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              prefixIcon: const Icon(Icons.tag_rounded, size: 16, color: AppColors.lime),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Helpful guide
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline_rounded, size: 13, color: Colors.white38),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Ask member to scan and complete payment of $currency${amountToPay.toStringAsFixed(0)}, then click "Complete Member Registration" below.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 10.5,
+                    color: Colors.white54,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _sectionHeader(String title) {
     return Text(
       title,
@@ -1060,10 +1320,13 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     final isSelected = _planMonths == months;
     return Expanded(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 2),
         child: ChoiceChip(
           label: Text(label),
           selected: isSelected,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           onSelected: (s) {
             if (s) {
               setState(() {
@@ -1080,7 +1343,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
           backgroundColor: const Color(0xFF1E1E2C),
           labelStyle: GoogleFonts.plusJakartaSans(
             fontWeight: FontWeight.w800,
-            fontSize: 12,
+            fontSize: 11.5,
             color: isSelected ? Colors.black : Colors.white70,
           ),
         ),

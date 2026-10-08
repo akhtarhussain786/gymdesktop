@@ -28,8 +28,8 @@ class QrCardDialog extends StatelessWidget {
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 360),
-        child: Padding(
-          padding: const EdgeInsets.all(26),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -68,11 +68,11 @@ class QrCardDialog extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 20),
 
               // High-Contrast White QR Card Frame
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(18),
@@ -87,7 +87,7 @@ class QrCardDialog extends StatelessWidget {
                 child: QrImageView(
                   data: qrPass.payload,
                   version: QrVersions.auto,
-                  size: 200.0,
+                  size: 180.0,
                   eyeStyle: const QrEyeStyle(
                     eyeShape: QrEyeShape.square,
                     color: Color(0xFF05080D),
@@ -98,7 +98,7 @@ class QrCardDialog extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 20),
 
               // Member Details
               Text(
@@ -127,7 +127,7 @@ class QrCardDialog extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 22),
 
               // Close Button
               SizedBox(

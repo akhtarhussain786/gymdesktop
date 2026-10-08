@@ -229,8 +229,8 @@ try {
         'status' => $invoiceStatus,
         'payment_method' => $paymentMethod,
         'payment_date' => $dor,
-        'transaction_ref' => strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid()), 0, 8)),
-        'notes' => "Registration for {$services} ({$planMonths} Mo). Paid: {$currency}" . number_format($paidAmount, 2) . ($dueAmount > 0 ? ", Due: {$currency}" . number_format($dueAmount, 2) : ""),
+        'transaction_ref' => !empty($input['transaction_ref']) ? trim($input['transaction_ref']) : (!empty($input['utr']) ? trim($input['utr']) : (strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid()), 0, 8)))),
+        'notes' => !empty($input['notes']) ? trim($input['notes']) : ("Registration for {$services} ({$planMonths} Mo). Paid: {$currency}" . number_format($paidAmount, 2) . ($dueAmount > 0 ? ", Due: {$currency}" . number_format($dueAmount, 2) : "")),
         'created_by' => $auth['user_id'] ?? null,
         'created_at' => date('Y-m-d H:i:s')
     ];

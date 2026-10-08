@@ -264,6 +264,8 @@ class AdminProvider extends ChangeNotifier {
     String? password,
     String? dor,
     String? expiryDate,
+    String? transactionRef,
+    String? notes,
     String? photoPath,
     Uint8List? photoBytes,
   }) async {
@@ -290,6 +292,8 @@ class AdminProvider extends ChangeNotifier {
       if (password != null && password.isNotEmpty) fields['password'] = password;
       if (dor != null && dor.isNotEmpty) fields['dor'] = dor;
       if (expiryDate != null && expiryDate.isNotEmpty) fields['expiry_date'] = expiryDate;
+      if (transactionRef != null && transactionRef.trim().isNotEmpty) fields['transaction_ref'] = transactionRef.trim();
+      if (notes != null && notes.trim().isNotEmpty) fields['notes'] = notes.trim();
 
       dynamic data;
       if (photoPath != null || photoBytes != null) {

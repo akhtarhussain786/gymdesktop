@@ -348,7 +348,10 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
       ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 650),
+        constraints: BoxConstraints(
+          maxWidth: 440,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
         child: Form(
           key: _formKey,
           child: Column(

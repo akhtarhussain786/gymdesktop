@@ -83,112 +83,114 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                 right: 20,
                 bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    isRenew ? 'Renew SaaS Subscription' : 'Upgrade SaaS Subscription',
-                    style: GoogleFonts.outfit(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Instant automatic activation upon payment via UPI (GPay/PhonePe/Paytm), Cards or Net Banking.',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      color: Colors.white60,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Plan summary card
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF13131A),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
-                    ),
-                    child: Column(
-                      children: [
-                        _summaryRow('Selected Plan', plan.name, isBold: true),
-                        _summaryRow('Duration', durationLabel),
-                        _summaryRow('Billing Cycle', '${_selectedCycle.toUpperCase()} Billing'),
-                        _summaryRow('Member Limit', 'Up to ${plan.maxMembers} Members'),
-                        _summaryRow('Staff Limit', 'Up to ${plan.maxStaff} Staff'),
-                        const Divider(height: 16, color: Colors.white12),
-                        _summaryRow(
-                          'Payable Amount',
-                          '$currency${price.toStringAsFixed(0)}',
-                          isBold: true,
-                          valueColor: AppColors.lime,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Coupon field
-                  TextFormField(
-                    controller: _couponController,
-                    textCapitalization: TextCapitalization.characters,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: 'Promo / Coupon Code (Optional)',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      prefixIcon: const Icon(Icons.local_offer_outlined, size: 18, color: Color(0xFF00CEC9)),
-                      filled: true,
-                      fillColor: const Color(0xFF13131A),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      onPressed: _isCreatingOrder
-                          ? null
-                          : () async {
-                              Navigator.pop(ctx);
-                              _initiatePaymentFlow(
-                                plan: plan,
-                                cycle: _selectedCycle,
-                                coupon: _couponController.text.trim(),
-                                price: price,
-                                currency: currency,
-                              );
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.lime,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      icon: const Icon(Icons.lock_outline_rounded, size: 18),
-                      label: Text(
-                        'Subscribe / Pay Now ($currency${price.toStringAsFixed(0)})',
-                        style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Text(
+                      isRenew ? 'Renew SaaS Subscription' : 'Upgrade SaaS Subscription',
+                      style: GoogleFonts.outfit(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Instant automatic activation upon payment via UPI (GPay/PhonePe/Paytm), Cards or Net Banking.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12,
+                        color: Colors.white60,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Plan summary card
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF13131A),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Column(
+                        children: [
+                          _summaryRow('Selected Plan', plan.name, isBold: true),
+                          _summaryRow('Duration', durationLabel),
+                          _summaryRow('Billing Cycle', '${_selectedCycle.toUpperCase()} Billing'),
+                          _summaryRow('Member Limit', 'Up to ${plan.maxMembers} Members'),
+                          _summaryRow('Staff Limit', 'Up to ${plan.maxStaff} Staff'),
+                          const Divider(height: 16, color: Colors.white12),
+                          _summaryRow(
+                            'Payable Amount',
+                            '$currency${price.toStringAsFixed(0)}',
+                            isBold: true,
+                            valueColor: AppColors.lime,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Coupon field
+                    TextFormField(
+                      controller: _couponController,
+                      textCapitalization: TextCapitalization.characters,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Promo / Coupon Code (Optional)',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        prefixIcon: const Icon(Icons.local_offer_outlined, size: 18, color: Color(0xFF00CEC9)),
+                        filled: true,
+                        fillColor: const Color(0xFF13131A),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: _isCreatingOrder
+                            ? null
+                            : () async {
+                                Navigator.pop(ctx);
+                                _initiatePaymentFlow(
+                                  plan: plan,
+                                  cycle: _selectedCycle,
+                                  coupon: _couponController.text.trim(),
+                                  price: price,
+                                  currency: currency,
+                                );
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.lime,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.lock_outline_rounded, size: 18),
+                        label: Text(
+                          'Subscribe / Pay Now ($currency${price.toStringAsFixed(0)})',
+                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },

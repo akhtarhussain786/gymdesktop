@@ -72,104 +72,106 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
             color: Color(0xFF1E1E2C),
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Manual Attendance Entry',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                value: selectedMemberId,
-                dropdownColor: const Color(0xFF2A2A3E),
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Select Member',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.05),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                items: provider.members.map((m) {
-                  return DropdownMenuItem<int>(
-                    value: m.memberId,
-                    child: Text('${m.fullname} (${m.phone})', overflow: TextOverflow.ellipsis),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setModalState(() => selectedMemberId = val);
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('Check In', style: TextStyle(color: Colors.white)),
-                      value: 'checkin',
-                      groupValue: action,
-                      activeColor: const Color(0xFF00CEC9),
-                      onChanged: (val) => setModalState(() => action = val!),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('Check Out', style: TextStyle(color: Colors.white)),
-                      value: 'checkout',
-                      groupValue: action,
-                      activeColor: const Color(0xFFFF7675),
-                      onChanged: (val) => setModalState(() => action = val!),
-                    ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Manual Attendance Entry',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  value: selectedMemberId,
+                  dropdownColor: const Color(0xFF2A2A3E),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Select Member',
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.05),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6C5CE7),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () async {
-                    if (selectedMemberId == null) return;
-                    Navigator.pop(ctx);
-                    try {
-                      await context.read<AdminProvider>().markAttendance(
-                        memberId: selectedMemberId!,
-                        action: action,
-                      );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Attendance marked (${action.toUpperCase()}) successfully!')),
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e')),
-                        );
-                      }
-                    }
+                  items: provider.members.map((m) {
+                    return DropdownMenuItem<int>(
+                      value: m.memberId,
+                      child: Text('${m.fullname} (${m.phone})', overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setModalState(() => selectedMemberId = val);
                   },
-                  child: const Text('Submit Attendance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: RadioListTile<String>(
+                        title: const Text('Check In', style: TextStyle(color: Colors.white)),
+                        value: 'checkin',
+                        groupValue: action,
+                        activeColor: const Color(0xFF00CEC9),
+                        onChanged: (val) => setModalState(() => action = val!),
+                      ),
+                    ),
+                    Expanded(
+                      child: RadioListTile<String>(
+                        title: const Text('Check Out', style: TextStyle(color: Colors.white)),
+                        value: 'checkout',
+                        groupValue: action,
+                        activeColor: const Color(0xFFFF7675),
+                        onChanged: (val) => setModalState(() => action = val!),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C5CE7),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () async {
+                      if (selectedMemberId == null) return;
+                      Navigator.pop(ctx);
+                      try {
+                        await context.read<AdminProvider>().markAttendance(
+                          memberId: selectedMemberId!,
+                          action: action,
+                        );
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Attendance marked (${action.toUpperCase()}) successfully!')),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
+                          );
+                        }
+                      }
+                    },
+                    child: const Text('Submit Attendance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

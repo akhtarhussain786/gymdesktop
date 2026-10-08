@@ -550,29 +550,42 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_today_rounded, size: 13, color: Color(0xFF00CEC9)),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Joined: ${member.startDate}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Icon(Icons.alarm_rounded, size: 13, color: isExpired ? AppColors.danger : (isExpiringSoon ? AppColors.warning : AppColors.lime)),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Exp: ${member.expiryDate}',
-                          style: TextStyle(
-                            color: isExpired ? AppColors.danger : (isExpiringSoon ? AppColors.warning : Colors.white70),
-                            fontSize: 11,
-                            fontWeight: (isExpired || isExpiringSoon) ? FontWeight.bold : FontWeight.normal,
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.calendar_today_rounded, size: 13, color: Color(0xFF00CEC9)),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              'Joined: ${member.startDate}',
+                              style: const TextStyle(color: Colors.white70, fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.alarm_rounded, size: 13, color: isExpired ? AppColors.danger : (isExpiringSoon ? AppColors.warning : AppColors.lime)),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              'Exp: ${member.expiryDate}',
+                              style: TextStyle(
+                                color: isExpired ? AppColors.danger : (isExpiringSoon ? AppColors.warning : Colors.white70),
+                                fontSize: 11,
+                                fontWeight: (isExpired || isExpiringSoon) ? FontWeight.bold : FontWeight.normal,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -582,16 +595,23 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.check_circle_outline, size: 13, color: Color(0xFF00CEC9)),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Paid: $currency${member.paidAmount.toStringAsFixed(0)}',
-                          style: const TextStyle(color: Color(0xFF00CEC9), fontWeight: FontWeight.bold, fontSize: 12),
-                        ),
-                      ],
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle_outline, size: 13, color: Color(0xFF00CEC9)),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              'Paid: $currency${member.paidAmount.toStringAsFixed(0)}',
+                              style: const TextStyle(color: Color(0xFF00CEC9), fontWeight: FontWeight.bold, fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     if (hasDue)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -600,6 +620,7 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(Icons.warning_amber_rounded, size: 12, color: AppColors.warning),
                             const SizedBox(width: 4),

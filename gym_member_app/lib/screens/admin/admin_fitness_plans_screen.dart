@@ -281,94 +281,96 @@ class _AdminFitnessPlansScreenState extends State<AdminFitnessPlansScreen> with 
             color: Color(0xFF1E1E2C),
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Assign "$planName"',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                value: selectedMemberId,
-                dropdownColor: const Color(0xFF2A2A3E),
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Select Member',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.05),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                const SizedBox(height: 16),
+                Text(
+                  'Assign "$planName"',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
-                items: provider.members.map((m) {
-                  return DropdownMenuItem<int>(
-                    value: m.memberId,
-                    child: Text('${m.fullname} (${m.phone})', overflow: TextOverflow.ellipsis),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setModalState(() => selectedMemberId = val);
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: notesCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Trainer Instructions / Notes',
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.05),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isWorkout ? const Color(0xFF6C5CE7) : const Color(0xFF00CEC9),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  value: selectedMemberId,
+                  dropdownColor: const Color(0xFF2A2A3E),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Select Member',
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.05),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () async {
-                    if (selectedMemberId == null) return;
-                    Navigator.pop(ctx);
-                    if (isWorkout) {
-                      await context.read<AdminProvider>().assignWorkout(
-                        memberId: selectedMemberId!,
-                        workoutPlanId: planId,
-                        notes: notesCtrl.text.trim(),
-                      );
-                    } else {
-                      await context.read<AdminProvider>().assignDiet(
-                        memberId: selectedMemberId!,
-                        dietPlanId: planId,
-                        notes: notesCtrl.text.trim(),
-                      );
-                    }
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Assigned $planName to member successfully!')),
-                      );
-                    }
+                  items: provider.members.map((m) {
+                    return DropdownMenuItem<int>(
+                      value: m.memberId,
+                      child: Text('${m.fullname} (${m.phone})', overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setModalState(() => selectedMemberId = val);
                   },
-                  child: Text('Confirm Assignment', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isWorkout ? Colors.white : Colors.black)),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesCtrl,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Trainer Instructions / Notes',
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.05),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isWorkout ? const Color(0xFF6C5CE7) : const Color(0xFF00CEC9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () async {
+                      if (selectedMemberId == null) return;
+                      Navigator.pop(ctx);
+                      if (isWorkout) {
+                        await context.read<AdminProvider>().assignWorkout(
+                          memberId: selectedMemberId!,
+                          workoutPlanId: planId,
+                          notes: notesCtrl.text.trim(),
+                        );
+                      } else {
+                        await context.read<AdminProvider>().assignDiet(
+                          memberId: selectedMemberId!,
+                          dietPlanId: planId,
+                          notes: notesCtrl.text.trim(),
+                        );
+                      }
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Assigned $planName to member successfully!')),
+                        );
+                      }
+                    },
+                    child: Text('Confirm Assignment', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isWorkout ? Colors.white : Colors.black)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
