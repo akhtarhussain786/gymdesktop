@@ -12,10 +12,40 @@ require_once __DIR__ . '/middleware.php';
 NotificationEngine::ensureSchema();
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $con = DB::connect();
+    $tableInfo = [];
+    $colRes = @mysqli_query($con, "SHOW COLUMNS FROM `device_tokens`");
+    if ($colRes) {
+        while ($c = mysqli_fetch_assoc($colRes)) {
+            $tableInfo[] = $c['Field'] . ' (' . $c['Type'] . ')';
+        }
+    }
+
+    $testErr = null;
+    if (isset($_GET['test_insert'])) {
+        $insertRes = DB::insert('device_tokens', [
+            'tenant_id' => 27,
+            'user_id' => 37,
+            'user_role' => 'gym_admin',
+            'device_token' => 'eFscZNN4Qgi-qmwFTfwjKU:APA91bF6McjFPsrOMYp_l7Bwhzb9i0D3XtrsB5vjI1emwQPkMXwvKQ4CS3530uf2erU0pDjDNtCP1_JS2eGz_pAhMvx8ZddHYHL88xoaURZA6VUVf9vdZQo',
+            'device_id' => 'test_diag_' . time(),
+            'platform' => 'android',
+            'status' => 'active'
+        ]);
+        $testErr = [
+            'insert_id' => $insertRes,
+            'last_error' => DB::$lastError,
+            'mysqli_error' => mysqli_error($con)
+        ];
+    }
+
     $count = (int)DB::fetchValue("SELECT COUNT(*) FROM device_tokens");
     $activeCount = (int)DB::fetchValue("SELECT COUNT(*) FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '')");
     $rows = DB::fetchAll("SELECT id, tenant_id, user_id, member_id, user_role, platform, status, last_active_at, updated_at, SUBSTRING(device_token, 1, 16) as token_preview FROM device_tokens ORDER BY id DESC LIMIT 20");
+    
     ApiResponse::success([
+        'columns' => $tableInfo,
+        'test_insert' => $testErr,
         'total_tokens' => $count,
         'active_tokens' => $activeCount,
         'recent_devices' => $rows
