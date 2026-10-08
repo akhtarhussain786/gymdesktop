@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/admin_provider.dart';
+import '../../providers/auth_provider.dart';
 import 'admin_saas_subscription_screen.dart';
 
 class AdminSettingsScreen extends StatefulWidget {
@@ -287,26 +288,50 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                             ? null
                             : () async {
                                 if (_nameCtrl.text.trim().isEmpty) return;
+                                final scaffold = ScaffoldMessenger.of(context);
+                                final auth = context.read<AuthProvider>();
+
                                 try {
+                                  final upi = _upiCtrl.text.trim();
+                                  final gymName = _nameCtrl.text.trim();
+                                  final phone = _phoneCtrl.text.trim();
+                                  final email = _emailCtrl.text.trim();
+                                  final address = _addressCtrl.text.trim();
+
                                   await provider.updateSettings(
-                                    gymName: _nameCtrl.text.trim(),
-                                    phone: _phoneCtrl.text.trim(),
-                                    email: _emailCtrl.text.trim(),
-                                    address: _addressCtrl.text.trim(),
-                                    upiId: _upiCtrl.text.trim(),
+                                    gymName: gymName,
+                                    phone: phone,
+                                    email: email,
+                                    address: address,
+                                    upiId: upi,
                                     currency: _currency,
                                   );
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Settings saved successfully!')),
-                                    );
-                                  }
+
+                                  auth.updateCurrentTenant(
+                                    gymName: gymName,
+                                    phone: phone,
+                                    email: email,
+                                    address: address,
+                                    upiId: upi,
+                                    currency: _currency,
+                                  );
+
+                                  scaffold.showSnackBar(
+                                    SnackBar(
+                                      content: Text(upi.isNotEmpty
+                                          ? 'Settings & UPI ID ($upi) saved! QR codes will now direct payments to your account.'
+                                          : 'Settings saved successfully!'),
+                                      backgroundColor: AppColors.success,
+                                      duration: const Duration(seconds: 4),
+                                    ),
+                                  );
                                 } catch (e) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Error: $e')),
-                                    );
-                                  }
+                                  scaffold.showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error: $e'),
+                                      backgroundColor: AppColors.danger,
+                                    ),
+                                  );
                                 }
                               },
                         child: provider.isActionLoading

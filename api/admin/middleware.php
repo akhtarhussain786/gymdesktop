@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/../member/common.php';
+require_once __DIR__ . '/../../core/auth.php';
 
 class AdminAuthMiddleware {
     private static $authenticatedUser = null;

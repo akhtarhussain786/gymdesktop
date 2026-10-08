@@ -7,11 +7,11 @@
 require_once __DIR__ . '/middleware.php';
 
 $auth = AdminAuthMiddleware::authenticate();
-$tenant = $auth['tenant'];
 $tenantId = (int)$auth['tenant_id'];
+$tenant = DB::fetchOne("SELECT * FROM tenants WHERE id = ?", [$tenantId]) ?: $auth['tenant'];
 
 $upiId = trim($tenant['upi_id'] ?? '');
-$gymName = trim($tenant['gym_name'] ?? 'Gym Owner');
+$gymName = trim($tenant['gym_name'] ?? $tenant['name'] ?? 'Gym Owner');
 
 $amount = (float)($_GET['amount'] ?? 0);
 $note = trim($_GET['note'] ?? 'Gym Membership Payment');

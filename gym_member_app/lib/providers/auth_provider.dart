@@ -283,4 +283,35 @@ class AuthProvider extends ChangeNotifier {
     _status = (_currentTenant != null) ? AuthStatus.gymIdentified : AuthStatus.unauthenticated;
     notifyListeners();
   }
+
+  void updateCurrentTenant({
+    String? gymName,
+    String? phone,
+    String? email,
+    String? address,
+    String? currency,
+    String? upiId,
+  }) {
+    if (_currentTenant != null) {
+      _currentTenant = GymTenant(
+        id: _currentTenant!.id,
+        gymCode: _currentTenant!.gymCode,
+        gymName: gymName ?? _currentTenant!.gymName,
+        slug: _currentTenant!.slug,
+        logo: _currentTenant!.logo,
+        address: address ?? _currentTenant!.address,
+        phone: phone ?? _currentTenant!.phone,
+        email: email ?? _currentTenant!.email,
+        currency: currency ?? _currentTenant!.currency,
+        timezone: _currentTenant!.timezone,
+        primaryColor: _currentTenant!.primaryColor,
+        secondaryColor: _currentTenant!.secondaryColor,
+        planName: _currentTenant!.planName,
+        upiId: upiId ?? _currentTenant!.upiId,
+        branches: _currentTenant!.branches,
+        features: _currentTenant!.features,
+      );
+      notifyListeners();
+    }
+  }
 }
