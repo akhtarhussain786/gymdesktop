@@ -28,13 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash('error', 'Notification title and message are required.');
         } else {
             $targetTenantIds = ($targetAudience === 'specific' && !empty($selectedGyms)) ? $selectedGyms : [];
-            $res = NotificationEngine::sendToGymOwners($title, $message, $targetTenantIds, $type);
+            $res = NotificationEngine::sendToGymOwners($title, $message, $targetTenantIds, $type, $targetAudience);
 
             if ($res['success']) {
                 $count = $res['delivered_count'];
                 $tokens = $res['token_count'];
-                Auth::auditLog('SUPER_BROADCAST_NOTIFICATION', "Dispatched notification: '$title' to $count gym owners ($tokens devices)");
-                set_flash('success', "Notification dispatched successfully! Delivered to {$count} gym owners ({$tokens} active push devices).");
+                Auth::auditLog('SUPER_BROADCAST_NOTIFICATION', "Dispatched notification: '$title' to $count targets ($tokens devices)");
+                set_flash('success', "Notification dispatched successfully! Delivered to {$count} targets ({$tokens} active push devices).");
             } else {
                 set_flash('error', 'Failed to dispatch notification: ' . ($res['error'] ?? 'Unknown error'));
             }
@@ -161,7 +161,9 @@ include __DIR__ . '/../includes/topbar.php';
                         <div class="form-group">
                             <label class="form-label">Target Audience</label>
                             <select name="target_audience" id="target-audience" class="form-select" onchange="toggleGymSelector(this.value)">
-                                <option value="all">👑 All Gym Owners (Broadcast)</option>
+                                <option value="everyone">🌍 Everyone (Gym Owners + All Members)</option>
+                                <option value="all_members">🏋️ All Gym Members Across All Gyms</option>
+                                <option value="all_gym_owners">👑 All Gym Owners & Staff</option>
                                 <option value="specific">🏢 Specific Selected Gyms</option>
                             </select>
                         </div>

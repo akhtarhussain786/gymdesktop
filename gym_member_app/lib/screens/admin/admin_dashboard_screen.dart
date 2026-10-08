@@ -14,6 +14,7 @@ import 'admin_fitness_plans_screen.dart';
 import 'admin_gym_qr_screen.dart';
 import 'admin_member_detail_screen.dart';
 import 'admin_members_screen.dart';
+import 'admin_notifications_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_saas_subscription_screen.dart';
 import 'admin_staffs_screen.dart';
@@ -112,7 +113,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.qr_code_2_rounded, color: AppColors.lime),
+            icon: const Icon(Icons.campaign_rounded, color: AppColors.lime),
+            tooltip: 'Push Alerts & Broadcast',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.qr_code_2_rounded, color: Colors.white70),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AdminGymQrScreen(isModal: true)),
@@ -317,12 +327,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: _quickActionButton(
-                                icon: Icons.qr_code_scanner_rounded,
-                                label: 'Counter UPI\nQR Code',
-                                color: const Color(0xFFF4C430),
+                                icon: Icons.campaign_rounded,
+                                label: 'Broadcast\nPush Alert',
+                                color: AppColors.lime,
                                 onTap: () {
                                   Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (_) => const AdminGymQrScreen(isModal: true)),
+                                    MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
                                   );
                                 },
                               ),

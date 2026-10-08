@@ -4,6 +4,7 @@ import '../core/config/api_config.dart';
 import '../core/network/api_service.dart';
 import '../core/theme/app_colors.dart';
 import '../models/notification_model.dart';
+import 'admin/admin_notifications_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final bool isAdmin;
@@ -197,6 +198,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ],
         ),
         actions: [
+          if (widget.isAdmin)
+            IconButton(
+              icon: const Icon(Icons.campaign_rounded, color: AppColors.lime),
+              tooltip: 'Broadcast & Send Alerts',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
+                );
+              },
+            ),
           if (_unreadCount > 0 && !widget.isAdmin)
             TextButton(
               onPressed: _markAllAsRead,

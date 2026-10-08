@@ -14,8 +14,39 @@ $userId = (int)$auth['user_id'];
 
 NotificationEngine::ensureSchema();
 
+$tenant = Tenant::getById($tenantId);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = get_json_input();
+    $action = $input['action'] ?? 'send_notification';
+
+    if ($action === 'quick_due_reminder') {
+        $dueTitle = "Membership Fee Due Reminder - " . ($tenant['gym_name'] ?? 'Gym');
+        $dueMsg = "Dear athlete, your membership fee is due. Kindly renew your plan at the front desk or via the member app to continue uninterrupted gym access.";
+
+        $res = NotificationEngine::sendToMembers($tenantId, $dueTitle, $dueMsg, 'due_members', [], 'fee_reminder', [
+            'sent_via' => 'admin_mobile_app_1click'
+        ]);
+
+        if ($res['success']) {
+            Auth::auditLog('ADMIN_API_BULK_DUE_REMINDER', "Dispatched 1-click due reminder to {$res['delivered_count']} pending members");
+            ApiResponse::success([
+                'delivered_count' => $res['delivered_count'],
+                'token_count' => $res['token_count'],
+            ], "Instant Fee Reminder sent to {$res['delivered_count']} pending members ({$res['token_count']} devices received popup)!");
+        } else {
+            ApiResponse::error($res['error'] ?? 'Failed to send fee reminders.', 500);
+        }
+    }
+
+    if ($action === 'mark_read') {
+        $notificationId = (int)($input['notification_id'] ?? 0);
+        if ($notificationId > 0) {
+            DB::query("UPDATE notifications SET is_read = 1 WHERE id = ?", [$notificationId]);
+        }
+        ApiResponse::success(null, 'Marked as read.');
+    }
+
     $title = trim((string)($input['title'] ?? ''));
     $message = trim((string)($input['message'] ?? ''));
     $type = (string)($input['type'] ?? 'announcement');
@@ -42,19 +73,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// GET: Retrieve sent history & incoming SuperAdmin broadcasts
+// GET: Retrieve sent history, incoming SuperAdmin broadcasts & member list
 $sentHistory = DB::fetchAll(
     "SELECT id, title, message, type, target_type, created_at 
      FROM notifications 
      WHERE tenant_id = ? AND sender_role IN ('gym_admin', 'staff')
      GROUP BY title, created_at 
-     ORDER BY id DESC LIMIT 30",
+     ORDER BY id DESC LIMIT 50",
     [$tenantId]
 );
 
-$incomingFromSuperAdmin = NotificationEngine::getGymOwnerNotifications($tenantId, $userId, 20);
+$incomingFromSuperAdmin = NotificationEngine::getGymOwnerNotifications($tenantId, $userId, 30);
+
+// Fetch active members list for admin target dropdown
+$membersList = DB::fetchAll(
+    "SELECT m.user_id as id, m.fullname, m.member_id as member_code, m.status 
+     FROM members m 
+     WHERE m.tenant_id = ? AND m.status = 'active' 
+     ORDER BY m.fullname ASC LIMIT 100",
+    [$tenantId]
+);
+
+// Count pending fee members
+$pendingDueCount = (int)DB::fetchValue(
+    "SELECT COUNT(*) FROM members WHERE tenant_id = ? AND status = 'active' AND (expiry_date < CURDATE() OR expiry_date <= DATE_ADD(CURDATE(), INTERVAL 5 DAY))",
+    [$tenantId]
+);
 
 ApiResponse::success([
     'sent_history' => $sentHistory,
-    'incoming_notices' => $incomingFromSuperAdmin
+    'incoming_notices' => $incomingFromSuperAdmin,
+    'members_list' => $membersList,
+    'pending_due_count' => $pendingDueCount
 ], 'Admin notifications retrieved successfully.');

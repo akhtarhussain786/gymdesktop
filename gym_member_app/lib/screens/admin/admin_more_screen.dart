@@ -13,6 +13,7 @@ import 'admin_expenses_screen.dart';
 import 'admin_fitness_plans_screen.dart';
 import 'admin_gym_qr_screen.dart';
 import 'admin_inquiries_screen.dart';
+import 'admin_notifications_screen.dart';
 import 'admin_rates_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_saas_subscription_screen.dart';
@@ -276,9 +277,9 @@ class AdminMoreScreen extends StatelessWidget {
               context,
               icon: Icons.notifications_active_rounded,
               title: 'Push Notifications & Alerts',
-              subtitle: 'Incoming SuperAdmin alerts & member push logs',
+              subtitle: 'Send member alerts, fee reminders & push logs',
               color: AppColors.lime,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen(isAdmin: true))),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminNotificationsScreen())),
             ),
             const SizedBox(height: 16),
 

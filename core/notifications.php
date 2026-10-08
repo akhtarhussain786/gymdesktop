@@ -72,7 +72,18 @@ class NotificationEngine {
      * @param array $data Additional JSON payload
      * @return array ['success' => bool, 'delivered_count' => int, 'token_count' => int]
      */
-    public static function sendToGymOwners($title, $message, array $targetTenantIds = [], $type = 'system_update', array $data = []) {
+    /**
+     * TIER 1: SuperAdmin -> Broadcast to Gym Owners, Members, or Everyone
+     * 
+     * @param string $title
+     * @param string $message
+     * @param array $targetTenantIds Empty array means ALL gym tenants
+     * @param string $type system_update|subscription_alert|offer|announcement
+     * @param string $audience all_gym_owners|all_members|everyone|specific
+     * @param array $data Additional JSON payload
+     * @return array ['success' => bool, 'delivered_count' => int, 'token_count' => int]
+     */
+    public static function sendToGymOwners($title, $message, array $targetTenantIds = [], $type = 'system_update', $audience = 'all_gym_owners', array $data = []) {
         self::ensureSchema();
 
         $title = trim($title);
@@ -82,72 +93,54 @@ class NotificationEngine {
         }
 
         $senderUserId = $_SESSION['user_id'] ?? null;
-        $targetType = empty($targetTenantIds) ? 'all_gym_owners' : 'specific_gym_owners';
         $payloadJson = !empty($data) ? json_encode($data) : null;
+        $targetType = !empty($targetTenantIds) ? 'specific_gyms' : $audience;
 
-        // Determine matching gym owners
-        $whereSql = "role IN ('gym_admin', 'staff') AND status = 'active'";
-        $params = [];
-        if (!empty($targetTenantIds)) {
+        // 1. Insert Global Broadcast Master Record
+        DB::insert('notifications', [
+            'tenant_id' => !empty($targetTenantIds) && count($targetTenantIds) === 1 ? (int)$targetTenantIds[0] : null,
+            'sender_user_id' => $senderUserId,
+            'sender_role' => 'super_admin',
+            'target_type' => $targetType,
+            'recipient_user_id' => null,
+            'recipient_member_id' => null,
+            'title' => $title,
+            'message' => $message,
+            'type' => $type,
+            'data_payload' => $payloadJson,
+            'is_read' => 0,
+            'created_at' => date('Y-m-d H:i:s')
+        ]);
+
+        // 2. Determine target device tokens
+        $tokens = [];
+        if ($targetType === 'all_members') {
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
+            $tokens = array_column($tokenRows, 'device_token');
+        } elseif ($targetType === 'everyone' || $targetType === 'all') {
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
+            $tokens = array_column($tokenRows, 'device_token');
+        } elseif (!empty($targetTenantIds)) {
             $placeholders = implode(',', array_fill(0, count($targetTenantIds), '?'));
-            $whereSql .= " AND tenant_id IN ($placeholders)";
-            $params = array_map('intval', $targetTenantIds);
+            $tokenRows = DB::fetchAll(
+                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id IN ($placeholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
+                array_map('intval', $targetTenantIds)
+            );
+            $tokens = array_column($tokenRows, 'device_token');
+        } else {
+            // Default: all active device tokens (ensures both owners and members receive push)
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE status = 'active' AND device_token IS NOT NULL AND device_token != ''");
+            $tokens = array_column($tokenRows, 'device_token');
         }
 
-        $gymOwners = DB::fetchAll("SELECT id, tenant_id, fullname, email, phone FROM users WHERE $whereSql", $params);
-        if (empty($gymOwners)) {
-            // Even if no specific admin found in users table, insert broadcast notification
-            $insertedId = DB::insert('notifications', [
-                'tenant_id' => null,
-                'sender_user_id' => $senderUserId,
-                'sender_role' => 'super_admin',
-                'target_type' => $targetType,
-                'recipient_user_id' => null,
-                'recipient_member_id' => null,
-                'title' => $title,
-                'message' => $message,
-                'type' => $type,
-                'data_payload' => $payloadJson,
-                'is_read' => 0,
-                'created_at' => date('Y-m-d H:i:s')
-            ]);
-            return ['success' => true, 'delivered_count' => 0, 'token_count' => 0, 'notification_id' => $insertedId];
-        }
-
-        // Insert notification record for each owner for personalized in-app tracking
-        $deliveredCount = 0;
-        foreach ($gymOwners as $owner) {
-            DB::insert('notifications', [
-                'tenant_id' => (int)$owner['tenant_id'],
-                'sender_user_id' => $senderUserId,
-                'sender_role' => 'super_admin',
-                'target_type' => $targetType,
-                'recipient_user_id' => (int)$owner['id'],
-                'recipient_member_id' => null,
-                'title' => $title,
-                'message' => $message,
-                'type' => $type,
-                'data_payload' => $payloadJson,
-                'is_read' => 0,
-                'created_at' => date('Y-m-d H:i:s')
-            ]);
-            $deliveredCount++;
-        }
-
-        // Fetch active FCM device tokens for these gym owners
-        $userIds = array_map(fn($o) => (int)$o['id'], $gymOwners);
-        $userPlaceholders = implode(',', array_fill(0, count($userIds), '?'));
-        $tokenRows = DB::fetchAll(
-            "SELECT DISTINCT device_token FROM device_tokens WHERE user_id IN ($userPlaceholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
-            $userIds
-        );
-
-        $tokens = array_column($tokenRows, 'device_token');
+        // 3. Dispatch FCM Push Notification (High Priority Heads-up Popup)
         $fcmResult = self::dispatchFcm($tokens, $title, $message, array_merge($data, [
             'type' => $type,
-            'sender' => 'SuperAdmin',
-            'action' => 'superadmin_notice'
+            'sender' => 'SuperAdmin Headquarters',
+            'action' => 'superadmin_broadcast'
         ]));
+
+        $deliveredCount = count($tokens);
 
         return [
             'success' => true,
@@ -295,14 +288,13 @@ class NotificationEngine {
 
         $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at
                 FROM notifications
-                WHERE (tenant_id = ? OR tenant_id IS NULL)
-                  AND (
-                    recipient_member_id = ? 
-                    OR (target_type IN ('all_members', 'broadcast') AND recipient_member_id IS NULL)
-                  )
+                WHERE (
+                    (tenant_id = ? AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'broadcast', 'due_members', 'all', 'everyone')))
+                    OR (tenant_id IS NULL AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'all_gym_owners', 'broadcast', 'global', 'all', 'everyone')))
+                )
                 ORDER BY id DESC LIMIT ?";
 
-        $rows = DB::fetchAll($sql, [$tenantId, $memberId, $limit]);
+        $rows = DB::fetchAll($sql, [$tenantId, $memberId, $memberId, $limit]);
         return array_map(function($r) {
             return [
                 'id' => (int)$r['id'],
@@ -311,7 +303,7 @@ class NotificationEngine {
                 'type' => $r['type'],
                 'data' => !empty($r['data_payload']) ? json_decode($r['data_payload'], true) : null,
                 'is_read' => (bool)$r['is_read'],
-                'sender' => $r['sender_role'] === 'super_admin' ? 'Headquarters' : 'Gym Management',
+                'sender' => $r['sender_role'] === 'super_admin' ? 'SuperAdmin HQ' : 'Gym Management',
                 'created_at' => $r['created_at'],
                 'time_ago' => self::formatTimeAgo($r['created_at'])
             ];
@@ -329,14 +321,13 @@ class NotificationEngine {
 
         $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at
                 FROM notifications
-                WHERE (tenant_id = ? OR tenant_id IS NULL)
-                  AND (
-                    recipient_user_id = ? 
-                    OR (target_type IN ('all_gym_owners', 'broadcast') AND recipient_user_id IS NULL)
-                  )
+                WHERE (
+                    (tenant_id = ? AND (recipient_user_id = ? OR recipient_user_id IS NULL OR target_type IN ('all_gym_owners', 'broadcast', 'all', 'everyone')))
+                    OR (tenant_id IS NULL AND (recipient_user_id = ? OR recipient_user_id IS NULL OR target_type IN ('all_gym_owners', 'broadcast', 'global', 'all', 'everyone')))
+                )
                 ORDER BY id DESC LIMIT ?";
 
-        $rows = DB::fetchAll($sql, [$tenantId, $userId, $limit]);
+        $rows = DB::fetchAll($sql, [$tenantId, $userId, $userId, $limit]);
         return array_map(function($r) {
             return [
                 'id' => (int)$r['id'],
