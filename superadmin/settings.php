@@ -120,7 +120,7 @@ $apkLocalPath = __DIR__ . '/../uploads/apk/fitisify_member_app.apk';
 $apkExists = file_exists($apkLocalPath);
 $apkSizeFormatted = $apkExists ? round(filesize($apkLocalPath) / (1024 * 1024), 2) . ' MB' : 'Not Uploaded';
 $apkModifiedFormatted = $apkExists ? date('M d, Y H:i A', filemtime($apkLocalPath)) : '-';
-$apkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url('/uploads/apk/fitisify_member_app.apk');
+$apkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url('/download-apk.php');
 
 include __DIR__ . '/../includes/header.php';
 include __DIR__ . '/../includes/sidebar.php';

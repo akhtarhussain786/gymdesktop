@@ -96,7 +96,7 @@ $appMinAndroid = get_platform_setting('app_min_android', 'Android 8.0+');
 $appApkLocalPath = __DIR__ . '/uploads/apk/fitisify_member_app.apk';
 $appApkExists = file_exists($appApkLocalPath);
 $appApkSizeFormatted = $appApkExists ? round(filesize($appApkLocalPath) / (1024 * 1024), 1) . ' MB' : '63.6 MB';
-$appApkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url('/uploads/apk/fitisify_member_app.apk');
+$appApkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url('/download-apk.php');
 ?>
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
