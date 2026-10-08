@@ -30,23 +30,47 @@ $userId = null;
 
 // 1. Try to resolve authentication if bearer token is present
 try {
-    $token = MemberAuthMiddleware::extractBearerToken();
-    if ($token) {
-        $jwt = MemberAuthMiddleware::validateJwt($token);
-        if ($jwt) {
-            $tenantId = (int)($jwt['tenant_id'] ?? 0);
-            $memberId = !empty($jwt['member_id']) ? (int)$jwt['member_id'] : null;
-            $userId = !empty($jwt['user_id']) ? (int)$jwt['user_id'] : null;
-            $userRole = !empty($jwt['role']) ? $jwt['role'] : 'member';
+    $token = MemberAuthMiddleware::extractToken();
+    if (!empty($token)) {
+        $tokenHash = hash('sha256', $token);
+        $tokenRecord = DB::fetchOne("SELECT * FROM member_tokens WHERE token_hash = ? AND expires_at > NOW() LIMIT 1", [$tokenHash]);
+        if ($tokenRecord) {
+            $tenantId = (int)$tokenRecord['tenant_id'];
+            $memberId = !empty($tokenRecord['member_id']) && (int)$tokenRecord['member_id'] > 0 ? (int)$tokenRecord['member_id'] : null;
+            $userId = !empty($tokenRecord['user_id']) && (int)$tokenRecord['user_id'] > 0 ? (int)$tokenRecord['user_id'] : null;
+            
+            // Check user table to get exact role if user_id is set
+            if ($userId) {
+                $userRow = DB::fetchOne("SELECT role FROM users WHERE id = ? LIMIT 1", [$userId]);
+                if ($userRow && !empty($userRow['role'])) {
+                    $userRole = strtolower((string)$userRow['role']);
+                }
+            }
         }
     }
 } catch (Throwable $e) {}
 
-// 2. Fallback tenant resolution via gym_code
-if (empty($tenantId) && !empty($gymCode)) {
-    try {
-        $tenantId = (int)DB::fetchValue("SELECT id FROM tenants WHERE gym_code = ? OR slug = ? LIMIT 1", [$gymCode, $gymCode]);
-    } catch (Throwable $e) {}
+// 2. Fallback tenant resolution via gym_code or headers
+if (empty($tenantId)) {
+    $headers = get_request_headers();
+    $headerGymCode = $headers['X-Gym-Code'] ?? $headers['x-gym-code'] ?? '';
+    $lookupGym = !empty($gymCode) ? $gymCode : $headerGymCode;
+    if (!empty($lookupGym)) {
+        try {
+            $tRow = DB::fetchOne("SELECT id FROM tenants WHERE LOWER(gym_code) = ? OR LOWER(slug) = ? LIMIT 1", [strtolower($lookupGym), strtolower($lookupGym)]);
+            if ($tRow) {
+                $tenantId = (int)$tRow['id'];
+            }
+        } catch (Throwable $e) {}
+    }
+}
+
+// Preserve explicit role sent from client if valid
+if (!empty($input['user_role'])) {
+    $clientRole = strtolower(trim((string)$input['user_role']));
+    if (in_array($clientRole, ['gym_admin', 'staff', 'super_admin', 'trainer', 'member'])) {
+        $userRole = $clientRole;
+    }
 }
 
 // Handle unregister / logout

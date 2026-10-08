@@ -39,11 +39,11 @@ if (strlen($deviceToken) > 4096 || strlen($deviceId) > 100) {
     ApiResponse::error('Invalid device token or device ID.', 422);
 }
 
-// Remove any outdated registration with this push token elsewhere
+// Remove duplicate records with same push token on different device IDs
 try {
     DB::query(
-        "DELETE FROM device_tokens WHERE device_token = ? AND NOT (tenant_id = ? AND device_id = ?)",
-        [$deviceToken, $tenantId, $deviceId]
+        "DELETE FROM device_tokens WHERE device_token = ? AND device_id != ?",
+        [$deviceToken, $deviceId]
     );
 } catch (Throwable $e) {}
 

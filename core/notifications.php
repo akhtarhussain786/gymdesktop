@@ -121,28 +121,26 @@ class NotificationEngine {
         if (!empty($targetTenantIds)) {
             $placeholders = implode(',', array_fill(0, count($targetTenantIds), '?'));
             $tokenRows = DB::fetchAll(
-                "SELECT DISTINCT device_token FROM device_tokens WHERE (tenant_id IN ($placeholders) OR tenant_id = 0) AND (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''",
+                "SELECT DISTINCT device_token FROM device_tokens WHERE (tenant_id IN ($placeholders) OR tenant_id = 0 OR tenant_id IS NULL) AND (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''",
                 array_map('intval', $targetTenantIds)
             );
             $tokens = array_column($tokenRows, 'device_token');
         } elseif ($audience === 'all_members') {
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND (member_id IS NOT NULL OR user_role = 'member' OR (user_id IS NULL AND member_id IS NULL)) AND device_token IS NOT NULL AND device_token != ''");
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND (member_id > 0 OR user_role = 'member' OR (user_id IS NULL AND member_id IS NULL)) AND device_token IS NOT NULL AND device_token != ''");
             $tokens = array_column($tokenRows, 'device_token');
-            if (empty($tokens)) {
-                $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''");
-                $tokens = array_column($tokenRows, 'device_token');
-            }
         } elseif ($audience === 'all_gym_owners') {
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND (user_role IN ('gym_admin', 'staff', 'super_admin') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin')) OR tenant_id > 0) AND device_token IS NOT NULL AND device_token != ''");
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND (user_role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer')) OR tenant_id > 0) AND device_token IS NOT NULL AND device_token != ''");
             $tokens = array_column($tokenRows, 'device_token');
-            if (empty($tokens)) {
-                $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''");
-                $tokens = array_column($tokenRows, 'device_token');
-            }
         } else {
             // Everyone / All
             $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''");
             $tokens = array_column($tokenRows, 'device_token');
+        }
+
+        // FAILSAFE: If the filtered query returned 0 devices, fallback to all active registered devices
+        if (empty($tokens)) {
+            $fallbackRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''");
+            $tokens = array_column($fallbackRows, 'device_token');
         }
 
         // Remove duplicates and empty values

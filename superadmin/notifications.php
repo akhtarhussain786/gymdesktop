@@ -319,6 +319,90 @@ include __DIR__ . '/../includes/topbar.php';
     </div>
 </div>
 
+<!-- Registered Active Mobile Devices Section -->
+<div class="card" style="margin-top: 24px;">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="card-title">
+            <i class="fas fa-mobile-screen" style="color: #38bdf8;"></i>
+            <span>Registered Push Devices (<?php echo count($recentDevices); ?> Active)</span>
+        </div>
+        <span class="status-badge badge-info"><i class="fas fa-sync-alt fa-spin"></i> Live Sync</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Device & Platform</th>
+                        <th>User / Gym Scoped</th>
+                        <th>Role</th>
+                        <th>Token Preview</th>
+                        <th>Last Active</th>
+                        <th>Instant Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($recentDevices)): ?>
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                                <i class="fas fa-mobile-alt" style="font-size: 2rem; margin-bottom: 8px; display: block; opacity: 0.5;"></i>
+                                No active mobile push devices registered yet.<br>
+                                <small>Open the FITISIFY Flutter mobile app on your Android device and log in to automatically register the device.</small>
+                            </td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($recentDevices as $rd): ?>
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <i class="<?php echo $rd['platform'] === 'ios' ? 'fab fa-apple' : 'fab fa-android'; ?>" style="font-size: 1.2rem; color: <?php echo $rd['platform'] === 'ios' ? '#fff' : '#10b981'; ?>;"></i>
+                                        <div>
+                                            <strong><?php echo ucfirst($rd['platform']); ?></strong>
+                                            <div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">
+                                                <?php echo e(substr($rd['device_id'], 0, 16)); ?>...
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <strong><?php echo e($rd['user_name'] ?: ($rd['gym_name'] ?: 'App Device')); ?></strong>
+                                    <?php if (!empty($rd['gym_name'])): ?>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);"><?php echo e($rd['gym_name']); ?></div>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php
+                                    $roleBadge = match(strtolower((string)$rd['user_role'])) {
+                                        'gym_admin', 'admin', 'super_admin' => '<span class="status-badge badge-warning"><i class="fas fa-crown"></i> Admin</span>',
+                                        'staff' => '<span class="status-badge badge-info"><i class="fas fa-user-tie"></i> Staff</span>',
+                                        'trainer' => '<span class="status-badge badge-info"><i class="fas fa-dumbbell"></i> Trainer</span>',
+                                        default => '<span class="status-badge badge-secondary"><i class="fas fa-user"></i> Member</span>'
+                                    };
+                                    echo $roleBadge;
+                                    ?>
+                                </td>
+                                <td>
+                                    <code style="font-size: 0.75rem; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">
+                                        <?php echo e(substr($rd['device_token'], 0, 12) . '...' . substr($rd['device_token'], -8)); ?>
+                                    </code>
+                                </td>
+                                <td style="font-size: 0.8rem; color: var(--text-muted);">
+                                    <?php echo !empty($rd['last_active_at']) ? date('M d • h:i A', strtotime($rd['last_active_at'])) : date('M d • h:i A', strtotime($rd['updated_at'])); ?>
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="fillTestToken('<?php echo htmlspecialchars($rd['device_token'], ENT_QUOTES); ?>'); window.scrollTo({top: 200, behavior: 'smooth'});" style="font-size: 0.75rem; padding: 4px 10px;">
+                                        <i class="fas fa-bolt" style="color: var(--lime);"></i> Test Push
+                                    </button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
 <!-- Sent History Table -->
 <div class="card" style="margin-top: 24px;">
     <div class="card-header">

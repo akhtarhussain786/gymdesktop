@@ -323,15 +323,31 @@ class PushNotificationService {
         'user_role': userRole,
       };
 
-      final res = await ApiService.post(
-        endpoint,
-        body: payload,
-        gymCode: gymCode,
-        isAdmin: isAdmin && authToken != null && authToken.isNotEmpty,
-      );
-
-      _lastSyncStatus = 'Synced successfully at ${DateTime.now().toIso8601String()}';
-      debugPrint('[FCM] Device push token synced successfully with backend ($endpoint). Response: $res');
+      try {
+        final res = await ApiService.post(
+          endpoint,
+          body: payload,
+          gymCode: gymCode,
+          isAdmin: isAdmin && authToken != null && authToken.isNotEmpty,
+        );
+        _lastSyncStatus = 'Synced successfully at ${DateTime.now().toIso8601String()}';
+        debugPrint('[FCM] Device push token synced successfully with backend ($endpoint). Response: $res');
+      } catch (postErr) {
+        debugPrint('[FCM] Primary endpoint ($endpoint) sync error: $postErr. Trying universal fallback endpoint.');
+        // Fallback to universal member/guest device token endpoint
+        if (endpoint != ApiConfig.deviceToken) {
+          final fallbackRes = await ApiService.post(
+            ApiConfig.deviceToken,
+            body: payload,
+            gymCode: gymCode,
+            isAdmin: false,
+          );
+          _lastSyncStatus = 'Synced via fallback at ${DateTime.now().toIso8601String()}';
+          debugPrint('[FCM] Fallback token sync response: $fallbackRes');
+        } else {
+          rethrow;
+        }
+      }
     } catch (e) {
       _lastSyncStatus = 'Sync error: $e';
       debugPrint('[FCM] Failed to sync device push token: $e');
