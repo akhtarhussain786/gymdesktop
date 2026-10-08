@@ -272,7 +272,7 @@ class _AdminClassesScreenState extends State<AdminClassesScreen> {
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
                   itemCount: provider.classes.length,
                   itemBuilder: (context, index) {
                     final cls = provider.classes[index];

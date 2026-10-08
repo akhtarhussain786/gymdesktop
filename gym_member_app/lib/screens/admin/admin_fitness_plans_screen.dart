@@ -433,7 +433,7 @@ class _AdminFitnessPlansScreenState extends State<AdminFitnessPlansScreen> with 
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
                   itemCount: provider.workoutPlans.length,
                   itemBuilder: (context, index) {
                     final wp = provider.workoutPlans[index];
@@ -530,7 +530,7 @@ class _AdminFitnessPlansScreenState extends State<AdminFitnessPlansScreen> with 
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
                   itemCount: provider.dietPlans.length,
                   itemBuilder: (context, index) {
                     final dp = provider.dietPlans[index];

@@ -205,7 +205,7 @@ class _AdminInquiriesScreenState extends State<AdminInquiriesScreen> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                         itemCount: provider.inquiries.length,
                         itemBuilder: (context, index) {
                           final inq = provider.inquiries[index];

@@ -267,7 +267,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 84),
                         itemCount: provider.attendanceLogs.length,
                         itemBuilder: (context, index) {
                           final log = provider.attendanceLogs[index];

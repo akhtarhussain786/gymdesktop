@@ -157,7 +157,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
                   itemCount: provider.announcements.length,
                   itemBuilder: (context, index) {
                     final ann = provider.announcements[index];

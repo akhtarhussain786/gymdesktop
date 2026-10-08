@@ -103,7 +103,6 @@ class _GymLookupScreenState extends State<GymLookupScreen> {
     final selectedTenant = auth.currentTenant;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
       appBar: AppBar(
         backgroundColor: Colors.transparent,

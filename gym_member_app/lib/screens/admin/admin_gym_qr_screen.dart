@@ -97,9 +97,10 @@ class _AdminGymQrScreenState extends State<AdminGymQrScreen> {
     final upiId = qrData?.upiId ?? auth.currentTenant?.upiId ?? '';
     final upiPayload = qrData?.upiPayload ?? '';
 
-    final bodyContent = SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Center(
+    final bodyContent = SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
+        child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
           child: Column(
@@ -387,7 +388,8 @@ class _AdminGymQrScreenState extends State<AdminGymQrScreen> {
           ),
         ),
       ),
-    );
+    ),
+  );
 
     if (widget.isModal) {
       return Scaffold(

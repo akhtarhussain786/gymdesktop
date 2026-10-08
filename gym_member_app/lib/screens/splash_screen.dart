@@ -148,17 +148,20 @@ class _SplashScreenState extends State<SplashScreen>
 
           // Footer Copyright / Powered By
           Positioned(
-            bottom: 24,
+            bottom: 12,
             left: 0,
             right: 0,
-            child: Center(
-              child: Text(
-                'Powered by NexoraLab Technologies',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white.withValues(alpha: 0.35),
-                  letterSpacing: 0.5,
+            child: SafeArea(
+              top: false,
+              child: Center(
+                child: Text(
+                  'Powered by NexoraLab Technologies',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.35),
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ),
             ),

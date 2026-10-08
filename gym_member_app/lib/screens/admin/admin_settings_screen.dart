@@ -62,9 +62,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       ),
       body: provider.isSectionLoading && !_initialized
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF6C5CE7)))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Form(
+          : SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
+                child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,6 +344,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 ),
               ),
             ),
+          ),
     );
   }
 }

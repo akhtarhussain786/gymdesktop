@@ -50,9 +50,10 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF6C5CE7)))
           : (data == null)
               ? const Center(child: Text('No data available', style: TextStyle(color: Colors.white70)))
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
+              : SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
+                    child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Net Profit Card
@@ -195,6 +196,7 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                     ],
                   ),
                 ),
+              ),
     );
   }
 

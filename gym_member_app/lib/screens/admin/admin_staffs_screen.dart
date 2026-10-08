@@ -258,7 +258,7 @@ class _AdminStaffsScreenState extends State<AdminStaffsScreen> {
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
                   itemCount: provider.staffs.length,
                   itemBuilder: (context, index) {
                     final staff = provider.staffs[index];

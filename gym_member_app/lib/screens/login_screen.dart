@@ -76,7 +76,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       backgroundColor: AppColors.bg(context),
       appBar: AppBar(
         backgroundColor: Colors.transparent,

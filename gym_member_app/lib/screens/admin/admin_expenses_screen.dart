@@ -274,7 +274,7 @@ class _AdminExpensesScreenState extends State<AdminExpensesScreen> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 84),
                         itemCount: provider.expenses.length,
                         itemBuilder: (context, index) {
                           final exp = provider.expenses[index];

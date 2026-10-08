@@ -297,7 +297,7 @@ class _AdminEquipmentScreenState extends State<AdminEquipmentScreen> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 84),
                         itemCount: provider.equipmentList.length,
                         itemBuilder: (context, index) {
                           final eq = provider.equipmentList[index];
