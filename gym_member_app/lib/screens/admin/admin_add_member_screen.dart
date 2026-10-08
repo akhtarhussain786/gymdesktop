@@ -1064,8 +1064,9 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildUpiQrCard(BuildContext context, String currency) {
     final admin = context.watch<AdminProvider>();

@@ -462,8 +462,9 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _extendChip(String label, VoidCallback onTap) {
     return Expanded(
