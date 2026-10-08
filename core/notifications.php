@@ -620,6 +620,8 @@ class NotificationEngine {
                             'notification' => [
                                 'sound' => 'default',
                                 'channel_id' => 'gym_high_importance_channel',
+                                'icon' => 'ic_launcher',
+                                'color' => '#10B981',
                                 'notification_priority' => 'PRIORITY_MAX',
                                 'visibility' => 'PUBLIC',
                                 'default_sound' => true,

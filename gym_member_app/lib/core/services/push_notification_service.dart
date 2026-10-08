@@ -210,6 +210,8 @@ class PushNotificationService {
       playSound: true,
       enableVibration: true,
       icon: '@mipmap/ic_launcher',
+      largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+      color: const Color(0xFF10B981),
       styleInformation: BigTextStyleInformation(
         body,
         contentTitle: title,
@@ -249,6 +251,8 @@ class PushNotificationService {
       playSound: true,
       enableVibration: true,
       icon: '@mipmap/ic_launcher',
+      largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+      color: Color(0xFF10B981),
       styleInformation: BigTextStyleInformation(
         'This is a live test notification verifying high-importance floating banner and sound.',
         contentTitle: '🔔 WhatsApp Style Test Popup',
