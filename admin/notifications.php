@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('error', 'Failed to send notification: ' . ($res['error'] ?? 'Unknown error'));
             }
         }
-        redirect('notifications.php');
+        redirect('/admin/notifications');
     }
 
     // Quick 1-Click Bulk Due Reminder Action
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('error', 'Failed to send fee reminders: ' . ($res['error'] ?? 'Unknown error'));
         }
-        redirect('notifications.php');
+        redirect('/admin/notifications');
     }
 }
 

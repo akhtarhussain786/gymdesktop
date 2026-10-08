@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('error', 'Failed to dispatch notification: ' . ($res['error'] ?? 'Unknown error'));
             }
         }
-        redirect('notifications.php');
+        redirect('/superadmin/notifications');
     }
 
     // Update FCM Server Key Settings
@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $e) {
             set_flash('error', 'Failed to save FCM key: ' . $e->getMessage());
         }
-        redirect('notifications.php');
+        redirect('/superadmin/notifications');
     }
 }
 
