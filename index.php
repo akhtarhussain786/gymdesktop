@@ -114,7 +114,7 @@ $appApkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url(
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
     
     <!-- Master Dark-Tech SaaS Design & Motion System -->
-    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css'); ?>" />
+    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css?v=' . (file_exists(__DIR__ . '/assets/css/app.css') ? filemtime(__DIR__ . '/assets/css/app.css') : '1.0.5')); ?>" />
 </head>
 <body>
 
@@ -842,57 +842,73 @@ $appApkDownloadUrl = !empty($appApkExternalUrl) ? $appApkExternalUrl : base_url(
                             </div>
                         </div>
 
-                        <!-- App Download Badges Container -->
-                        <div class="app-download-actions-wrap">
-                            <div class="app-download-buttons">
+                        <!-- App Download Showcase Card (Ultra-Premium Dark-Tech Hub) -->
+                        <div class="fitisify-app-showcase-card" style="background: linear-gradient(145deg, rgba(17, 23, 32, 0.95) 0%, rgba(10, 14, 20, 0.98) 100%); border: 1px solid rgba(199, 255, 46, 0.25); border-radius: 20px; padding: 22px 20px; box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(199, 255, 46, 0.08); margin-top: 24px; display: flex; flex-direction: column; gap: 16px;">
+                            
+                            <!-- Download Buttons (2-Column Responsive Grid) -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
                                 
-                                <!-- Google Play Store Official Button -->
-                                <a href="<?php echo e($appPlayStoreUrl); ?>" target="_blank" rel="noopener noreferrer" class="btn-store-badge btn-google-play" title="Download on Google Play Store">
-                                    <div class="store-badge-icon">
-                                        <i class="fa-brands fa-google-play"></i>
+                                <!-- Official Google Play Store Button -->
+                                <a href="<?php echo e($appPlayStoreUrl); ?>" target="_blank" rel="noopener noreferrer" class="fitisify-store-btn" style="display: flex; align-items: center; gap: 14px; background: #0d1219; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; padding: 12px 18px; text-decoration: none; transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 4px 14px rgba(0,0,0,0.5);" onmouseover="this.style.borderColor='#00d9ff'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0,217,255,0.25)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.12)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 14px rgba(0,0,0,0.5)';">
+                                    <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                        <svg width="28" height="30" viewBox="0 0 256 281" preserveAspectRatio="xMidYMid">
+                                            <path fill="#00C1FF" d="M.4 12.8C.1 14.7 0 16.7 0 18.9v243.2c0 2.2.1 4.2.4 6.1l132.8-129.7L.4 12.8z"/>
+                                            <path fill="#00E676" d="M174.5 96.6L133.2 138.5l41.3 41.9 48.7-28.1c8.1-4.7 13.4-13.3 13.4-23.3s-5.3-18.6-13.4-23.3l-48.7-29.1z"/>
+                                            <path fill="#FF3D00" d="M133.2 138.5L.4 268.2c3.5 1.5 7.6 2.3 12 2.3 4.9 0 9.8-1.3 14.1-3.8l148-86.3-41.3-41.9z"/>
+                                            <path fill="#FFD400" d="M174.5 96.6L26.5 4.3C22.2 1.8 17.3.5 12.4.5c-4.4 0-8.5.8-12 2.3l132.8 135.7 41.3-41.9z"/>
+                                        </svg>
                                     </div>
-                                    <div class="store-badge-text">
-                                        <span class="store-badge-sub">GET IT ON</span>
-                                        <span class="store-badge-main">Google Play</span>
+                                    <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.2;">
+                                        <span style="font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 2px;">GET IT ON</span>
+                                        <span style="font-family: 'Outfit', -apple-system, sans-serif; font-size: 1.1rem; font-weight: 800; color: #ffffff;">Google Play</span>
                                     </div>
                                 </a>
 
                                 <!-- Direct Android APK Download Button -->
-                                <a href="<?php echo e($appApkDownloadUrl); ?>" download class="btn-store-badge btn-direct-apk" title="Direct Download Android APK">
-                                    <div class="store-badge-icon text-lime">
-                                        <i class="fa-brands fa-android"></i>
+                                <a href="<?php echo e($appApkDownloadUrl); ?>" download class="fitisify-store-btn" style="display: flex; align-items: center; gap: 14px; background: linear-gradient(135deg, rgba(199, 255, 46, 0.08) 0%, #0d1219 100%); border: 1px solid rgba(199, 255, 46, 0.38); border-radius: 14px; padding: 12px 18px; text-decoration: none; transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 4px 14px rgba(0,0,0,0.5);" onmouseover="this.style.borderColor='var(--lime)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(199,255,46,0.25)';" onmouseout="this.style.borderColor='rgba(199,255,46,0.38)'; this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 14px rgba(0,0,0,0.5)';">
+                                    <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="#c7ff2e">
+                                            <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-1.0003 0-.5517.4482-1.0003.9993-1.0003.5511 0 .9993.4486.9993 1.0003 0 .5517-.4482 1.0003-.9993 1.0003m-11.046 0c-.5511 0-.9993-.4486-.9993-1.0003 0-.5517.4482-1.0003.9993-1.0003.5511 0 .9993.4486.9993 1.0003 0 .5517-.4482 1.0003-.9993 1.0003m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.4111 13.8533 8.0817 12 8.0817c-1.8533 0-3.5902.3294-5.1368.868L4.8409 5.4467a.4161.4161 0 00-.5677-.1521.4157.4157 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396"/>
+                                        </svg>
                                     </div>
-                                    <div class="store-badge-text">
-                                        <span class="store-badge-sub"><i class="fa-solid fa-download"></i> DIRECT DOWNLOAD</span>
-                                        <span class="store-badge-main">Android APK <small style="font-size:0.75rem; color:var(--lime); font-weight:700;">(<?php echo e($appVersion); ?>)</small></span>
+                                    <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.2;">
+                                        <span style="font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lime); margin-bottom: 2px;">
+                                            <i class="fa-solid fa-download" style="margin-right: 3px;"></i> DIRECT APK
+                                        </span>
+                                        <span style="font-family: 'Outfit', -apple-system, sans-serif; font-size: 1.1rem; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 6px;">
+                                            Android App
+                                            <span style="font-size: 0.7rem; font-weight: 800; background: rgba(199,255,46,0.15); color: #c7ff2e; border: 1px solid rgba(199,255,46,0.4); padding: 1px 6px; border-radius: 999px;"><?php echo e($appVersion); ?></span>
+                                        </span>
                                     </div>
                                 </a>
 
                             </div>
 
-                            <!-- Mobile QR Code & Release Meta Card -->
-                            <div class="app-release-meta-box">
-                                <div class="app-qr-code-wrap">
-                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=4&data=<?php echo urlencode($appApkDownloadUrl); ?>" alt="Scan to Download APK" class="app-qr-img" />
+                            <!-- Mobile QR Code & Verification Strip -->
+                            <div style="display: flex; align-items: center; gap: 14px; background: rgba(10, 14, 20, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 12px 14px;">
+                                <div style="width: 72px; height: 72px; background: #ffffff; border-radius: 10px; padding: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.6);">
+                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=4&data=<?php echo urlencode($appApkDownloadUrl); ?>" alt="Scan to Download APK" style="width: 100%; height: 100%; display: block; border-radius: 6px;" />
                                 </div>
-                                <div class="app-qr-meta-text">
-                                    <div style="font-weight:700; color:#fff; font-size:0.88rem; display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-qrcode text-lime"></i> Scan with Camera to Install
+                                <div style="display: flex; flex-direction: column; gap: 3px;">
+                                    <div style="font-size: 0.88rem; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-qrcode" style="color: var(--lime);"></i> Scan to Install on Phone
                                     </div>
-                                    <div style="font-size:0.78rem; color:var(--text-muted); margin-top:2px; line-height:1.4;">
-                                        Package: <strong><?php echo e($appApkSizeFormatted); ?></strong> • Requires: <strong><?php echo e($appMinAndroid); ?></strong>
+                                    <div style="font-size: 0.76rem; color: #94a3b8; line-height: 1.4;">
+                                        Package: <strong style="color: #fff;"><?php echo e($appApkSizeFormatted); ?></strong> &bull; Requires: <strong style="color: #fff;"><?php echo e($appMinAndroid); ?></strong>
                                     </div>
-                                    <div style="font-size:0.72rem; color:#10b981; margin-top:3px;">
-                                        <i class="fa-solid fa-shield-halved"></i> 100% Verified Safe Direct APK • SHA-256 Validated
+                                    <div style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; color: #10b981; margin-top: 1px;">
+                                        <i class="fa-solid fa-shield-halved"></i> 100% Virus-Free &bull; SHA-256 Validated
                                     </div>
                                 </div>
                             </div>
 
-                            <div style="margin-top: 8px;">
-                                <a href="index2.php" class="btn btn-ghost-dark btn-sm">
-                                    <i class="fa-solid fa-desktop text-cyan"></i> Launch Web Browser Portal Instead
+                            <!-- Alternate Web Portal Link -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 2px;">
+                                <a href="index2.php" style="font-size: 0.82rem; color: #94a3b8; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s ease;" onmouseover="this.style.color='#c7ff2e';" onmouseout="this.style.color='#94a3b8';">
+                                    <i class="fa-solid fa-desktop" style="color: var(--cyan);"></i> Access Member Portal in Web Browser &rarr;
                                 </a>
                             </div>
+
                         </div>
                     </div>
 

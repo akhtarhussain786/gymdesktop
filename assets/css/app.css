@@ -1763,6 +1763,35 @@ a {
 .athlete-stat-lbl { font-size: 0.68rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
 
 /* Mobile App & APK Download Components */
+.fitisify-app-showcase-card {
+  background: linear-gradient(145deg, rgba(17, 23, 32, 0.95) 0%, rgba(10, 14, 20, 0.98) 100%);
+  border: 1px solid rgba(199, 255, 46, 0.25);
+  border-radius: 20px;
+  padding: 22px 20px;
+  box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(199, 255, 46, 0.08);
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.fitisify-store-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #0d1219;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px 18px;
+  text-decoration: none !important;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+.fitisify-store-btn:hover {
+  transform: translateY(-2px);
+  border-color: var(--lime);
+  box-shadow: 0 8px 24px rgba(199, 255, 46, 0.22);
+  color: #fff;
+}
 .app-download-actions-wrap {
   display: flex;
   flex-direction: column;
