@@ -39,6 +39,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         ];
     }
 
+    $testBroadcast = null;
+    if (isset($_GET['test_broadcast'])) {
+        $testBroadcast = NotificationEngine::sendToGymOwners(
+            '🔔 Live SuperAdmin Broadcast Test',
+            'SuperAdmin broadcast verified! High-importance notification delivered to your phone.',
+            [],
+            'system_update',
+            'all_gym_owners'
+        );
+    }
+
     $count = (int)DB::fetchValue("SELECT COUNT(*) FROM device_tokens");
     $activeCount = (int)DB::fetchValue("SELECT COUNT(*) FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '')");
     $rows = DB::fetchAll("SELECT id, tenant_id, user_id, member_id, user_role, platform, status, last_active_at, updated_at, SUBSTRING(device_token, 1, 16) as token_preview FROM device_tokens ORDER BY id DESC LIMIT 20");
@@ -46,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     ApiResponse::success([
         'columns' => $tableInfo,
         'test_insert' => $testErr,
+        'test_broadcast' => $testBroadcast,
         'total_tokens' => $count,
         'active_tokens' => $activeCount,
         'recent_devices' => $rows
