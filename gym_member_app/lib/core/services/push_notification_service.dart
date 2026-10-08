@@ -218,7 +218,7 @@ class PushNotificationService {
 
       await ApiService.post(
         endpoint,
-        payload,
+        body: payload,
         isAdmin: isAdmin,
       );
       debugPrint('Device push token synced successfully with backend for ${isAdmin ? "Admin" : "Member"}.');
@@ -240,7 +240,7 @@ class PushNotificationService {
 
       await ApiService.post(
         endpoint,
-        {
+        body: {
           'action': 'unregister',
           'device_id': deviceId,
         },
