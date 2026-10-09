@@ -3,7 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/services/pdf_service.dart';
 import '../../models/admin_models.dart';
+import '../../models/admin_transaction_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 import 'admin_collect_payment_dialog.dart';
@@ -153,7 +155,11 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
                             _buildFinancialCard(detail.member, currency),
                             const SizedBox(height: 20),
 
-                            // 4. Tab Bar (Invoices / Receipts & Attendance)
+                            // 4. Official Member Registration PDF Card
+                            _buildRegistrationDocCard(detail.member),
+                            const SizedBox(height: 20),
+
+                            // 5. Tab Bar (Invoices / Receipts & Attendance)
                             Container(
                               decoration: BoxDecoration(
                                 color: AppColors.card(context),
@@ -188,7 +194,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
                                     child: TabBarView(
                                       controller: _tabController,
                                       children: [
-                                        _buildInvoicesList(detail.invoices, currency),
+                                        _buildInvoicesList(detail.invoices, currency, detail.member),
                                         _buildAttendanceList(detail.attendance),
                                       ],
                                     ),
@@ -510,7 +516,173 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
     );
   }
 
-  Widget _buildInvoicesList(List<AdminInvoiceItem> invoices, String currency) {
+  Widget _buildRegistrationDocCard(AdminMemberItem member) {
+    bool isActionBusy = false;
+
+    return StatefulBuilder(
+      builder: (context, setCardState) {
+        Future<MemberRegistrationDocumentData?> fetchDoc() async {
+          setCardState(() => isActionBusy = true);
+          final provider = Provider.of<AdminProvider>(context, listen: false);
+          final docData = await provider.fetchMemberRegistrationData(member.memberId);
+          setCardState(() => isActionBusy = false);
+          if (docData == null && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to load official registration details from server.'),
+                backgroundColor: AppColors.danger,
+              ),
+            );
+          }
+          return docData;
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppColors.card(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.lime.withValues(alpha: 0.3)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.lime.withValues(alpha: 0.06),
+                AppColors.card(context),
+              ],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.lime.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.picture_as_pdf_rounded, color: AppColors.lime, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Official Registration Document',
+                          style: GoogleFonts.outfit(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary(context),
+                          ),
+                        ),
+                        Text(
+                          'A4 onboarding document with profile, plan terms & signature section',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            color: AppColors.textMuted(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              if (isActionBusy)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.lime)),
+                        SizedBox(width: 10),
+                        Text('Generating document...', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    // Share PDF
+                    Expanded(
+                      flex: 4,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          final doc = await fetchDoc();
+                          if (doc != null && mounted) {
+                            await PdfService.shareRegistrationPdf(context, doc);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.lime,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.share_rounded, size: 15),
+                        label: const Text('Share PDF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // View PDF
+                    Expanded(
+                      flex: 3,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final doc = await fetchDoc();
+                          if (doc != null && mounted) {
+                            PdfService.previewRegistrationPdf(context, doc);
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.textPrimary(context),
+                          side: BorderSide(color: AppColors.border(context)),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.remove_red_eye_outlined, size: 15),
+                        label: const Text('View', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Download PDF
+                    Expanded(
+                      flex: 4,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final doc = await fetchDoc();
+                          if (doc != null && mounted) {
+                            await PdfService.downloadRegistrationPdf(context, doc);
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.textPrimary(context),
+                          side: BorderSide(color: AppColors.border(context)),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.download_rounded, size: 15),
+                        label: const Text('Download', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInvoicesList(List<AdminInvoiceItem> invoices, String currency, AdminMemberItem member) {
     if (invoices.isEmpty) {
       return Center(
         child: Text(
@@ -528,6 +700,27 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
         final inv = invoices[i];
         final isPaid = inv.status.toLowerCase() == 'paid';
 
+        final txnItem = AdminTransactionItem(
+          id: inv.id,
+          transactionId: 'TXN-${inv.invoiceNumber}',
+          receiptNumber: inv.invoiceNumber,
+          memberId: member.memberId,
+          memberIdCode: '#${member.memberId}',
+          memberName: member.fullname,
+          memberMobile: member.phone,
+          memberPhoto: member.avatar,
+          membershipPlan: member.services,
+          paymentAmount: inv.paidAmount,
+          discountAmount: 0.0,
+          outstandingAmount: inv.dueAmount,
+          paymentMethod: inv.paymentMethod,
+          paymentStatus: inv.status,
+          paymentDateTime: inv.paymentDate,
+          collectedBy: 'Admin / Staff',
+          remarks: 'Member Invoice #${inv.invoiceNumber}',
+          gatewayRefId: null,
+        );
+
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -535,77 +728,106 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppColors.border(ctx)),
           ),
-          child: Row(
+          child: Column(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: (isPaid ? AppColors.success : AppColors.warning).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  isPaid ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
-                  color: isPaid ? AppColors.success : AppColors.warning,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      inv.invoiceNumber,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        color: AppColors.textPrimary(ctx),
-                      ),
-                    ),
-                    Text(
-                      '${inv.paymentDate} • ${inv.paymentMethod}',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11,
-                        color: AppColors.textMuted(ctx),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              Row(
                 children: [
-                  Text(
-                    '$currency${inv.paidAmount.toStringAsFixed(2)}',
-                    style: GoogleFonts.outfit(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                      color: AppColors.lime,
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: (isPaid ? AppColors.success : AppColors.warning).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isPaid ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
+                      color: isPaid ? AppColors.success : AppColors.warning,
+                      size: 20,
                     ),
                   ),
-                  if (inv.dueAmount > 0)
-                    Text(
-                      'Due: $currency${inv.dueAmount.toStringAsFixed(2)}',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.danger,
-                      ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          inv.invoiceNumber,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            color: AppColors.textPrimary(ctx),
+                          ),
+                        ),
+                        Text(
+                          '${inv.paymentDate} • ${inv.paymentMethod}',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            color: AppColors.textMuted(ctx),
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '$currency${inv.paidAmount.toStringAsFixed(2)}',
+                        style: GoogleFonts.outfit(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          color: AppColors.lime,
+                        ),
+                      ),
+                      if (inv.dueAmount > 0)
+                        Text(
+                          'Due: $currency${inv.dueAmount.toStringAsFixed(2)}',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.danger,
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
-              if (inv.receiptUrl != null && inv.receiptUrl!.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.receipt_rounded, size: 18, color: AppColors.cyan),
-                  onPressed: () async {
-                    final uri = Uri.parse(inv.receiptUrl!);
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  },
-                ),
-              ],
+              const SizedBox(height: 8),
+              const Divider(height: 1, color: Colors.white10),
+              const SizedBox(height: 6),
+              // Action Buttons for this receipt
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => PdfService.previewReceiptPdf(context, txnItem),
+                    icon: const Icon(Icons.remove_red_eye_outlined, size: 14),
+                    label: const Text('View Receipt', style: TextStyle(fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textMuted(context),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: () => PdfService.downloadReceiptPdf(context, txnItem),
+                    icon: const Icon(Icons.download_rounded, size: 14),
+                    label: const Text('Download', style: TextStyle(fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textMuted(context),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    onPressed: () => PdfService.shareReceiptPdf(context, txnItem),
+                    icon: const Icon(Icons.share_rounded, size: 14, color: AppColors.lime),
+                    label: const Text('Share Receipt', style: TextStyle(fontSize: 11, color: AppColors.lime, fontWeight: FontWeight.bold)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         );

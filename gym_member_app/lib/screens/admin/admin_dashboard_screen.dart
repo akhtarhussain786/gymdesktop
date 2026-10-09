@@ -18,6 +18,7 @@ import 'admin_notifications_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_saas_subscription_screen.dart';
 import 'admin_staffs_screen.dart';
+import 'admin_transaction_history_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   final Function(int)? onNavigateTab;
@@ -327,13 +328,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: _quickActionButton(
-                                icon: Icons.campaign_rounded,
-                                label: 'Broadcast\nPush Alert',
-                                color: AppColors.lime,
+                                icon: Icons.receipt_long_rounded,
+                                label: 'Transaction\nHistory',
+                                color: const Color(0xFF10B981),
                                 onTap: () {
                                   Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
-                                  );
+                                    MaterialPageRoute(builder: (_) => const AdminTransactionHistoryScreen()),
+                                  ).then((_) => _loadDashboard(refresh: true));
                                 },
                               ),
                             ),
@@ -371,12 +372,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: _quickActionButton(
-                                icon: Icons.badge_rounded,
-                                label: 'Staff &\nTrainers',
-                                color: const Color(0xFFA29BFE),
+                                icon: Icons.campaign_rounded,
+                                label: 'Broadcast\nPush Alert',
+                                color: AppColors.lime,
                                 onTap: () {
                                   Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (_) => const AdminStaffsScreen()),
+                                    MaterialPageRoute(builder: (_) => const AdminNotificationsScreen()),
                                   );
                                 },
                               ),

@@ -79,5 +79,7 @@ class ApiConfig {
   static const String adminSettings = '/settings.php';
   static const String adminSubscription = '/subscription.php';
   static const String adminDeviceToken = '/device_token.php';
+  static const String adminTransactions = '/transactions.php';
+  static const String adminRegistrationData = '/registration_data.php';
 }
 

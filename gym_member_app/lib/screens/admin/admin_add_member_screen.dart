@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/services/pdf_service.dart';
+import '../../models/admin_transaction_models.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
 
@@ -329,13 +331,16 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   void _showSuccessDialog(Map<String, dynamic> data) {
     final gymName = context.read<AuthProvider>().currentTenant?.gymName ?? 'Our Gym';
     final currency = context.read<AuthProvider>().currentTenant?.currency ?? '₹';
-    final memberId = data['member_id']?.toString() ?? '1';
+    final rawMemberId = data['member_id'] ?? data['id'] ?? '0';
+    final memberIdInt = int.tryParse('$rawMemberId') ?? 0;
+    final memberId = rawMemberId.toString();
     final name = data['fullname'] ?? _fullnameController.text;
     final username = data['username'] ?? _usernameController.text;
     final password = data['password'] ?? _passwordController.text;
     final phone = data['phone'] ?? _phoneController.text;
     final paid = (data['paid_amount'] is num) ? (data['paid_amount'] as num).toDouble() : _paidAmount;
     final due = (data['due_amount'] is num) ? (data['due_amount'] as num).toDouble() : _dueAmount;
+    final total = (data['total_amount'] is num) ? (data['total_amount'] as num).toDouble() : _totalAmount;
     final startDateStr = data['start_date'] ?? DateFormat('dd MMM yyyy').format(_dor);
     final expiryDateStr = data['expiry_date'] ?? DateFormat('dd MMM yyyy').format(_computedExpiryDate);
 
@@ -352,140 +357,241 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
         "${due > 0 ? "⚠️ Pending Due: $currency${due.toStringAsFixed(0)}\n" : "✓ Dues: Clear (₹0)\n"}\n"
         "📲 Download Gym Member App & login with your username/password to track workouts & attendance!";
 
+    bool isGeneratingPdf = false;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1E1E2C),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-            side: const BorderSide(color: AppColors.lime),
-          ),
-          contentPadding: const EdgeInsets.all(20),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: AppColors.lime.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.lime, width: 2),
-                  ),
-                  child: const Icon(Icons.check_circle_rounded, color: AppColors.lime, size: 30),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Member Registered Successfully!',
-                  style: GoogleFonts.outfit(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Login credentials and pass details have been generated.',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 12,
-                    color: Colors.white60,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            Future<MemberRegistrationDocumentData?> fetchDoc() async {
+              if (memberIdInt <= 0) return null;
+              setDialogState(() => isGeneratingPdf = true);
+              final provider = Provider.of<AdminProvider>(context, listen: false);
+              final docData = await provider.fetchMemberRegistrationData(memberIdInt);
+              setDialogState(() => isGeneratingPdf = false);
+              return docData;
+            }
 
-                // Credentials & Details Card
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF13131A),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.08)),
-                  ),
-                  child: Column(
-                    children: [
-                      _infoRow('Member ID', '#$memberId', isHighlight: true),
-                      _infoRow('Login Username', username, isHighlight: true),
-                      _infoRow('Login Password', password, isHighlight: true),
-                      const Divider(height: 14, color: Colors.white12),
-                      _infoRow('Joining Date', startDateStr),
-                      _infoRow('Expiry Date', expiryDateStr),
-                      _infoRow('Plan / Service', '$_selectedService ($_planMonths Mo)'),
-                      _infoRow('Amount Paid', '$currency${paid.toStringAsFixed(0)}', color: const Color(0xFF00CEC9)),
-                      _infoRow('Pending Due', due > 0 ? '$currency${due.toStringAsFixed(0)}' : '₹0 (Clear)', color: due > 0 ? AppColors.warning : AppColors.success),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Action Buttons
-                Row(
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E2C),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+                side: const BorderSide(color: AppColors.lime),
+              ),
+              contentPadding: const EdgeInsets.all(20),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: credentialsText));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Login credentials copied to clipboard!')),
-                          );
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: BorderSide(color: Colors.white.withOpacity(0.2)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        icon: const Icon(Icons.copy_rounded, size: 16),
-                        label: const Text('Copy Info', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.lime.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.lime, width: 2),
+                      ),
+                      child: const Icon(Icons.check_circle_rounded, color: AppColors.lime, size: 30),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Member Registered Successfully!',
+                      style: GoogleFonts.outfit(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Official record created with full payment audit details.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12,
+                        color: Colors.white60,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Credentials & Details Card
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF13131A),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Column(
+                        children: [
+                          _infoRow('Member ID', '#$memberId', isHighlight: true),
+                          _infoRow('Member Name', name),
+                          _infoRow('Mobile Number', phone),
+                          _infoRow('Login Username', username, isHighlight: true),
+                          _infoRow('Login Password', password, isHighlight: true),
+                          const Divider(height: 14, color: Colors.white12),
+                          _infoRow('Selected Plan', '$_selectedService ($_planMonths Mo)'),
+                          _infoRow('Joining Date', startDateStr),
+                          _infoRow('Expiry Date', expiryDateStr),
+                          _infoRow('Plan / Reg Fee', '$currency${total.toStringAsFixed(0)}'),
+                          _infoRow('Amount Paid', '$currency${paid.toStringAsFixed(0)}', color: const Color(0xFF00CEC9)),
+                          _infoRow(
+                            'Pending Due',
+                            due > 0 ? '$currency${due.toStringAsFixed(0)}' : '₹0 (Clear)',
+                            color: due > 0 ? AppColors.warning : AppColors.success,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-                          final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(credentialsText)}';
-                          final uri = Uri.parse(url);
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF25D366),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    const SizedBox(height: 16),
+
+                    if (isGeneratingPdf)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.lime)),
+                            SizedBox(width: 8),
+                            Text('Preparing official document...', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                          ],
                         ),
-                        icon: const Icon(Icons.send_rounded, size: 16),
-                        label: const Text('WhatsApp', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      )
+                    else ...[
+                      // 1. Primary Share Registration PDF Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            final doc = await fetchDoc();
+                            if (doc != null && mounted) {
+                              await PdfService.shareRegistrationPdf(context, doc);
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.lime,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          icon: const Icon(Icons.share_rounded, size: 18),
+                          label: const Text('Share Registration PDF', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // 2 & 3. View PDF & Download PDF Buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final doc = await fetchDoc();
+                                if (doc != null && mounted) {
+                                  PdfService.previewRegistrationPdf(context, doc);
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(color: Colors.white.withOpacity(0.25)),
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.remove_red_eye_outlined, size: 16),
+                              label: const Text('View PDF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final doc = await fetchDoc();
+                                if (doc != null && mounted) {
+                                  await PdfService.downloadRegistrationPdf(context, doc);
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(color: Colors.white.withOpacity(0.25)),
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.download_rounded, size: 16),
+                              label: const Text('Download PDF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // Credentials Copy & WhatsApp Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: credentialsText));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Login credentials copied to clipboard!')),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: BorderSide(color: Colors.white.withOpacity(0.15)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.copy_rounded, size: 14),
+                            label: const Text('Copy Text', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              final cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+                              final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(credentialsText)}';
+                              final uri = Uri.parse(url);
+                              if (await canLaunchUrl(uri)) {
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF25D366),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.send_rounded, size: 14),
+                            label: const Text('WhatsApp Text', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          Navigator.of(context).pop();
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white60,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        child: const Text('Done & Back to Members', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(ctx).pop();
-                      Navigator.of(context).pop();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.lime,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Done & View Members', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

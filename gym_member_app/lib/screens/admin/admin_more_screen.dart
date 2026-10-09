@@ -19,6 +19,7 @@ import 'admin_reports_screen.dart';
 import 'admin_saas_subscription_screen.dart';
 import 'admin_settings_screen.dart';
 import 'admin_staffs_screen.dart';
+import 'admin_transaction_history_screen.dart';
 import '../notifications_screen.dart';
 
 class AdminMoreScreen extends StatelessWidget {
@@ -213,6 +214,14 @@ class AdminMoreScreen extends StatelessWidget {
 
             // 3. FINANCE & INVENTORY
             _sectionHeader('FINANCE, PACKAGES & INVENTORY'),
+            _menuTile(
+              context,
+              icon: Icons.receipt_long_rounded,
+              title: 'Transaction History & Receipts',
+              subtitle: 'Full payment audits, search, filters & PDF receipts',
+              color: const Color(0xFF10B981),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminTransactionHistoryScreen())),
+            ),
             _menuTile(
               context,
               icon: Icons.payments_rounded,

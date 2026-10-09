@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/config/api_config.dart';
 import '../core/network/api_service.dart';
 import '../models/admin_models.dart';
+import '../models/admin_transaction_models.dart';
 
 class AdminProvider extends ChangeNotifier {
   AdminDashboardData? _dashboardData;
@@ -10,6 +11,17 @@ class AdminProvider extends ChangeNotifier {
   AdminMemberDetail? _memberDetail;
   List<AdminGymRate> _rates = [];
   AdminGymQr? _gymQr;
+
+  // Transaction history state
+  AdminTransactionSummary? _transactionSummary;
+  List<AdminTransactionItem> _transactions = [];
+  List<StaffFilterOption> _staffFilterOptions = [];
+  bool _isTransactionsLoading = false;
+  bool _isTransactionsPaginationLoading = false;
+  int _txnCurrentPage = 1;
+  int _txnTotalPages = 1;
+  int _txnTotalCount = 0;
+  bool _txnHasMore = false;
 
   // New features state
   List<AdminStaffItem> _staffs = [];
@@ -51,6 +63,17 @@ class AdminProvider extends ChangeNotifier {
   AdminMemberDetail? get memberDetail => _memberDetail;
   List<AdminGymRate> get rates => _rates;
   AdminGymQr? get gymQr => _gymQr;
+
+  // Transaction history getters
+  AdminTransactionSummary? get transactionSummary => _transactionSummary;
+  List<AdminTransactionItem> get transactions => _transactions;
+  List<StaffFilterOption> get staffFilterOptions => _staffFilterOptions;
+  bool get isTransactionsLoading => _isTransactionsLoading;
+  bool get isTransactionsPaginationLoading => _isTransactionsPaginationLoading;
+  int get txnCurrentPage => _txnCurrentPage;
+  int get txnTotalPages => _txnTotalPages;
+  int get txnTotalCount => _txnTotalCount;
+  bool get txnHasMore => _txnHasMore;
 
   List<AdminStaffItem> get staffs => _staffs;
   List<AdminDailyAttendanceItem> get attendanceLogs => _attendanceLogs;
@@ -1008,6 +1031,170 @@ class AdminProvider extends ChangeNotifier {
       await fetchDashboard(refresh: true);
       return res != null && res['verified'] == true;
     } catch (_) {
+      return false;
+    } finally {
+      _isActionLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // 20. Gym Owner Transaction History
+  Future<void> fetchTransactions({
+    String? search,
+    String? dateFilter,
+    String? startDate,
+    String? endDate,
+    String? paymentMode,
+    String? paymentStatus,
+    String? staffId,
+    int page = 1,
+    bool isRefresh = false,
+  }) async {
+    if (page == 1) {
+      _isTransactionsLoading = true;
+      _errorMessage = null;
+      _txnCurrentPage = 1;
+      if (isRefresh) {
+        _transactions = [];
+      }
+    } else {
+      _isTransactionsPaginationLoading = true;
+    }
+    notifyListeners();
+
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'limit': '20',
+      };
+
+      if (search != null && search.trim().isNotEmpty) {
+        queryParams['search'] = search.trim();
+      }
+      if (dateFilter != null && dateFilter.isNotEmpty && dateFilter != 'all') {
+        queryParams['date_filter'] = dateFilter;
+      }
+      if (startDate != null && startDate.isNotEmpty) {
+        queryParams['start_date'] = startDate;
+      }
+      if (endDate != null && endDate.isNotEmpty) {
+        queryParams['end_date'] = endDate;
+      }
+      if (paymentMode != null && paymentMode.isNotEmpty && paymentMode != 'all') {
+        queryParams['payment_mode'] = paymentMode;
+      }
+      if (paymentStatus != null && paymentStatus.isNotEmpty && paymentStatus != 'all') {
+        queryParams['payment_status'] = paymentStatus;
+      }
+      if (staffId != null && staffId.isNotEmpty && staffId != 'all') {
+        queryParams['staff_id'] = staffId;
+      }
+
+      final data = await ApiService.get(
+        ApiConfig.adminTransactions,
+        queryParams: queryParams,
+        isAdmin: true,
+      );
+
+      if (data != null && data['success'] == true) {
+        if (data['summary'] is Map<String, dynamic>) {
+          _transactionSummary = AdminTransactionSummary.fromJson(data['summary'] as Map<String, dynamic>);
+        }
+
+        if (data['staff_options'] is List) {
+          _staffFilterOptions = (data['staff_options'] as List)
+              .map((e) => StaffFilterOption.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+
+        final items = (data['transactions'] as List? ?? [])
+            .map((e) => AdminTransactionItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+
+        final pagination = data['pagination'] as Map<String, dynamic>? ?? {};
+        _txnCurrentPage = pagination['current_page'] is int ? pagination['current_page'] : int.tryParse('${pagination['current_page']}') ?? page;
+        _txnTotalPages = pagination['total_pages'] is int ? pagination['total_pages'] : int.tryParse('${pagination['total_pages']}') ?? 1;
+        _txnTotalCount = pagination['total_records'] is int ? pagination['total_records'] : int.tryParse('${pagination['total_records']}') ?? items.length;
+        _txnHasMore = pagination['has_more'] == true || _txnCurrentPage < _txnTotalPages;
+
+        if (page == 1) {
+          _transactions = items;
+        } else {
+          _transactions.addAll(items);
+        }
+      }
+    } on ApiException catch (e) {
+      _errorMessage = e.message;
+    } catch (e) {
+      _errorMessage = 'Failed to load transaction history: ${e.toString()}';
+    } finally {
+      _isTransactionsLoading = false;
+      _isTransactionsPaginationLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // 21. Fetch Member Registration Document Data
+  Future<MemberRegistrationDocumentData?> fetchMemberRegistrationData(int memberId) async {
+    _isActionLoading = true;
+    notifyListeners();
+    try {
+      final data = await ApiService.get(
+        ApiConfig.adminRegistrationData,
+        queryParams: {'member_id': memberId.toString()},
+        isAdmin: true,
+      );
+
+      if (data != null && data['success'] == true) {
+        return MemberRegistrationDocumentData.fromJson(data);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching registration data: $e');
+      return null;
+    } finally {
+      _isActionLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // 22. Record a Payment Transaction (Initial, Partial or Renewal)
+  Future<bool> recordTransactionPayment({
+    required int memberId,
+    required double amount,
+    required String paymentMode,
+    String? remarks,
+    String? planName,
+    int? invoiceId,
+  }) async {
+    _isActionLoading = true;
+    notifyListeners();
+    try {
+      final body = {
+        'action': 'record_payment',
+        'member_id': memberId,
+        'amount': amount,
+        'payment_mode': paymentMode,
+        'remarks': remarks ?? '',
+        'plan_name': planName ?? '',
+        if (invoiceId != null) 'invoice_id': invoiceId,
+      };
+
+      final res = await ApiService.post(
+        ApiConfig.adminTransactions,
+        body: body,
+        isAdmin: true,
+      );
+
+      if (res != null && res['success'] == true) {
+        // Refresh transactions and dashboard
+        await fetchTransactions(page: 1, isRefresh: true);
+        await fetchDashboard(refresh: true);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error recording transaction payment: $e');
       return false;
     } finally {
       _isActionLoading = false;
