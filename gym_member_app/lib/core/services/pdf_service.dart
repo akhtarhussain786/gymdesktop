@@ -9,6 +9,17 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/admin_transaction_models.dart';
 
+// Semantic PDF Colors
+const _emerald = PdfColor.fromInt(0xFF10B981);
+const _emerald50 = PdfColor.fromInt(0xFFECFDF5);
+const _emerald700 = PdfColor.fromInt(0xFF047857);
+const _emerald800 = PdfColor.fromInt(0xFF065F46);
+const _emerald900 = PdfColor.fromInt(0xFF064E3B);
+const _amber50 = PdfColor.fromInt(0xFFFFFBEB);
+const _amber900 = PdfColor.fromInt(0xFF78350F);
+const _red50 = PdfColor.fromInt(0xFFFEF2F2);
+const _red900 = PdfColor.fromInt(0xFF7F1D1D);
+
 class PdfService {
   /// Generates an official, print-ready A4 Member Registration & Onboarding Document
   static Future<Uint8List> generateRegistrationPdf(MemberRegistrationDocumentData data) async {
@@ -41,7 +52,7 @@ class PdfService {
               pw.Container(
                 height: 4,
                 decoration: const pw.BoxDecoration(
-                  color: PdfColors.emerald,
+                  color: _emerald,
                   borderRadius: pw.BorderRadius.all(pw.Radius.circular(2)),
                 ),
               ),
@@ -50,7 +61,7 @@ class PdfService {
               // 1. Header (Gym Info & Docket Badge)
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
-                mainAxisAlignment: pw.MainAxisAlignment.between,
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
                   pw.Row(
                     crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -76,7 +87,7 @@ class PdfService {
                           height: 48,
                           margin: const pw.EdgeInsets.only(right: 12),
                           decoration: const pw.BoxDecoration(
-                            color: PdfColors.emerald,
+                            color: _emerald,
                             borderRadius: pw.BorderRadius.all(pw.Radius.circular(8)),
                           ),
                           child: pw.Center(
@@ -121,8 +132,8 @@ class PdfService {
                       pw.Container(
                         padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: pw.BoxDecoration(
-                          color: PdfColors.emerald50,
-                          border: pw.Border.all(color: PdfColors.emerald, width: 0.8),
+                          color: _emerald50,
+                          border: pw.Border.all(color: _emerald, width: 0.8),
                           borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
                         ),
                         child: pw.Text(
@@ -130,7 +141,7 @@ class PdfService {
                           style: pw.TextStyle(
                             fontSize: 8.5,
                             fontWeight: pw.FontWeight.bold,
-                            color: PdfColors.emerald900,
+                            color: _emerald900,
                           ),
                         ),
                       ),
@@ -163,45 +174,40 @@ class PdfService {
                 decoration: pw.BoxDecoration(
                   color: PdfColors.grey100,
                   borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                  border: pw.Border.all(color: PdfColors.grey300),
                 ),
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                child: pw.Column(
                   children: [
-                    pw.Expanded(
-                      flex: 1,
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          _buildDetailRow('Full Name', data.member.fullname, isBold: true),
-                          pw.SizedBox(height: 4),
-                          _buildDetailRow('Mobile Number', data.member.phone),
-                          pw.SizedBox(height: 4),
-                          _buildDetailRow('Email Address', data.member.email.isNotEmpty ? data.member.email : 'N/A'),
-                        ],
-                      ),
+                    pw.Row(
+                      children: [
+                        pw.Expanded(child: _buildDetailRow('Full Name', data.member.fullname, isBold: true)),
+                        pw.Expanded(child: _buildDetailRow('Gender', data.member.gender)),
+                      ],
                     ),
-                    pw.SizedBox(width: 14),
-                    pw.Expanded(
-                      flex: 1,
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          _buildDetailRow('Gender / DOB', '${data.member.gender} ${data.member.dob != null ? "• ${data.member.dob}" : ""}'),
-                          pw.SizedBox(height: 4),
-                          _buildDetailRow('Emergency Contact', data.member.emergencyContact.isNotEmpty ? data.member.emergencyContact : 'On Record'),
-                          pw.SizedBox(height: 4),
-                          _buildDetailRow('Address', data.member.address.isNotEmpty ? data.member.address : 'On Record'),
-                        ],
-                      ),
+                    pw.SizedBox(height: 4),
+                    pw.Row(
+                      children: [
+                        pw.Expanded(child: _buildDetailRow('Mobile Number', data.member.phone, isBold: true)),
+                        pw.Expanded(child: _buildDetailRow('Email Address', data.member.email.isNotEmpty ? data.member.email : 'N/A')),
+                      ],
                     ),
+                    pw.SizedBox(height: 4),
+                    pw.Row(
+                      children: [
+                        pw.Expanded(child: _buildDetailRow('Member ID', data.member.formattedMemberId)),
+                        pw.Expanded(child: _buildDetailRow('Date of Birth', (data.member.dob != null && data.member.dob!.isNotEmpty) ? data.member.dob! : 'N/A')),
+                      ],
+                    ),
+                    if (data.member.address.isNotEmpty) ...[
+                      pw.SizedBox(height: 4),
+                      _buildDetailRow('Residential Address', data.member.address),
+                    ],
                   ],
                 ),
               ),
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: 10),
 
-              // 3. Membership & Fitness Plan Section
-              _buildSectionTitle('2. MEMBERSHIP PACKAGE & SCHEDULE'),
+              // 3. Membership & Package Subscription
+              _buildSectionTitle('2. MEMBERSHIP & PACKAGE DETAILS'),
               pw.SizedBox(height: 6),
               pw.Table(
                 border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
@@ -209,7 +215,7 @@ class PdfService {
                   pw.TableRow(
                     decoration: const pw.BoxDecoration(color: PdfColors.grey200),
                     children: [
-                      _buildTableHeaderCell('SERVICE / PACKAGE'),
+                      _buildTableHeaderCell('MEMBERSHIP PLAN'),
                       _buildTableHeaderCell('DURATION'),
                       _buildTableHeaderCell('START DATE'),
                       _buildTableHeaderCell('EXPIRY DATE'),
@@ -219,105 +225,141 @@ class PdfService {
                   pw.TableRow(
                     children: [
                       _buildTableCell(data.membership.planName, isBold: true),
-                      _buildTableCell(data.membership.durationText),
+                      _buildTableCell('${data.membership.planMonths} ${data.membership.planMonths > 1 ? "Months" : "Month"}'),
                       _buildTableCell(data.membership.startDate),
-                      _buildTableCell(data.membership.expiryDate, color: PdfColors.blue800, isBold: true),
-                      _buildTableCell(data.membership.status.toUpperCase(), color: PdfColors.emerald800, isBold: true),
+                      _buildTableCell(data.membership.expiryDate),
+                      _buildTableCell(data.membership.status.toUpperCase(), color: _emerald800, isBold: true),
                     ],
                   ),
                 ],
               ),
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: 10),
 
-              // 4. Financial & Payment Record Section
-              _buildSectionTitle('3. REGISTRATION FEE & PAYMENT SUMMARY'),
+              // 4. Financial Audit & Payment Summary
+              _buildSectionTitle('3. FINANCIAL AUDIT & PAYMENT BREAKDOWN'),
               pw.SizedBox(height: 6),
-              pw.Container(
-                padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.grey50,
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                  border: pw.Border.all(color: PdfColors.grey300),
-                ),
-                child: pw.Column(
-                  children: [
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildMiniInfo('Invoice / Ref No', data.payment.invoiceNumber),
-                        _buildMiniInfo('Payment Mode', data.payment.paymentMethod),
-                        _buildMiniInfo('Payment Date', data.payment.paymentDate),
-                        _buildMiniInfo(
-                          'Payment Status',
-                          data.payment.paymentStatus.toUpperCase(),
-                          color: isFullyPaid ? PdfColors.emerald800 : PdfColors.amber800,
-                        ),
-                      ],
-                    ),
-                    pw.SizedBox(height: 8),
-                    pw.Divider(thickness: 0.5, color: PdfColors.grey300),
-                    pw.SizedBox(height: 6),
-                    _buildPriceRow('Total Membership / Registration Fee:', '$currency${data.payment.totalAmount.toStringAsFixed(2)}'),
-                    if (data.payment.discount > 0)
-                      _buildPriceRow('Discount Applied:', '-$currency${data.payment.discount.toStringAsFixed(2)}', isDiscount: true),
-                    _buildPriceRow('Final Payable Amount:', '$currency${data.payment.finalPayable.toStringAsFixed(2)}'),
-                    _buildPriceRow('Amount Paid at Registration:', '$currency${data.payment.paidAmount.toStringAsFixed(2)}', isHighlight: true),
-                    pw.SizedBox(height: 4),
-                    pw.Container(
-                      padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                      decoration: pw.BoxDecoration(
-                        color: isFullyPaid ? PdfColors.emerald50 : PdfColors.red50,
-                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                        border: pw.Border.all(color: isFullyPaid ? PdfColors.emerald : PdfColors.red),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    flex: 3,
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: const pw.BoxDecoration(
+                        color: PdfColors.grey100,
+                        borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
                       ),
-                      child: pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
-                          pw.Text(
-                            'Remaining Due Balance:',
-                            style: pw.TextStyle(
-                              fontSize: 10,
-                              fontWeight: pw.FontWeight.bold,
-                              color: isFullyPaid ? PdfColors.emerald900 : PdfColors.red900,
-                            ),
+                          _buildDetailRow('Payment Mode', data.payment.paymentMethod),
+                          pw.SizedBox(height: 3),
+                          _buildDetailRow('Payment Date', data.payment.paymentDate),
+                          pw.SizedBox(height: 3),
+                          _buildDetailRow('Invoice Ref', data.payment.invoiceNumber),
+                          pw.SizedBox(height: 3),
+                          _buildDetailRow('Recorded By', 'Admin / Staff'),
+                          if (data.payment.transactionRef.isNotEmpty) ...[
+                            pw.SizedBox(height: 3),
+                            _buildDetailRow('Transaction Ref', data.payment.transactionRef),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 10),
+                  pw.Expanded(
+                    flex: 2,
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.grey50,
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                        border: pw.Border.all(color: PdfColors.grey300),
+                      ),
+                      child: pw.Column(
+                        children: [
+                          _buildPriceRow('Total Payable:', '$currency${data.payment.totalAmount.toStringAsFixed(2)}'),
+                          if (data.payment.discount > 0)
+                            _buildPriceRow('Discount:', '-$currency${data.payment.discount.toStringAsFixed(2)}', isDiscount: true),
+                          _buildPriceRow('Amount Paid:', '$currency${data.payment.paidAmount.toStringAsFixed(2)}', isHighlight: true),
+                          pw.Divider(thickness: 0.5, color: PdfColors.grey300),
+                          _buildPriceRow(
+                            'Balance Due:',
+                            isFullyPaid ? '$currency 0.00' : '$currency${data.payment.dueAmount.toStringAsFixed(2)}',
+                            isBold: true,
                           ),
-                          pw.Text(
-                            isFullyPaid ? '$currency 0.00 (FULLY PAID)' : '$currency${data.payment.dueAmount.toStringAsFixed(2)} (PARTIAL DUE)',
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              fontWeight: pw.FontWeight.bold,
-                              color: isFullyPaid ? PdfColors.emerald900 : PdfColors.red900,
+                          pw.SizedBox(height: 4),
+                          pw.Container(
+                            width: double.infinity,
+                            padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                            decoration: pw.BoxDecoration(
+                              color: isFullyPaid ? _emerald50 : _red50,
+                              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                              border: pw.Border.all(color: isFullyPaid ? _emerald : PdfColors.red),
+                            ),
+                            child: pw.Center(
+                              child: pw.Text(
+                                isFullyPaid ? 'PAYMENT STATUS: FULLY PAID' : 'PAYMENT STATUS: PARTIAL / DUE',
+                                style: pw.TextStyle(
+                                  fontSize: 7.5,
+                                  fontWeight: pw.FontWeight.bold,
+                                  color: isFullyPaid ? _emerald900 : _red900,
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: 10),
 
-              // 5. Terms & Health Declaration
-              _buildSectionTitle('4. FACILITY RULES & DECLARATION'),
+              // 5. Terms & Conditions
+              _buildSectionTitle('4. GYM RULES, SAFETY & MEMBERSHIP TERMS'),
               pw.SizedBox(height: 4),
               pw.Container(
                 padding: const pw.EdgeInsets.all(8),
                 decoration: pw.BoxDecoration(
-                  color: PdfColors.grey100,
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
                   border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
                 ),
-                child: pw.Text(
-                  '• Member declares physical fitness to participate in fitness activities.\n'
-                  '• Fees paid are non-refundable and non-transferable under any circumstances.\n'
-                  '• Digital QR Pass must be presented at the gym entrance turnstile for biometric check-in.\n'
-                  '• Gym management reserves the right of admission and compliance with gym etiquette.',
-                  style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800, lineSpacing: 2),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    ...(data.gym.terms.isNotEmpty
+                            ? data.gym.terms.split('\n').where((s) => s.trim().isNotEmpty).toList()
+                            : [
+                                'Gym membership is non-transferable and subscription fees are non-refundable once activated.',
+                                'Members are required to follow safety guidelines, use towels, and return equipment after usage.',
+                                'The gym management is not liable for loss of personal belongings inside the facility.',
+                              ])
+                        .map(
+                      (term) => pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 2),
+                        child: pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Text('• ', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700)),
+                            pw.Expanded(
+                              child: pw.Text(
+                                term,
+                                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const pw.Spacer(),
 
-              // 6. Signatures & Footer
+              pw.Spacer(),
+
+              // Signatures
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -334,7 +376,7 @@ class PdfService {
                     children: [
                       pw.Container(width: 140, height: 1, color: PdfColors.grey600),
                       pw.SizedBox(height: 4),
-                      pw.Text('Authorized Gym Signatory', style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey800)),
+                      pw.Text('Authorized Gym Manager / Signatory', style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey800)),
                     ],
                   ),
                 ],
@@ -358,11 +400,11 @@ class PdfService {
   /// Generates an official Payment Receipt PDF
   static Future<Uint8List> generateReceiptPdf(
     AdminTransactionItem txn, {
-    required String gymName,
-    required String gymPhone,
-    required String gymAddress,
+    String gymName = 'Our Gym',
+    String gymPhone = '',
+    String gymAddress = '',
     String? gymLogoUrl,
-    required String currency,
+    String currency = '₹',
   }) async {
     final pdf = pw.Document(
       title: 'Payment Receipt - ${txn.invoiceNumber}',
@@ -399,7 +441,7 @@ class PdfService {
 
               // Header
               pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.between,
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Row(
@@ -418,7 +460,8 @@ class PdfService {
                             gymName.toUpperCase(),
                             style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.grey900),
                           ),
-                          pw.Text(gymPhone, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                          if (gymPhone.isNotEmpty)
+                            pw.Text(gymPhone, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                           if (gymAddress.isNotEmpty)
                             pw.Text(gymAddress, style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey600)),
                         ],
@@ -431,8 +474,8 @@ class PdfService {
                       pw.Container(
                         padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: pw.BoxDecoration(
-                          color: isPaid ? PdfColors.emerald50 : PdfColors.amber50,
-                          border: pw.Border.all(color: isPaid ? PdfColors.emerald : PdfColors.amber, width: 0.8),
+                          color: isPaid ? _emerald50 : _amber50,
+                          border: pw.Border.all(color: isPaid ? _emerald : PdfColors.amber, width: 0.8),
                           borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
                         ),
                         child: pw.Text(
@@ -440,7 +483,7 @@ class PdfService {
                           style: pw.TextStyle(
                             fontSize: 9,
                             fontWeight: pw.FontWeight.bold,
-                            color: isPaid ? PdfColors.emerald900 : PdfColors.amber900,
+                            color: isPaid ? _emerald900 : _amber900,
                           ),
                         ),
                       ),
@@ -553,7 +596,7 @@ class PdfService {
                   ),
                 ],
               ),
-              const pw.Spacer(),
+              pw.Spacer(),
 
               // Signatures
               pw.Row(
@@ -622,7 +665,7 @@ class PdfService {
       final file = File('${tempDir.path}/$filename');
       await file.writeAsBytes(pdfBytes, flush: true);
 
-      await SharePlus.shareXFiles(
+      await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/pdf', name: filename)],
         subject: subject ?? filename,
         text: text,
@@ -635,7 +678,9 @@ class PdfService {
   // Registration PDF convenience methods
   static Future<void> previewRegistrationPdf(BuildContext context, MemberRegistrationDocumentData data) async {
     final bytes = await generateRegistrationPdf(data);
-    await previewPdf(context, bytes, 'Member_Registration_${data.member.memberId}.pdf');
+    if (context.mounted) {
+      await previewPdf(context, bytes, 'Member_Registration_${data.member.memberId}.pdf');
+    }
   }
 
   static Future<String?> downloadRegistrationPdf(BuildContext context, MemberRegistrationDocumentData data) async {
@@ -659,7 +704,9 @@ class PdfService {
   // Payment Receipt PDF convenience methods
   static Future<void> previewReceiptPdf(BuildContext context, AdminTransactionItem txn) async {
     final bytes = await generateReceiptPdf(txn);
-    await previewPdf(context, bytes, 'Payment_Receipt_${txn.invoiceNumber}.pdf');
+    if (context.mounted) {
+      await previewPdf(context, bytes, 'Payment_Receipt_${txn.invoiceNumber}.pdf');
+    }
   }
 
   static Future<String?> downloadReceiptPdf(BuildContext context, AdminTransactionItem txn) async {
@@ -750,24 +797,6 @@ class PdfService {
     );
   }
 
-  static pw.Widget _buildMiniInfo(String label, String value, {PdfColor? color}) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(label.toUpperCase(), style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
-        pw.SizedBox(height: 2),
-        pw.Text(
-          value,
-          style: pw.TextStyle(
-            fontSize: 9,
-            fontWeight: pw.FontWeight.bold,
-            color: color ?? PdfColors.grey900,
-          ),
-        ),
-      ],
-    );
-  }
-
   static pw.Widget _buildPriceRow(String label, String value, {bool isHighlight = false, bool isDiscount = false, bool isBold = false}) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
@@ -779,7 +808,7 @@ class PdfService {
             style: pw.TextStyle(
               fontSize: 8.5,
               fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              color: isDiscount ? PdfColors.emerald700 : PdfColors.grey700,
+              color: isDiscount ? _emerald700 : PdfColors.grey700,
             ),
           ),
           pw.Text(
@@ -788,9 +817,9 @@ class PdfService {
               fontSize: 9,
               fontWeight: (isHighlight || isBold) ? pw.FontWeight.bold : pw.FontWeight.normal,
               color: isHighlight
-                  ? PdfColors.emerald800
+                  ? _emerald800
                   : isDiscount
-                      ? PdfColors.emerald700
+                      ? _emerald700
                       : PdfColors.grey900,
             ),
           ),
