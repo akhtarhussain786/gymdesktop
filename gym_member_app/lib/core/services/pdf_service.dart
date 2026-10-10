@@ -6,8 +6,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/admin_transaction_models.dart';
+import '../../models/gym_tenant.dart';
+import '../../providers/auth_provider.dart';
 
 // Semantic PDF Colors
 const _emerald = PdfColor.fromInt(0xFF10B981);
@@ -23,9 +26,22 @@ const _red900 = PdfColor.fromInt(0xFF7F1D1D);
 class PdfService {
   /// Generates an official, print-ready A4 Member Registration & Onboarding Document
   static Future<Uint8List> generateRegistrationPdf(MemberRegistrationDocumentData data) async {
+    pw.ThemeData? customTheme;
+    try {
+      final baseFont = await PdfGoogleFonts.notoSansRegular();
+      final boldFont = await PdfGoogleFonts.notoSansBold();
+      customTheme = pw.ThemeData.withFont(
+        base: baseFont,
+        bold: boldFont,
+      );
+    } catch (e) {
+      debugPrint('Error loading Google Fonts for Registration PDF: $e');
+    }
+
     final pdf = pw.Document(
       title: 'Member Registration - ${data.member.fullname}',
       author: data.gym.name,
+      theme: customTheme,
     );
 
     pw.ImageProvider? logoImage;
@@ -37,7 +53,8 @@ class PdfService {
       }
     }
 
-    final currency = data.gym.currency.isNotEmpty ? data.gym.currency : '₹';
+    final rawCurrency = data.gym.currency.isNotEmpty ? data.gym.currency : '₹';
+    final currency = (customTheme == null && rawCurrency == '₹') ? 'Rs. ' : (rawCurrency == '₹' ? '₹ ' : '$rawCurrency ');
     final isFullyPaid = data.payment.dueAmount <= 0;
 
     pdf.addPage(
@@ -400,15 +417,28 @@ class PdfService {
   /// Generates an official Payment Receipt PDF
   static Future<Uint8List> generateReceiptPdf(
     AdminTransactionItem txn, {
-    String gymName = 'Our Gym',
+    String gymName = 'Gym Facility',
     String gymPhone = '',
     String gymAddress = '',
     String? gymLogoUrl,
     String currency = '₹',
   }) async {
+    pw.ThemeData? customTheme;
+    try {
+      final baseFont = await PdfGoogleFonts.notoSansRegular();
+      final boldFont = await PdfGoogleFonts.notoSansBold();
+      customTheme = pw.ThemeData.withFont(
+        base: baseFont,
+        bold: boldFont,
+      );
+    } catch (e) {
+      debugPrint('Error loading Google Fonts for Receipt PDF: $e');
+    }
+
     final pdf = pw.Document(
       title: 'Payment Receipt - ${txn.invoiceNumber}',
       author: gymName,
+      theme: customTheme,
     );
 
     pw.ImageProvider? logoImage;
@@ -421,6 +451,7 @@ class PdfService {
     }
 
     final isPaid = txn.dueAmount <= 0;
+    final currSymbol = (customTheme == null && currency == '₹') ? 'Rs. ' : (currency == '₹' ? '₹ ' : '$currency ');
 
     pdf.addPage(
       pw.Page(
@@ -560,7 +591,7 @@ class PdfService {
                     children: [
                       _buildTableCell(txn.serviceName, isBold: true),
                       _buildTableCell('${txn.planMonths} ${txn.planMonths > 1 ? "Months" : "Month"}'),
-                      _buildTableCell('$currency${txn.amount.toStringAsFixed(2)}', isBold: true),
+                      _buildTableCell('$currSymbol${txn.amount.toStringAsFixed(2)}', isBold: true),
                     ],
                   ),
                 ],
@@ -581,14 +612,14 @@ class PdfService {
                     ),
                     child: pw.Column(
                       children: [
-                        _buildPriceRow('Total Invoiced:', '$currency${txn.amount.toStringAsFixed(2)}'),
+                        _buildPriceRow('Total Invoiced:', '$currSymbol${txn.amount.toStringAsFixed(2)}'),
                         if (txn.discount > 0)
-                          _buildPriceRow('Discount:', '-$currency${txn.discount.toStringAsFixed(2)}', isDiscount: true),
-                        _buildPriceRow('Amount Paid:', '$currency${txn.paidAmount.toStringAsFixed(2)}', isHighlight: true),
+                          _buildPriceRow('Discount:', '-$currSymbol${txn.discount.toStringAsFixed(2)}', isDiscount: true),
+                        _buildPriceRow('Amount Paid:', '$currSymbol${txn.paidAmount.toStringAsFixed(2)}', isHighlight: true),
                         pw.Divider(thickness: 0.5, color: PdfColors.grey300),
                         _buildPriceRow(
                           'Balance Due:',
-                          isPaid ? '$currency 0.00 (CLEAR)' : '$currency${txn.dueAmount.toStringAsFixed(2)}',
+                          isPaid ? '${currSymbol}0.00 (CLEAR)' : '$currSymbol${txn.dueAmount.toStringAsFixed(2)}',
                           isBold: true,
                         ),
                       ],
@@ -701,16 +732,87 @@ class PdfService {
     await sharePdf(bytes, filename, subject: 'Gym Registration - ${data.member.fullname}', text: 'Official Membership Registration Document for ${data.member.fullname} (${data.gym.name})');
   }
 
+  // Helper to extract current tenant data from AuthProvider context
+  static Future<Uint8List> _generateReceiptFromContext(
+    BuildContext context,
+    AdminTransactionItem txn, {
+    String? gymName,
+    String? gymPhone,
+    String? gymAddress,
+    String? gymLogoUrl,
+    String? currency,
+  }) async {
+    GymTenant? tenant;
+    try {
+      tenant = Provider.of<AuthProvider>(context, listen: false).currentTenant;
+    } catch (_) {}
+
+    final resolvedGymName = (gymName != null && gymName.isNotEmpty)
+        ? gymName
+        : ((tenant != null && tenant.gymName.isNotEmpty) ? tenant.gymName : 'Gym Facility');
+    final resolvedGymPhone = (gymPhone != null && gymPhone.isNotEmpty)
+        ? gymPhone
+        : (tenant?.phone ?? '');
+    final resolvedGymAddress = (gymAddress != null && gymAddress.isNotEmpty)
+        ? gymAddress
+        : (tenant?.address ?? '');
+    final resolvedGymLogo = gymLogoUrl ?? tenant?.logo;
+    final resolvedCurrency = (currency != null && currency.isNotEmpty)
+        ? currency
+        : ((tenant != null && tenant.currency.isNotEmpty) ? tenant.currency : '₹');
+
+    return await generateReceiptPdf(
+      txn,
+      gymName: resolvedGymName,
+      gymPhone: resolvedGymPhone,
+      gymAddress: resolvedGymAddress,
+      gymLogoUrl: resolvedGymLogo,
+      currency: resolvedCurrency,
+    );
+  }
+
   // Payment Receipt PDF convenience methods
-  static Future<void> previewReceiptPdf(BuildContext context, AdminTransactionItem txn) async {
-    final bytes = await generateReceiptPdf(txn);
+  static Future<void> previewReceiptPdf(
+    BuildContext context,
+    AdminTransactionItem txn, {
+    String? gymName,
+    String? gymPhone,
+    String? gymAddress,
+    String? gymLogoUrl,
+    String? currency,
+  }) async {
+    final bytes = await _generateReceiptFromContext(
+      context,
+      txn,
+      gymName: gymName,
+      gymPhone: gymPhone,
+      gymAddress: gymAddress,
+      gymLogoUrl: gymLogoUrl,
+      currency: currency,
+    );
     if (context.mounted) {
       await previewPdf(context, bytes, 'Payment_Receipt_${txn.invoiceNumber}.pdf');
     }
   }
 
-  static Future<String?> downloadReceiptPdf(BuildContext context, AdminTransactionItem txn) async {
-    final bytes = await generateReceiptPdf(txn);
+  static Future<String?> downloadReceiptPdf(
+    BuildContext context,
+    AdminTransactionItem txn, {
+    String? gymName,
+    String? gymPhone,
+    String? gymAddress,
+    String? gymLogoUrl,
+    String? currency,
+  }) async {
+    final bytes = await _generateReceiptFromContext(
+      context,
+      txn,
+      gymName: gymName,
+      gymPhone: gymPhone,
+      gymAddress: gymAddress,
+      gymLogoUrl: gymLogoUrl,
+      currency: currency,
+    );
     final filename = 'Payment_Receipt_${txn.invoiceNumber}.pdf';
     final path = await downloadPdf(bytes, filename);
     if (context.mounted && path != null) {
@@ -721,14 +823,46 @@ class PdfService {
     return path;
   }
 
-  static Future<void> shareReceiptPdf(BuildContext context, AdminTransactionItem txn) async {
-    final bytes = await generateReceiptPdf(txn);
+  static Future<void> shareReceiptPdf(
+    BuildContext context,
+    AdminTransactionItem txn, {
+    String? gymName,
+    String? gymPhone,
+    String? gymAddress,
+    String? gymLogoUrl,
+    String? currency,
+  }) async {
+    final bytes = await _generateReceiptFromContext(
+      context,
+      txn,
+      gymName: gymName,
+      gymPhone: gymPhone,
+      gymAddress: gymAddress,
+      gymLogoUrl: gymLogoUrl,
+      currency: currency,
+    );
     final filename = 'Payment_Receipt_${txn.invoiceNumber}.pdf';
     await sharePdf(bytes, filename, subject: 'Payment Receipt ${txn.invoiceNumber}', text: 'Payment Receipt ${txn.invoiceNumber} for ${txn.memberName}');
   }
 
-  static Future<void> printReceiptPdf(BuildContext context, AdminTransactionItem txn) async {
-    final bytes = await generateReceiptPdf(txn);
+  static Future<void> printReceiptPdf(
+    BuildContext context,
+    AdminTransactionItem txn, {
+    String? gymName,
+    String? gymPhone,
+    String? gymAddress,
+    String? gymLogoUrl,
+    String? currency,
+  }) async {
+    final bytes = await _generateReceiptFromContext(
+      context,
+      txn,
+      gymName: gymName,
+      gymPhone: gymPhone,
+      gymAddress: gymAddress,
+      gymLogoUrl: gymLogoUrl,
+      currency: currency,
+    );
     await Printing.layoutPdf(
       name: 'Payment_Receipt_${txn.invoiceNumber}',
       onLayout: (PdfPageFormat format) async => bytes,
