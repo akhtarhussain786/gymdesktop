@@ -170,6 +170,27 @@ class CashfreeGateway {
     }
 
     /**
+     * Initialize UPI Payment Session (Link / Intent payload) for direct mobile UPI app launch
+     * 
+     * @param string $paymentSessionId Cashfree payment_session_id
+     * @param string $channel 'link' or 'intent'
+     * @return array
+     */
+    public static function createUpiPayment($paymentSessionId, $channel = 'link') {
+        $url = self::getBaseUrl() . '/orders/sessions';
+        $payload = [
+            'payment_session_id' => $paymentSessionId,
+            'payment_method' => [
+                'upi' => [
+                    'channel' => $channel
+                ]
+            ]
+        ];
+
+        return self::apiRequest('POST', $url, $payload);
+    }
+
+    /**
      * Verify payment status for an order
      * 
      * @param string $orderId The order ID to check

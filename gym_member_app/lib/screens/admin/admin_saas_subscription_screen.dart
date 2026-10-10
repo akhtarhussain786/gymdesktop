@@ -255,13 +255,20 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         Navigator.of(context, rootNavigator: true).pop();
       }
 
-      if (res != null && res['order_id'] != null && res['checkout_url'] != null) {
+      if (res != null && res['order_id'] != null && (res['checkout_url'] != null || res['payment_session_id'] != null)) {
         final orderId = res['order_id'].toString();
-        final checkoutUrl = res['checkout_url'].toString();
+        final checkoutUrl = res['checkout_url']?.toString() ?? '';
+        final paymentSessionId = res['payment_session_id']?.toString();
+        final upiIntentUrl = res['upi_intent_url']?.toString();
+        final upiLinks = res['upi_links'] is Map<String, dynamic>
+            ? (res['upi_links'] as Map<String, dynamic>)
+            : (res['upi_links'] is Map ? Map<String, dynamic>.from(res['upi_links']) : null);
+        final cashfreeMode = res['cashfree_mode']?.toString() ?? 'production';
+        final gymName = context.read<AuthProvider>().currentTenant?.gymName;
         final finalPayable = (res['total_payable'] != null) ? (double.tryParse('${res['total_payable']}') ?? price) : price;
         _activeOrderId = orderId;
 
-        // Open Meesho / Flipkart style In-App Payment Checkout Screen
+        // Open Native In-App Payment Checkout Screen (UPI Intent + Native SDK)
         if (mounted) {
           final isSuccess = await Navigator.push<bool>(
             context,
@@ -272,6 +279,11 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                 planName: plan.name,
                 amount: finalPayable,
                 currency: currency,
+                paymentSessionId: paymentSessionId,
+                upiIntentUrl: upiIntentUrl,
+                upiLinks: upiLinks,
+                cashfreeMode: cashfreeMode,
+                gymName: gymName,
               ),
             ),
           );

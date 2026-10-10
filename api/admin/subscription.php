@@ -101,16 +101,39 @@ if ($method === 'POST') {
         $paymentSessionId = $cfResult['payment_session_id'];
         $checkoutUrl = base_url('/saas-renew-checkout.php?order_id=' . urlencode($orderId) . '&payment_session_id=' . urlencode($paymentSessionId));
 
+        // Generate native UPI Intent payload and app-specific links
+        $upiLinks = [];
+        $upiIntentUrl = null;
+        try {
+            $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'link');
+            if (!empty($upiRes['data']['payload'])) {
+                if (is_array($upiRes['data']['payload'])) {
+                    $upiLinks = $upiRes['data']['payload'];
+                    $upiIntentUrl = $upiLinks['default'] ?? reset($upiLinks);
+                } elseif (is_string($upiRes['data']['payload'])) {
+                    $upiIntentUrl = $upiRes['data']['payload'];
+                    $upiLinks['default'] = $upiIntentUrl;
+                }
+            }
+            if (empty($upiIntentUrl) && !empty($upiRes['data']['link'])) {
+                $upiLinks['cashfree_link'] = $upiRes['data']['link'];
+            }
+        } catch (Throwable $e) {
+            error_log("Cashfree createUpiPayment error: " . $e->getMessage());
+        }
+
         ApiResponse::success([
             'order_id' => $orderId,
             'payment_session_id' => $paymentSessionId,
+            'upi_intent_url' => $upiIntentUrl,
+            'upi_links' => $upiLinks,
             'checkout_url' => $checkoutUrl,
             'total_payable' => $totalPayable,
             'currency' => $tenant['currency'] ?? '₹',
             'plan_name' => $selectedPlan['name'] ?? 'SaaS Plan',
             'billing_cycle' => $cycle,
             'cashfree_mode' => CashfreeGateway::getMode(),
-            'notes' => 'Open checkout_url to complete Cashfree UPI / Card payment.'
+            'notes' => 'Open direct UPI app or Cashfree checkout.'
         ], 'Cashfree payment order created successfully');
     }
 
