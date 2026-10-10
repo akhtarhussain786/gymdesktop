@@ -17,6 +17,34 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 $currency = !empty($tenant['currency']) ? $tenant['currency'] : '₹';
 $gymName = !empty($tenant['gym_name']) ? $tenant['gym_name'] : 'Our Gym';
 
+// 0. Ensure schema compatibility
+static $schemaChecked = false;
+if (!$schemaChecked) {
+    try {
+        if (!api_column_exists('invoices', 'paid_amount')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+        }
+        if (!api_column_exists('invoices', 'due_date')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `due_date` date DEFAULT NULL");
+        }
+        if (!api_column_exists('invoices', 'discount')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `discount` decimal(10,2) NOT NULL DEFAULT 0.00");
+        }
+        if (!api_column_exists('invoices', 'transaction_ref')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `transaction_ref` varchar(100) DEFAULT NULL");
+        }
+        if (!api_column_exists('invoices', 'notes')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `notes` text DEFAULT NULL");
+        }
+        if (!api_column_exists('invoices', 'created_by')) {
+            @DB::query("ALTER TABLE `invoices` ADD COLUMN `created_by` int DEFAULT NULL");
+        }
+    } catch (Throwable $e) {
+        error_log("Transactions schema check: " . $e->getMessage());
+    }
+    $schemaChecked = true;
+}
+
 // 1. Compute Platform Summary Aggregations
 $summary = [
     'total_collection' => 0.0,
@@ -31,36 +59,36 @@ $summary = [
 if (api_table_exists('invoices')) {
     // Total Collection
     $summary['total_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(paid_amount), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial')",
+        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
+         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial')",
         [$tenantId]
     );
 
     // Today Collection
     $summary['today_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(paid_amount), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial') AND payment_date = CURDATE()",
+        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
+         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND payment_date = CURDATE()",
         [$tenantId]
     );
 
     // This Month Collection
     $summary['this_month_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(paid_amount), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial') AND payment_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')",
+        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
+         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND payment_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')",
         [$tenantId]
     );
 
     // Cash Collection
     $summary['cash_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(paid_amount), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial') AND LOWER(payment_method) = 'cash'",
+        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
+         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND LOWER(COALESCE(payment_method, 'Cash')) = 'cash'",
         [$tenantId]
     );
 
     // Online / UPI / Card Collection
     $summary['online_upi_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(paid_amount), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial') AND LOWER(payment_method) != 'cash'",
+        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
+         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND LOWER(COALESCE(payment_method, '')) != 'cash' AND LOWER(COALESCE(payment_method, '')) != ''",
         [$tenantId]
     );
 

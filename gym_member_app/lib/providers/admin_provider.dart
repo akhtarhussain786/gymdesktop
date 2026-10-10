@@ -1096,13 +1096,14 @@ class AdminProvider extends ChangeNotifier {
         isAdmin: true,
       );
 
-      if (data != null && data['success'] == true) {
+      if (data != null && data is Map<String, dynamic>) {
         if (data['summary'] is Map<String, dynamic>) {
           _transactionSummary = AdminTransactionSummary.fromJson(data['summary'] as Map<String, dynamic>);
         }
 
-        if (data['staff_options'] is List) {
-          _staffFilterOptions = (data['staff_options'] as List)
+        final rawStaffOptions = data['staff_filter_options'] ?? data['staff_options'];
+        if (rawStaffOptions is List) {
+          _staffFilterOptions = rawStaffOptions
               .map((e) => StaffFilterOption.fromJson(e as Map<String, dynamic>))
               .toList();
         }
@@ -1114,7 +1115,9 @@ class AdminProvider extends ChangeNotifier {
         final pagination = data['pagination'] as Map<String, dynamic>? ?? {};
         _txnCurrentPage = pagination['current_page'] is int ? pagination['current_page'] : int.tryParse('${pagination['current_page']}') ?? page;
         _txnTotalPages = pagination['total_pages'] is int ? pagination['total_pages'] : int.tryParse('${pagination['total_pages']}') ?? 1;
-        _txnTotalCount = pagination['total_records'] is int ? pagination['total_records'] : int.tryParse('${pagination['total_records']}') ?? items.length;
+        _txnTotalCount = (pagination['total_count'] ?? pagination['total_records']) is int
+            ? (pagination['total_count'] ?? pagination['total_records'])
+            : int.tryParse('${pagination['total_count'] ?? pagination['total_records']}') ?? items.length;
         _txnHasMore = pagination['has_more'] == true || _txnCurrentPage < _txnTotalPages;
 
         if (page == 1) {
@@ -1145,7 +1148,7 @@ class AdminProvider extends ChangeNotifier {
         isAdmin: true,
       );
 
-      if (data != null && data['success'] == true) {
+      if (data != null && data is Map<String, dynamic>) {
         return MemberRegistrationDocumentData.fromJson(data);
       }
       return null;
