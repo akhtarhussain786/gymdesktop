@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS `subscription_plans` (
 
 -- Seed default SaaS subscription tiers
 INSERT IGNORE INTO `subscription_plans` (`id`, `name`, `slug`, `billing_cycle`, `price_monthly`, `price_yearly`, `trial_days`, `grace_period_days`, `max_members`, `max_staff`, `max_branches`, `storage_limit_mb`, `features`, `is_active`) VALUES
-(1, 'Free Trial (14 Days)', 'free-trial', 'trial', 0.00, 0.00, 14, 3, 50, 3, 1, 500, '["members","attendance","payments","basic_reports"]', 1),
+(1, 'Free Trial (4 Days)', 'free-trial-4-days', 'trial', 0.00, 0.00, 4, 2, 50, 3, 1, 500, '["members","attendance","payments","basic_reports"]', 1),
 (2, 'Basic Monthly', 'basic-monthly', 'monthly', 29.00, 290.00, 0, 5, 100, 5, 1, 1024, '["members","attendance","payments","basic_reports","expenses"]', 1),
 (3, 'Standard Pro', 'standard-pro', 'monthly', 69.00, 690.00, 0, 7, 350, 15, 2, 5120, '["members","attendance","payments","workouts","diet","classes","reports","expenses","staff","branding"]', 1),
 (4, 'Premium Quarterly', 'premium-quarterly', 'quarterly', 189.00, 690.00, 0, 10, 800, 30, 4, 10240, '["members","attendance","payments","workouts","diet","classes","reports","expenses","staff","branding","branches","sms_reminders"]', 1),

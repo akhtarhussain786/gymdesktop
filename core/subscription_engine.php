@@ -707,12 +707,14 @@ class SubscriptionEngine {
         $monthly = (float)($plan['price_monthly'] ?? 0);
         $yearly = (float)($plan['price_yearly'] ?? 0);
         switch ($cycle) {
+            case 'trial':
+                return 0.00;
             case 'yearly':
-                return $yearly > 0 ? round($yearly, 2) : null;
+                return $yearly > 0 ? round($yearly, 2) : ($monthly > 0 ? round($monthly * 10, 2) : 0.00);
             case 'quarterly':
-                return $monthly > 0 ? round($monthly * 3 * 0.90, 2) : null; // 10% quarterly discount
+                return $monthly > 0 ? round($monthly * 3 * 0.90, 2) : 0.00; // 10% quarterly discount
             case 'monthly':
-                return $monthly > 0 ? round($monthly, 2) : null;
+                return round($monthly, 2);
             default:
                 return null;
         }
@@ -759,22 +761,28 @@ class SubscriptionEngine {
      * Server-side quote for a SaaS renewal / upgrade.
      */
     public static function quoteSaasRenewal($planId, $cycle, $couponCode = '') {
-        if (!in_array($cycle, ['monthly', 'quarterly', 'yearly'], true)) {
+        if (!in_array($cycle, ['trial', 'monthly', 'quarterly', 'yearly'], true)) {
             return ['success' => false, 'error' => 'Invalid billing cycle.'];
         }
         $plan = DB::fetchOne("SELECT * FROM subscription_plans WHERE id = ? AND is_active = 1", [(int)$planId]);
         if (!$plan) {
             return ['success' => false, 'error' => 'Invalid plan selected.'];
         }
+        if ($plan['billing_cycle'] === 'trial') {
+            $cycle = 'trial';
+        }
         $basePrice = self::saasCyclePrice($plan, $cycle);
         if ($basePrice === null) {
             return ['success' => false, 'error' => 'The selected plan is not available for ' . $cycle . ' billing.'];
         }
-        $couponRes = self::validateSaasCoupon($couponCode, $basePrice);
-        if (!$couponRes['valid']) {
-            return ['success' => false, 'error' => $couponRes['error']];
+        $discount = 0.0;
+        if ($basePrice > 0) {
+            $couponRes = self::validateSaasCoupon($couponCode, $basePrice);
+            if (!$couponRes['valid']) {
+                return ['success' => false, 'error' => $couponRes['error']];
+            }
+            $discount = $couponRes['discount'];
         }
-        $discount = $couponRes['discount'];
         $taxable = max(0, $basePrice - $discount);
         $tax = round($taxable * (self::saasTaxPercent() / 100), 2);
         $total = round($taxable + $tax, 2);
@@ -788,7 +796,7 @@ class SubscriptionEngine {
             'discount' => $discount,
             'tax' => $tax,
             'total' => $total,
-            'coupon_code' => $couponRes['code']
+            'coupon_code' => $couponCode
         ];
     }
 
@@ -830,14 +838,14 @@ class SubscriptionEngine {
                 return ['success' => false, 'error' => 'Gym not found.'];
             }
 
-            $months = self::saasCycleMonths($p['billing_cycle']);
-            $today = date('Y-m-d');
-            $currentExpiry = (!empty($tenant['subscription_expiry']) && strpos((string)$tenant['subscription_expiry'], '0000-00-00') !== 0)
-                ? date('Y-m-d', strtotime($tenant['subscription_expiry'])) : null;
-
-            // Extend from current expiry while still valid; otherwise start fresh today
-            $startDate = ($currentExpiry && $currentExpiry >= $today) ? $currentExpiry : $today;
-            $newExpiry = self::addMonths($startDate, $months);
+            if ($p['billing_cycle'] === 'trial') {
+                $plan = DB::fetchOne("SELECT trial_days FROM subscription_plans WHERE id = ?", [(int)$p['plan_id']]);
+                $tDays = max(1, (int)($plan['trial_days'] ?? 4));
+                $newExpiry = date('Y-m-d', strtotime("+$tDays days", strtotime($startDate)));
+            } else {
+                $months = self::saasCycleMonths($p['billing_cycle']);
+                $newExpiry = self::addMonths($startDate, $months);
+            }
 
             $update = [
                 'status' => 'approved',

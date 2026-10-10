@@ -54,13 +54,15 @@ if (empty($paymentSessionId)) {
 $cashfreeMode = CashfreeGateway::getMode();
 $jsSdkUrl = CashfreeGateway::getJsSdkUrl();
 $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
+$mode = strtolower(trim($_GET['mode'] ?? ''));
+$targetApp = strtolower(trim($_GET['app'] ?? $_GET['target_app'] ?? ''));
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Renew SaaS Subscription | <?php echo htmlspecialchars($payment['gym_name']); ?></title>
+    <title><?php echo ($mode === 'upi') ? 'UPI Payment' : 'Renew SaaS Subscription'; ?> | <?php echo htmlspecialchars($payment['gym_name']); ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -179,9 +181,13 @@ $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
         .detail-row .value { font-weight: 600; color: #fff; }
 
         #cashfree-drop-in {
-            min-height: 280px;
+            min-height: 200px;
             border-radius: 12px;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }
 
         .checkout-footer {
@@ -209,7 +215,7 @@ $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
 <div class="checkout-wrapper">
     <div class="checkout-card">
         <div class="checkout-header">
-            <h1><i class="fas fa-bolt"></i> SaaS Subscription Renewal</h1>
+            <h1><i class="fas fa-bolt"></i> <?php echo ($mode === 'upi') ? 'Secure UPI Checkout' : 'SaaS Subscription Renewal'; ?></h1>
             <p><?php echo htmlspecialchars($payment['gym_name']); ?></p>
         </div>
 
@@ -226,33 +232,18 @@ $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
                 <div class="cycle">Total Payable including taxes</div>
             </div>
 
-            <div class="details-list">
-                <div class="detail-row">
-                    <span class="label">Gym Name</span>
-                    <span class="value"><?php echo htmlspecialchars($payment['gym_name']); ?></span>
-                </div>
-                <div class="detail-row">
-                    <span class="label">Order Reference</span>
-                    <span class="value">#<?php echo htmlspecialchars($payment['transaction_ref']); ?></span>
-                </div>
-                <div class="detail-row">
-                    <span class="label">Quotas</span>
-                    <span class="value"><?php echo number_format($payment['max_members']); ?> Members • <?php echo number_format($payment['max_staff']); ?> Staff</span>
-                </div>
-            </div>
-
             <!-- Cashfree Drop-in Component -->
             <div id="cashfree-drop-in">
-                <div style="text-align: center; padding: 40px 0; color: var(--text-muted);">
+                <div style="text-align: center; padding: 30px 0; color: var(--text-muted);">
                     <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #6366f1; margin-bottom: 12px;"></i>
-                    <div>Connecting to Cashfree Secure Gateway...</div>
+                    <div id="status-text"><?php echo ($mode === 'upi') ? 'Opening ' . ucfirst($targetApp ?: 'UPI App') . '...' : 'Connecting to Payment Gateway...'; ?></div>
                 </div>
             </div>
         </div>
 
         <div class="checkout-footer">
             <i class="fas fa-lock" style="color: #10b981;"></i> Secured by <strong>Cashfree Payments</strong> • 256-Bit SSL<br>
-            <span>Supports UPI (GPay, PhonePe, Paytm), Cards & NetBanking</span>
+            <span>Direct UPI Intent • Google Pay, PhonePe, Paytm, BHIM</span>
         </div>
     </div>
 </div>
@@ -262,20 +253,75 @@ $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
 document.addEventListener('DOMContentLoaded', function() {
     <?php if (!empty($paymentSessionId)): ?>
         const cashfree = Cashfree({ mode: "<?php echo $cashfreeMode; ?>" });
+        const mode = "<?php echo $mode; ?>";
+        const targetApp = "<?php echo $targetApp; ?>";
+        const paymentSessionId = "<?php echo $paymentSessionId; ?>";
 
-        let checkoutOptions = {
-            paymentSessionId: "<?php echo $paymentSessionId; ?>",
-            redirectTarget: "_self"
-        };
+        function triggerUpiApp(appName) {
+            try {
+                // Map app alias if needed
+                let cfApp = appName;
+                if (appName === 'googlepay') cfApp = 'gpay';
+                if (appName === 'phone_pe') cfApp = 'phonepe';
 
-        cashfree.checkout(checkoutOptions).then(function(result) {
-            if (result && result.error) {
-                console.error("Cashfree Checkout Error:", result.error);
-                alert("Payment initiation error: " + (result.error.message || "Please refresh and try again."));
+                let upiApp = cashfree.create('upiApp', {
+                    upiApp: cfApp,
+                    values: {
+                        upiApp: cfApp,
+                        buttonText: 'Open ' + (appName.charAt(0).toUpperCase() + appName.slice(1)),
+                        buttonIcon: true
+                    },
+                    buttonText: 'Open ' + (appName.charAt(0).toUpperCase() + appName.slice(1)),
+                    buttonIcon: true
+                });
+
+                upiApp.mount('#cashfree-drop-in');
+
+                upiApp.on('loaderror', function(err) {
+                    console.log('upiApp loaderror:', err);
+                    fallbackCheckout();
+                });
+
+                // Auto-click the button as soon as rendered
+                let attempts = 0;
+                const clickInterval = setInterval(function() {
+                    attempts++;
+                    const btn = document.querySelector('#cashfree-drop-in button') || document.querySelector('#cashfree-drop-in [role="button"]') || document.querySelector('#cashfree-drop-in div');
+                    if (btn) {
+                        try { btn.click(); } catch(e){}
+                        clearInterval(clickInterval);
+                    }
+                    if (attempts > 15) {
+                        clearInterval(clickInterval);
+                    }
+                }, 200);
+
+            } catch (e) {
+                console.error('Error mounting upiApp:', e);
+                fallbackCheckout();
             }
-        }).catch(function(err) {
-            console.error("Cashfree Init Error:", err);
-        });
+        }
+
+        function fallbackCheckout() {
+            let checkoutOptions = {
+                paymentSessionId: paymentSessionId,
+                redirectTarget: "_self"
+            };
+
+            cashfree.checkout(checkoutOptions).then(function(result) {
+                if (result && result.error) {
+                    console.error("Cashfree Checkout Error:", result.error);
+                }
+            }).catch(function(err) {
+                console.error("Cashfree Init Error:", err);
+            });
+        }
+
+        if (mode === 'upi' && targetApp && targetApp !== 'generic') {
+            triggerUpiApp(targetApp);
+        } else {
+            fallbackCheckout();
+        }
     <?php endif; ?>
 });
 </script>

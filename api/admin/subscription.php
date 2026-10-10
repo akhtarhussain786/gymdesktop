@@ -27,11 +27,69 @@ if ($method === 'POST') {
     $input = json_decode($rawInput, true) ?: $_POST;
     $action = strtolower(trim($input['action'] ?? 'create_order'));
 
-    // Action 1: Create Cashfree SaaS Renewal Order
-    if ($action === 'create_order') {
+    // Action 1: Create Cashfree SaaS Renewal Order or Activate Free Trial
+    if ($action === 'create_order' || $action === 'activate_trial' || $action === 'activate_free_plan') {
         $planId = (int)($input['plan_id'] ?? 0);
         $cycle = strtolower(trim($input['billing_cycle'] ?? 'monthly'));
         $couponCode = strtoupper(trim($input['coupon_code'] ?? ''));
+
+        $plan = DB::fetchOne("SELECT * FROM subscription_plans WHERE id = ? AND is_active = 1", [$planId]);
+        if (!$plan && ($action === 'activate_trial' || $action === 'activate_free_plan')) {
+            $plan = DB::fetchOne("SELECT * FROM subscription_plans WHERE (billing_cycle = 'trial' OR price_monthly = 0) AND is_active = 1 ORDER BY id ASC LIMIT 1");
+            if ($plan) $planId = (int)$plan['id'];
+        }
+
+        if (!$plan) {
+            ApiResponse::error('Selected plan was not found or is inactive', 400);
+        }
+
+        if ($plan['billing_cycle'] === 'trial' || $action === 'activate_trial' || $action === 'activate_free_plan') {
+            $cycle = 'trial';
+        }
+
+        // Handle Free Trial / Demo Plan activation directly (No online gateway charge needed)
+        if ($cycle === 'trial' || (float)$plan['price_monthly'] <= 0) {
+            $trialDays = max(1, (int)($plan['trial_days'] ?: 4));
+            $today = date('Y-m-d');
+            $expiryDate = date('Y-m-d', strtotime("+$trialDays days"));
+            $orderId = 'TRIAL_' . date('Ymd') . '_' . substr(bin2hex(random_bytes(4)), 0, 8);
+
+            DB::insert('saas_payments', [
+                'tenant_id'       => $tenantId,
+                'plan_id'         => (int)$plan['id'],
+                'billing_cycle'   => 'trial',
+                'amount'          => 0.00,
+                'tax_amount'      => 0.00,
+                'discount_amount' => 0.00,
+                'total_payable'   => 0.00,
+                'coupon_code'     => '',
+                'payment_method'  => 'free_trial',
+                'transaction_ref' => $orderId,
+                'status'          => 'approved',
+                'start_date'      => $today,
+                'end_date'        => $expiryDate,
+                'notes'           => "Free Trial ({$trialDays} Days) activated"
+            ]);
+
+            DB::update('tenants', [
+                'subscription_plan_id' => (int)$plan['id'],
+                'subscription_expiry' => $expiryDate,
+                'status' => 'trial'
+            ], 'id = ?', [$tenantId]);
+
+            $subStatus = Tenant::getSubscriptionStatus();
+
+            ApiResponse::success([
+                'verified' => true,
+                'is_trial' => true,
+                'order_id' => $orderId,
+                'status' => 'approved',
+                'new_expiry_date' => $expiryDate,
+                'days_remaining' => $trialDays,
+                'plan_name' => $plan['name'] ?? 'Free Trial',
+                'message' => "Free Trial ({$trialDays} Days) activated successfully!"
+            ], 'Free Trial activated successfully');
+        }
 
         if (!in_array($cycle, ['monthly', 'quarterly', 'yearly'], true)) {
             $cycle = 'monthly';
@@ -105,19 +163,29 @@ if ($method === 'POST') {
         $upiLinks = [];
         $upiIntentUrl = null;
         try {
+            // 1. Attempt channel 'link'
             $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'link');
-            if (!empty($upiRes['data']['payload'])) {
-                if (is_array($upiRes['data']['payload'])) {
-                    $upiLinks = $upiRes['data']['payload'];
-                    $upiIntentUrl = $upiLinks['default'] ?? reset($upiLinks);
-                } elseif (is_string($upiRes['data']['payload'])) {
-                    $upiIntentUrl = $upiRes['data']['payload'];
-                    $upiLinks['default'] = $upiIntentUrl;
-                }
+            if (empty($upiRes['data']['url']) && empty($upiRes['data']['payload'])) {
+                // 2. Attempt channel 'intent'
+                $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'intent');
             }
-            if (empty($upiIntentUrl) && !empty($upiRes['data']['url'])) {
+            if (empty($upiRes['data']['url']) && empty($upiRes['data']['payload'])) {
+                // 3. Attempt channel 'qrcode' (returns upi://pay dynamic string)
+                $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'qrcode');
+            }
+
+            if (!empty($upiRes['data']['url'])) {
                 $upiIntentUrl = $upiRes['data']['url'];
                 $upiLinks['default'] = $upiIntentUrl;
+            }
+            if (!empty($upiRes['data']['payload'])) {
+                if (is_array($upiRes['data']['payload'])) {
+                    $upiLinks = array_merge($upiLinks, $upiRes['data']['payload']);
+                    $upiIntentUrl = $upiIntentUrl ?: ($upiLinks['default'] ?? $upiLinks['qrcode'] ?? reset($upiLinks));
+                } elseif (is_string($upiRes['data']['payload'])) {
+                    $upiIntentUrl = $upiIntentUrl ?: $upiRes['data']['payload'];
+                    $upiLinks['default'] = $upiIntentUrl;
+                }
             }
             if (empty($upiIntentUrl) && !empty($upiRes['data']['link'])) {
                 $upiIntentUrl = $upiRes['data']['link'];

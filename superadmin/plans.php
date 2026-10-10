@@ -13,26 +13,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['save_plan'])) {
         $name = trim($_POST['name'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
-        $billing_cycle = $_POST['billing_cycle'] ?? 'monthly';
+        $billing_cycle = strtolower(trim($_POST['billing_cycle'] ?? 'monthly'));
         $max_members = (int)($_POST['max_members'] ?? 100);
         $max_staff = (int)($_POST['max_staff'] ?? 5);
         $max_branches = (int)($_POST['max_branches'] ?? 1);
+        $trial_days = max(1, (int)($_POST['trial_days'] ?? 4));
         $id = (int)($_POST['id'] ?? 0);
+
         if (!in_array($billing_cycle, ['trial', 'monthly', 'quarterly', 'yearly', 'custom'], true)) {
             $billing_cycle = 'monthly';
         }
-        // trial_days is not on the form: keep the stored value when editing instead of resetting it to 0
-        if (isset($_POST['trial_days'])) {
-            $trial_days = max(0, (int)$_POST['trial_days']);
-        } elseif ($id > 0) {
-            $trial_days = (int)DB::fetchValue("SELECT trial_days FROM subscription_plans WHERE id = ?", [$id]);
-        } else {
-            $trial_days = 14;
-        }
 
-        // "price" is the price of ONE billing cycle. Derive per-month and per-year prices from it
-        // (yearly default = 10 x monthly, i.e. standard 2-month SaaS discount).
-        if ($billing_cycle === 'trial') {
+        // Auto-detect trial/free/demo plans if price is 0 or cycle is trial or name indicates trial/demo
+        if ($price <= 0 || $billing_cycle === 'trial' || stripos($name, 'trial') !== false || stripos($name, 'demo') !== false) {
+            $billing_cycle = 'trial';
             $price = 0.0;
             $price_monthly = 0.0;
             $price_yearly = 0.0;
@@ -43,14 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $price_monthly = round($price / 3, 2);
             $price_yearly = round($price_monthly * 10, 2);
         } else {
+            $billing_cycle = 'monthly';
             $price_monthly = $price;
             $price_yearly = round($price * 10, 2);
         }
 
         if (empty($name)) {
             set_flash('error', 'Package name is required.');
-        } elseif ($price < 0 || ($billing_cycle !== 'trial' && $price <= 0)) {
-            set_flash('error', 'Paid plans must have a price greater than zero (use the Trial cycle for free plans).');
+        } elseif ($price < 0) {
+            set_flash('error', 'Plan price cannot be negative.');
         } else {
             if ($id > 0) {
                 DB::update('subscription_plans', [
@@ -133,9 +128,14 @@ include __DIR__ . '/../includes/topbar.php';
             <i class="fas fa-tags"></i>
             <span>SaaS Subscription Packages</span>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" onclick="newPlan()">
-            <i class="fas fa-plus"></i> Add New Plan
-        </button>
+        <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="addDemoTrialPlan()">
+                <i class="fas fa-bolt"></i> + Free Trial (4 Days) Demo Plan
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="newPlan()">
+                <i class="fas fa-plus"></i> Add New Plan
+            </button>
+        </div>
     </div>
     <div class="card-body" style="padding: 0;">
         <div class="table-responsive">
@@ -156,7 +156,7 @@ include __DIR__ . '/../includes/topbar.php';
                     <?php if (empty($plans)): ?>
                         <tr>
                             <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-muted);">
-                                No subscription plans found. Click "Add New Plan" to create your first package.
+                                No subscription plans found. Click "Add New Plan" or "+ Free Trial (4 Days)" to create your first package.
                             </td>
                         </tr>
                     <?php else: ?>
@@ -167,12 +167,22 @@ include __DIR__ . '/../includes/topbar.php';
                                     <div style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;"><?php echo e($p['slug']); ?></div>
                                 </td>
                                 <td>
-                                    <span style="font-size: 1.15rem; font-weight: 700; color: var(--primary);">
-                                        ₹<?php echo number_format((float)$p['display_price'], 2); ?>
-                                    </span>
+                                    <?php if ($p['billing_cycle'] === 'trial' || (float)$p['display_price'] <= 0): ?>
+                                        <span style="font-size: 1.05rem; font-weight: 700; color: #10b981;">
+                                            ₹0.00 <span style="font-size: 0.75rem; font-weight: 600; background: rgba(16, 185, 129, 0.15); padding: 2px 6px; border-radius: 4px;">FREE TRIAL</span>
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="font-size: 1.15rem; font-weight: 700; color: var(--primary);">
+                                            ₹<?php echo number_format((float)$p['display_price'], 2); ?>
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
-                                    <span class="status-badge badge-info"><?php echo ucfirst($p['billing_cycle']); ?></span>
+                                    <?php if ($p['billing_cycle'] === 'trial'): ?>
+                                        <span class="status-badge badge-success">Trial (<?php echo (int)($p['trial_days'] ?: 4); ?> Days)</span>
+                                    <?php else: ?>
+                                        <span class="status-badge badge-info"><?php echo ucfirst($p['billing_cycle']); ?></span>
+                                    <?php endif; ?>
                                 </td>
                                 <td><strong><?php echo number_format($p['max_members']); ?></strong> members</td>
                                 <td><strong><?php echo number_format($p['max_staff']); ?></strong> staff</td>
@@ -223,22 +233,28 @@ include __DIR__ . '/../includes/topbar.php';
             <div class="modal-body">
                 <div class="form-group">
                     <label class="form-label">Plan Name *</label>
-                    <input type="text" name="name" id="plan-name" class="form-control" placeholder="e.g. Starter Growth, Pro Elite" required />
+                    <input type="text" name="name" id="plan-name" class="form-control" placeholder="e.g. Free Trial (4 Days), Starter Growth, Pro Elite" required />
                 </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Price (₹ INR) *</label>
-                        <input type="number" step="0.01" name="price" id="plan-price" class="form-control" placeholder="e.g. 999.00" required />
+                        <input type="number" step="0.01" name="price" id="plan-price" class="form-control" placeholder="0 for Free Trial, or 999.00" oninput="onPriceChange()" required />
+                        <small style="font-size: 0.72rem; color: var(--text-muted);">Set 0 for Free Trial / Demo Plan</small>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Billing Cycle *</label>
-                        <select name="billing_cycle" id="plan-cycle" class="form-select">
+                        <select name="billing_cycle" id="plan-cycle" class="form-select" onchange="onCycleChange()">
+                            <option value="trial">Trial (Free Demo)</option>
                             <option value="monthly">Monthly</option>
                             <option value="quarterly">Quarterly</option>
                             <option value="yearly">Yearly</option>
-                            <option value="trial">Trial</option>
                             <option value="custom">Custom</option>
                         </select>
+                    </div>
+                    <div class="form-group" id="trial-days-group">
+                        <label class="form-label">Trial Duration (Days)</label>
+                        <input type="number" name="trial_days" id="plan-trial-days" class="form-control" value="4" min="1" max="365" placeholder="e.g. 4" />
+                        <small style="font-size: 0.72rem; color: #10b981;">Valid days for Free Trial</small>
                     </div>
                 </div>
                 <div class="form-row">
@@ -265,11 +281,47 @@ include __DIR__ . '/../includes/topbar.php';
 </div>
 
 <script>
+function onCycleChange() {
+    var cycle = document.getElementById('plan-cycle').value;
+    var priceInput = document.getElementById('plan-price');
+    var trialGroup = document.getElementById('trial-days-group');
+    if (cycle === 'trial') {
+        priceInput.value = '0';
+        if (trialGroup) trialGroup.style.display = 'block';
+    } else {
+        if (parseFloat(priceInput.value || 0) === 0) {
+            priceInput.value = '999.00';
+        }
+    }
+}
+
+function onPriceChange() {
+    var price = parseFloat(document.getElementById('plan-price').value || 0);
+    var cycleSelect = document.getElementById('plan-cycle');
+    if (price === 0) {
+        cycleSelect.value = 'trial';
+    }
+}
+
+function addDemoTrialPlan() {
+    document.getElementById('plan-id').value = '0';
+    document.getElementById('plan-name').value = 'Free Trial (4 Days)';
+    document.getElementById('plan-price').value = '0';
+    document.getElementById('plan-cycle').value = 'trial';
+    document.getElementById('plan-trial-days').value = '4';
+    document.getElementById('plan-members').value = '50';
+    document.getElementById('plan-staff').value = '3';
+    document.getElementById('plan-branches').value = '1';
+    document.getElementById('plan-modal-title').innerText = 'Add Free Trial (4 Days) Demo Plan';
+    App.openModal('plan-modal');
+}
+
 function newPlan() {
     document.getElementById('plan-id').value = '0';
     document.getElementById('plan-name').value = '';
     document.getElementById('plan-price').value = '999.00';
     document.getElementById('plan-cycle').value = 'monthly';
+    document.getElementById('plan-trial-days').value = '4';
     document.getElementById('plan-members').value = '150';
     document.getElementById('plan-staff').value = '5';
     document.getElementById('plan-branches').value = '1';
@@ -280,12 +332,12 @@ function newPlan() {
 function editPlan(p) {
     document.getElementById('plan-id').value = p.id;
     document.getElementById('plan-name').value = p.name;
-    // Price field is the price of ONE billing cycle (see save handler)
     var cyc = p.billing_cycle || 'monthly';
     var pm = parseFloat(p.price_monthly || 0), py = parseFloat(p.price_yearly || 0);
     var cyclePrice = cyc === 'yearly' ? py : (cyc === 'quarterly' ? Math.round(pm * 3 * 100) / 100 : (cyc === 'trial' ? 0 : pm));
     document.getElementById('plan-price').value = (cyclePrice || p.price || p.display_price || 0).toString();
     document.getElementById('plan-cycle').value = p.billing_cycle || 'monthly';
+    document.getElementById('plan-trial-days').value = (p.trial_days || 4).toString();
     document.getElementById('plan-members').value = p.max_members;
     document.getElementById('plan-staff').value = p.max_staff;
     document.getElementById('plan-branches').value = p.max_branches;

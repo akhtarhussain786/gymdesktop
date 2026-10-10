@@ -255,6 +255,15 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         Navigator.of(context, rootNavigator: true).pop();
       }
 
+      // 1. If this is a Free Trial / 0-Rupee Demo plan, it was activated directly!
+      if (res != null && (res['is_trial'] == true || res['verified'] == true) && (res['checkout_url'] == null || res['checkout_url'].toString().isEmpty)) {
+        if (mounted) {
+          await admin.fetchSaasSubscription();
+          _showRenewalSuccessDialog();
+        }
+        return;
+      }
+
       if (res != null && res['order_id'] != null && (res['checkout_url'] != null || res['payment_session_id'] != null)) {
         final orderId = res['order_id'].toString();
         final checkoutUrl = res['checkout_url']?.toString() ?? '';
@@ -264,12 +273,12 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
             ? (res['upi_links'] as Map<String, dynamic>)
             : (res['upi_links'] is Map ? Map<String, dynamic>.from(res['upi_links']) : null);
         final cashfreeMode = res['cashfree_mode']?.toString() ?? 'production';
-        final gymName = context.read<AuthProvider>().currentTenant?.gymName;
         final finalPayable = (res['total_payable'] != null) ? (double.tryParse('${res['total_payable']}') ?? price) : price;
         _activeOrderId = orderId;
 
         // Open Native In-App Payment Checkout Screen (UPI Intent + Native SDK)
         if (mounted) {
+          final gymName = context.read<AuthProvider>().currentTenant?.gymName;
           final isSuccess = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
