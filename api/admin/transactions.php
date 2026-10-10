@@ -39,6 +39,8 @@ if (!$schemaChecked) {
         if (!api_column_exists('invoices', 'created_by')) {
             @DB::query("ALTER TABLE `invoices` ADD COLUMN `created_by` int DEFAULT NULL");
         }
+        // Auto-clean orphaned invoices from deleted members
+        @DB::query("DELETE FROM invoices WHERE tenant_id = ? AND member_id NOT IN (SELECT user_id FROM members WHERE tenant_id = ?)", [$tenantId, $tenantId]);
     } catch (Throwable $e) {
         error_log("Transactions schema check: " . $e->getMessage());
     }
@@ -173,7 +175,7 @@ $whereSql = implode(' AND ', $where);
 $totalCount = (int)DB::fetchValue(
     "SELECT COUNT(*) 
      FROM invoices i
-     LEFT JOIN members m ON (i.member_id = m.user_id AND m.tenant_id = i.tenant_id)
+     INNER JOIN members m ON (i.member_id = m.user_id AND m.tenant_id = i.tenant_id)
      WHERE $whereSql",
     $params
 );
@@ -197,12 +199,12 @@ $query = "SELECT i.id, i.invoice_number,
                  i.created_by, 
                  i.created_at,
                  i.member_id,
-                 COALESCE(m.fullname, 'Unknown Member') as member_name,
+                 COALESCE(m.fullname, 'Gym Member') as member_name,
                  COALESCE(m.contact, '') as member_phone,
                  COALESCE(m.avatar, '') as member_avatar,
                  COALESCE(u.fullname, u.username, 'Admin') as created_by_name
           FROM invoices i
-          LEFT JOIN members m ON (i.member_id = m.user_id AND m.tenant_id = i.tenant_id)
+          INNER JOIN members m ON (i.member_id = m.user_id AND m.tenant_id = i.tenant_id)
           LEFT JOIN users u ON i.created_by = u.id
           WHERE $whereSql
           ORDER BY i.payment_date DESC, i.id DESC

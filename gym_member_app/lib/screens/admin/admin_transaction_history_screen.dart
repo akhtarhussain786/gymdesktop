@@ -949,20 +949,27 @@ class _AdminTransactionHistoryScreenState extends State<AdminTransactionHistoryS
         statusColor = const Color(0xFF6B7280);
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.card(context),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
+    return SafeArea(
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.card(context),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 12,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
               decoration: BoxDecoration(
                 color: AppColors.border(context),
                 borderRadius: BorderRadius.circular(2),
@@ -1159,8 +1166,10 @@ class _AdminTransactionHistoryScreenState extends State<AdminTransactionHistoryS
           const SizedBox(height: 10),
         ],
       ),
-    );
-  }
+    ),
+  ),
+);
+}
 
   Widget _buildDetailRow(BuildContext context, String label, String value) {
     return Padding(

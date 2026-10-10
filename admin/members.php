@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
         DB::delete('member_assigned_plans', 'member_id = ? AND tenant_id = ?', [$deleteId, $tenantId]);
         DB::delete('class_bookings', 'member_id = ? AND tenant_id = ?', [$deleteId, $tenantId]);
         DB::delete('todo', 'user_id = ? AND tenant_id = ?', [$deleteId, $tenantId]);
+        DB::delete('invoices', 'member_id = ? AND tenant_id = ?', [$deleteId, $tenantId]);
         DB::query("UPDATE member_subscriptions SET status = 'cancelled' WHERE member_id = ? AND tenant_id = ? AND status IN ('active', 'upcoming', 'pending_payment')", [$deleteId, $tenantId]);
         DB::delete('members', 'user_id = ? AND tenant_id = ?', [$deleteId, $tenantId]);
         Auth::auditLog('DELETE_MEMBER', "Deleted member ID " . $deleteId);

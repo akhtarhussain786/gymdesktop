@@ -167,169 +167,171 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.success, width: 2),
-                ),
-                child: const Icon(Icons.check_rounded, color: AppColors.success, size: 32),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Payment Recorded Successfully!',
-                style: GoogleFonts.outfit(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.textPrimary(ctx),
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Invoice: $invoiceNumber',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textMuted(ctx),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Summary Box
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.cardElevated(ctx),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border(ctx)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    Column(
-                      children: [
-                        Text(
-                          'AMOUNT PAID',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textMuted(ctx),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '$currency$amount',
-                          style: GoogleFonts.outfit(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.lime,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(height: 36, width: 1, color: AppColors.border(ctx)),
-                    Column(
-                      children: [
-                        Text(
-                          'REMAINING DUE',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textMuted(ctx),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          remainingDue > 0 ? '$currency$remainingDue' : 'Zero (Paid)',
-                          style: GoogleFonts.outfit(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                            color: remainingDue > 0 ? AppColors.warning : AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // WhatsApp Share Receipt Button
-              if (whatsappMessage.isNotEmpty && widget.memberPhone.isNotEmpty)
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final cleanPhone = widget.memberPhone.replaceAll(RegExp(r'[^0-9]'), '');
-                    final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(whatsappMessage)}';
-                    final uri = Uri.parse(url);
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF25D366),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    minimumSize: const Size.fromHeight(48),
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.success, width: 2),
                   ),
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  label: Text(
-                    'Send Receipt on WhatsApp',
+                  child: const Icon(Icons.check_rounded, color: AppColors.success, size: 32),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Payment Recorded Successfully!',
+                  style: GoogleFonts.outfit(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary(ctx),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Invoice: $invoiceNumber',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textMuted(ctx),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                // Summary Box
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardElevated(ctx),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border(ctx)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Column(
+                        children: [
+                          Text(
+                            'AMOUNT PAID',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textMuted(ctx),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$currency$amount',
+                            style: GoogleFonts.outfit(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.lime,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(height: 36, width: 1, color: AppColors.border(ctx)),
+                      Column(
+                        children: [
+                          Text(
+                            'REMAINING DUE',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textMuted(ctx),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            remainingDue > 0 ? '$currency$remainingDue' : 'Zero (Paid)',
+                            style: GoogleFonts.outfit(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: remainingDue > 0 ? AppColors.warning : AppColors.success,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // WhatsApp Share Receipt Button
+                if (whatsappMessage.isNotEmpty && widget.memberPhone.isNotEmpty)
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final cleanPhone = widget.memberPhone.replaceAll(RegExp(r'[^0-9]'), '');
+                      final url = 'https://wa.me/$cleanPhone?text=${Uri.encodeComponent(whatsappMessage)}';
+                      final uri = Uri.parse(url);
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    icon: const Icon(Icons.send_rounded, size: 18),
+                    label: Text(
+                      'Send Receipt on WhatsApp',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+
+                // View HTML Receipt button
+                if (receiptUrl != null && receiptUrl.toString().isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final uri = Uri.parse(receiptUrl.toString());
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary(ctx),
+                      side: BorderSide(color: AppColors.border(ctx)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                    label: Text(
+                      'View & Print Receipt',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(
+                    'Done',
                     style: GoogleFonts.plusJakartaSans(
-                      fontWeight: FontWeight.w800,
+                      color: AppColors.textMuted(ctx),
+                      fontWeight: FontWeight.w700,
                       fontSize: 14,
                     ),
                   ),
                 ),
-              const SizedBox(height: 10),
-
-              // View HTML Receipt button
-              if (receiptUrl != null && receiptUrl.toString().isNotEmpty)
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final uri = Uri.parse(receiptUrl.toString());
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary(ctx),
-                    side: BorderSide(color: AppColors.border(ctx)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    minimumSize: const Size.fromHeight(44),
-                  ),
-                  icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                  label: Text(
-                    'View & Print Receipt',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 12),
-
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: Text(
-                  'Done',
-                  style: GoogleFonts.plusJakartaSans(
-                    color: AppColors.textMuted(ctx),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
