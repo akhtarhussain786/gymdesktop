@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/upi_payment_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/admin_provider.dart';
@@ -109,10 +110,34 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
           },
           onNavigationRequest: (request) async {
             final url = request.url;
-            if (url.contains('saas-renew-callback.php') || url.contains('callback') || url.contains('status=approved')) {
+            final uri = Uri.tryParse(url);
+
+            // 1. Intercept native UPI deep links (tez://, phonepe://, paytmmp://, upi://, bhim://, credpay://, whatsapp://)
+            if (uri != null && (
+                uri.scheme == 'upi' ||
+                uri.scheme == 'tez' ||
+                uri.scheme == 'phonepe' ||
+                uri.scheme == 'paytmmp' ||
+                uri.scheme == 'bhim' ||
+                uri.scheme == 'credpay' ||
+                uri.scheme == 'whatsapp' ||
+                url.startsWith('intent://')
+            )) {
+              try {
+                _hasAttemptedPayment = true;
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (e) {
+                debugPrint('Could not launch external UPI app from webview: $e');
+              }
+              return NavigationDecision.prevent;
+            }
+
+            // 2. Intercept callback or success redirects
+            if (url.contains('saas-renew-callback.php') || url.contains('callback') || url.contains('status=approved') || url.contains('order_status=PAID')) {
               _startVerificationPolling();
               return NavigationDecision.navigate;
             }
+
             return NavigationDecision.navigate;
           },
         ),
@@ -130,7 +155,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
       _verificationError = null;
     });
 
-    // 1. Try launching direct deep link if provided by Cashfree
+    // 1. Try direct deep link launch if available from gateway
     final success = await UpiPaymentService.launchSelectedUpiApp(
       app: app,
       orderId: widget.orderId,
@@ -150,47 +175,18 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
       return;
     }
 
-    // 2. If direct link is unavailable or failed, seamlessly launch Cashfree Native Checkout
-    if (widget.paymentSessionId != null && widget.paymentSessionId!.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _isLaunchingApp = false;
-          _hasAttemptedPayment = true;
-        });
-      }
-      await _handleCardsNetBanking();
-    } else {
-      // 3. Fallback to WebView checkout
-      if (mounted) {
-        setState(() {
-          _isLaunchingApp = false;
-          _showWebCheckout = true;
-        });
-        _webController.loadRequest(Uri.parse(widget.checkoutUrl));
-      }
+    // 2. Seamlessly open the in-app checkout (works on both Play Store and direct APKs without installer_package_not_approved error)
+    if (mounted) {
+      setState(() {
+        _isLaunchingApp = false;
+        _showWebCheckout = true;
+      });
+      _webController.loadRequest(Uri.parse(widget.checkoutUrl));
     }
   }
 
   Future<void> _handleCardsNetBanking() async {
-    if (widget.paymentSessionId != null && widget.paymentSessionId!.isNotEmpty) {
-      // Launch native Cashfree Drop-in SDK
-      await UpiPaymentService.launchNativeDropin(
-        orderId: widget.orderId,
-        paymentSessionId: widget.paymentSessionId!,
-        cashfreeMode: widget.cashfreeMode,
-        onVerify: (orderId) {
-          if (mounted) _startVerificationPolling();
-        },
-        onError: (error, orderId) {
-          if (mounted) {
-            setState(() {
-              _verificationError = error;
-            });
-          }
-        },
-      );
-    } else {
-      // Fallback to secure hosted web checkout
+    if (widget.checkoutUrl.isNotEmpty) {
       setState(() {
         _showWebCheckout = true;
       });
