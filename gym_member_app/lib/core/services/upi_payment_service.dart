@@ -179,15 +179,13 @@ class UpiPaymentService {
     // 2. Fallback to upiIntentUrl if provided
     targetUrl ??= upiIntentUrl;
 
-    // 3. Fallback to constructing official NPCI standard UPI Intent URI
+    // If no valid gateway intent URL provided, return false to trigger Cashfree Native SDK flow
     if (targetUrl == null || targetUrl.isEmpty) {
-      final safeGym = Uri.encodeComponent(gymName);
-      final formattedAmt = amount.toStringAsFixed(2);
-      final safeOrder = Uri.encodeComponent(orderId);
-      targetUrl = 'upi://pay?pa=cashfree@icici&pn=$safeGym&am=$formattedAmt&cu=INR&tr=$safeOrder&tn=SaaS_Subscription';
+      debugPrint('No direct gateway UPI link provided for ${app.name}, delegating to Cashfree Native SDK');
+      return false;
     }
 
-    // 4. Transform scheme for app-specific deep links if using generic upi://
+    // Transform scheme for app-specific deep links if using generic upi://
     if (app.schemePrefix != 'upi://pay' && targetUrl.startsWith('upi://pay?')) {
       final query = targetUrl.substring('upi://pay?'.length);
       targetUrl = '${app.schemePrefix}?$query';

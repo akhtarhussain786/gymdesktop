@@ -101,7 +101,7 @@ if ($method === 'POST') {
         $paymentSessionId = $cfResult['payment_session_id'];
         $checkoutUrl = base_url('/saas-renew-checkout.php?order_id=' . urlencode($orderId) . '&payment_session_id=' . urlencode($paymentSessionId));
 
-        // Generate native UPI Intent payload and app-specific links
+        // Generate native UPI Intent payload and app-specific links if supported by merchant gateway
         $upiLinks = [];
         $upiIntentUrl = null;
         try {
@@ -115,8 +115,17 @@ if ($method === 'POST') {
                     $upiLinks['default'] = $upiIntentUrl;
                 }
             }
+            if (empty($upiIntentUrl) && !empty($upiRes['data']['url'])) {
+                $upiIntentUrl = $upiRes['data']['url'];
+                $upiLinks['default'] = $upiIntentUrl;
+            }
             if (empty($upiIntentUrl) && !empty($upiRes['data']['link'])) {
+                $upiIntentUrl = $upiRes['data']['link'];
                 $upiLinks['cashfree_link'] = $upiRes['data']['link'];
+            }
+            if (empty($upiIntentUrl) && !empty($upiRes['data']['intent_url'])) {
+                $upiIntentUrl = $upiRes['data']['intent_url'];
+                $upiLinks['default'] = $upiIntentUrl;
             }
         } catch (Throwable $e) {
             error_log("Cashfree createUpiPayment error: " . $e->getMessage());

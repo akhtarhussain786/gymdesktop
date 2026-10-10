@@ -7,6 +7,7 @@ import '../../core/services/upi_payment_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/upi_app_brand_logo.dart';
 
 class InAppPaymentCheckoutScreen extends StatefulWidget {
   final String orderId;
@@ -129,6 +130,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
       _verificationError = null;
     });
 
+    // 1. Try launching direct deep link if provided by Cashfree
     final success = await UpiPaymentService.launchSelectedUpiApp(
       app: app,
       orderId: widget.orderId,
@@ -138,15 +140,34 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
       gymName: gym,
     );
 
-    if (mounted) {
-      setState(() {
-        _isLaunchingApp = false;
-        if (success) {
+    if (success) {
+      if (mounted) {
+        setState(() {
+          _isLaunchingApp = false;
           _hasAttemptedPayment = true;
-        } else {
-          _verificationError = 'Could not open ${app.name}. Please select another UPI app or pay with Card/Netbanking.';
-        }
-      });
+        });
+      }
+      return;
+    }
+
+    // 2. If direct link is unavailable or failed, seamlessly launch Cashfree Native Checkout
+    if (widget.paymentSessionId != null && widget.paymentSessionId!.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLaunchingApp = false;
+          _hasAttemptedPayment = true;
+        });
+      }
+      await _handleCardsNetBanking();
+    } else {
+      // 3. Fallback to WebView checkout
+      if (mounted) {
+        setState(() {
+          _isLaunchingApp = false;
+          _showWebCheckout = true;
+        });
+        _webController.loadRequest(Uri.parse(widget.checkoutUrl));
+      }
     }
   }
 
@@ -430,15 +451,9 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: app.brandColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: app.brandColor.withValues(alpha: 0.3)),
-                  ),
-                  child: Icon(app.iconData, color: app.brandColor, size: 22),
+                UpiAppBrandLogo(
+                  appId: app.id,
+                  size: 44,
                 ),
                 const SizedBox(width: 14),
                 Expanded(
