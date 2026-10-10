@@ -798,38 +798,47 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
               const Divider(height: 1, color: Colors.white10),
               const SizedBox(height: 6),
               // Action Buttons for this receipt
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton.icon(
-                    onPressed: () => PdfService.previewReceiptPdf(context, txnItem),
-                    icon: const Icon(Icons.remove_red_eye_outlined, size: 14),
-                    label: const Text('View Receipt', style: TextStyle(fontSize: 11)),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.textMuted(context),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => PdfService.previewReceiptPdf(context, txnItem),
+                      icon: const Icon(Icons.remove_red_eye_outlined, size: 14),
+                      label: const Text('View Receipt', style: TextStyle(fontSize: 11)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.textMuted(context),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    onPressed: () => PdfService.downloadReceiptPdf(context, txnItem),
-                    icon: const Icon(Icons.download_rounded, size: 14),
-                    label: const Text('Download', style: TextStyle(fontSize: 11)),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.textMuted(context),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    const SizedBox(width: 2),
+                    TextButton.icon(
+                      onPressed: () => PdfService.downloadReceiptPdf(context, txnItem),
+                      icon: const Icon(Icons.download_rounded, size: 14),
+                      label: const Text('Download', style: TextStyle(fontSize: 11)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.textMuted(context),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    onPressed: () => PdfService.shareReceiptPdf(context, txnItem),
-                    icon: const Icon(Icons.share_rounded, size: 14, color: AppColors.lime),
-                    label: const Text('Share Receipt', style: TextStyle(fontSize: 11, color: AppColors.lime, fontWeight: FontWeight.bold)),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    const SizedBox(width: 2),
+                    TextButton.icon(
+                      onPressed: () => PdfService.shareReceiptPdf(context, txnItem),
+                      icon: const Icon(Icons.share_rounded, size: 14, color: AppColors.lime),
+                      label: const Text('Share Receipt', style: TextStyle(fontSize: 11, color: AppColors.lime, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),

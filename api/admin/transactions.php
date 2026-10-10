@@ -107,10 +107,10 @@ $offset = ($page - 1) * $limit;
 
 $search = trim($_GET['search'] ?? '');
 $dateFilter = strtolower(trim($_GET['date_filter'] ?? 'all'));
-$customFrom = trim($_GET['from_date'] ?? '');
-$customTo = trim($_GET['to_date'] ?? '');
-$methodFilter = strtolower(trim($_GET['payment_method'] ?? 'all'));
-$statusFilter = strtolower(trim($_GET['status'] ?? 'all'));
+$customFrom = trim($_GET['from_date'] ?? $_GET['start_date'] ?? '');
+$customTo = trim($_GET['to_date'] ?? $_GET['end_date'] ?? '');
+$methodFilter = strtolower(trim($_GET['payment_method'] ?? $_GET['payment_mode'] ?? 'all'));
+$statusFilter = strtolower(trim($_GET['status'] ?? $_GET['payment_status'] ?? 'all'));
 $staffId = (int)($_GET['staff_id'] ?? 0);
 
 $where = ["i.tenant_id = ?"];
@@ -181,15 +181,25 @@ $totalCount = (int)DB::fetchValue(
 $totalPages = ceil($totalCount / $limit);
 
 // Fetch Paginated Rows
-$query = "SELECT i.id, i.invoice_number, i.service_name, i.plan_months, i.amount, 
-                 i.paid_amount, i.discount, (i.amount - i.paid_amount) as due_amount,
-                 i.payment_method, i.payment_date, i.due_date, i.status, 
-                 i.transaction_ref, i.notes, i.created_by, i.created_at,
+$query = "SELECT i.id, i.invoice_number, 
+                 COALESCE(i.service_name, 'Gym Membership') as service_name, 
+                 COALESCE(i.plan_months, 1) as plan_months, 
+                 COALESCE(i.amount, 0.00) as amount, 
+                 COALESCE(i.paid_amount, i.amount, 0.00) as paid_amount, 
+                 COALESCE(i.discount, 0.00) as discount, 
+                 (COALESCE(i.amount, 0.00) - COALESCE(i.paid_amount, i.amount, 0.00)) as due_amount,
+                 COALESCE(i.payment_method, 'Cash') as payment_method, 
+                 i.payment_date, 
+                 i.due_date, 
+                 COALESCE(i.status, 'Paid') as status, 
+                 COALESCE(i.transaction_ref, '') as transaction_ref, 
+                 COALESCE(i.notes, '') as notes, 
+                 i.created_by, 
+                 i.created_at,
                  i.member_id,
                  COALESCE(m.fullname, 'Unknown Member') as member_name,
                  COALESCE(m.contact, '') as member_phone,
-                 m.avatar as member_avatar,
-                 m.photo as member_photo,
+                 COALESCE(m.avatar, '') as member_avatar,
                  COALESCE(u.fullname, u.username, 'Admin') as created_by_name
           FROM invoices i
           LEFT JOIN members m ON (i.member_id = m.user_id AND m.tenant_id = i.tenant_id)
@@ -207,7 +217,7 @@ foreach ($rows as $row) {
     $invDiscount = (float)($row['discount'] ?? 0.0);
     $invDue = max(0.0, $invAmount - $invPaid - $invDiscount);
 
-    $avatar = api_member_avatar_url($row['member_avatar'] ?? null, $row['member_photo'] ?? null);
+    $avatar = api_member_avatar_url($row['member_avatar'] ?? null);
 
     $transactions[] = [
         'id' => (int)$row['id'],
