@@ -56,8 +56,9 @@ Options -Indexes
     RewriteRule ^sitemap\.xml$ sitemap.php [L,QSA]
     RewriteRule ^robots\.txt$ robots.php [L,QSA]
 
-    # 1. 301 Redirect any direct *.php request to its clean URL (GET & HEAD requests only)
+    # 1. 301 Redirect any direct *.php request to its clean URL (GET & HEAD requests only, except API)
     RewriteCond %{REQUEST_METHOD} !POST
+    RewriteCond %{REQUEST_URI} !^/api/ [NC]
     RewriteCond %{THE_REQUEST} \s/+(.*?)\.php[\s?] [NC]
     # (absolute target: a relative one gets the server's filesystem path prefixed on Apache)
     RewriteRule ^ /%1 [R=301,L,NE]
