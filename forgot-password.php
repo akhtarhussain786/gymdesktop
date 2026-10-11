@@ -22,7 +22,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = "Please enter your registered username or email address.";
         $type = "error";
     } else {
-        $genericMsg = "If an account exists with the provided details, a password reset link has been sent to its registered email address. The link expires in 1 hour.";
         $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $identifierHash = hash('sha256', strtolower($input));
 
@@ -44,59 +43,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         DB::query("UPDATE `users` SET `email` = 'akhtarhussain132003@gmail.com' WHERE (`role` = 'super_admin' OR `username` = 'superadmin') AND (`email` IS NULL OR `email` = '' OR `email` = 'superadmin@fitisify.com')");
 
-        $recentForIdentifier = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE identifier_hash = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)", [$identifierHash]);
-        $recentForIp = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE ip_address = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)", [$ip]);
+        $recentForIdentifier = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE identifier_hash = ? AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)", [$identifierHash]);
+        $recentForIp = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE ip_address = ? AND created_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)", [$ip]);
 
         if ($recentForIdentifier >= RESET_MAX_PER_IDENTIFIER || $recentForIp >= RESET_MAX_PER_IP) {
-            error_log("Password reset rate limit hit (ip={$ip})");
+            $msg = "Too many password reset requests. Please wait 5 minutes before trying again.";
+            $type = "error";
         } else {
-            $accounts = DB::fetchAll("SELECT id, tenant_id, username, fullname, email, status FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND status = 'active' LIMIT 5", [$input, $input]);
-            $sentAny = false;
-            foreach ($accounts as $acct) {
-                $email = trim((string)($acct['email'] ?? ''));
-                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    continue;
-                }
-                $recentForAccount = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE user_id = ? AND token_hash IS NOT NULL AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)", [(int)$acct['id']]);
-                if ($recentForAccount >= RESET_MAX_PER_ACCOUNT) {
-                    // Keep the outstanding link valid and send nothing; the response stays generic
-                    error_log('Password reset per-account limit hit for user #' . (int)$acct['id'] . " (ip={$ip})");
-                    continue;
-                }
-                // Invalidate older unused links for this account
-                DB::query("UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL AND token_hash IS NOT NULL", [(int)$acct['id']]);
-
-                $token = bin2hex(random_bytes(32));
-                $tokenHash = hash('sha256', $token);
-                $res = DB::query(
-                    "INSERT INTO password_resets (user_id, identifier_hash, token_hash, ip_address, expires_at, created_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR), NOW())",
-                    [(int)$acct['id'], $identifierHash, $tokenHash, $ip]
-                );
-                if (!is_array($res)) {
-                    error_log('Password reset failed: could not insert token into password_resets for user #' . (int)$acct['id'] . ' (' . DB::$lastError . ')');
-                    continue;
-                }
-                $sentAny = true;
-                $resetUrl = base_url('/reset-password.php') . '?token=' . urlencode($token);
-                $mailRes = Mailer::sendPasswordResetEmail($email, $acct['fullname'] ?? $acct['username'], $resetUrl, $acct['tenant_id'] ?? null);
-                if (empty($mailRes['success'])) {
-                    error_log('Password reset email failed for user #' . (int)$acct['id'] . ': ' . ($mailRes['error'] ?? 'unknown'));
-                }
-                Auth::auditLog('PASSWORD_RESET_REQUESTED', "Password reset link requested for user {$acct['username']}", !empty($acct['tenant_id']) ? (int)$acct['tenant_id'] : null);
-            }
-
-            if (!$sentAny) {
-                // Record the attempt so the per-identifier / per-IP limits also apply to unknown accounts
+            $accounts = DB::fetchAll("SELECT id, tenant_id, username, fullname, email, status, role FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND status = 'active' ORDER BY (role = 'super_admin') DESC LIMIT 5", [$input, $input]);
+            if (empty($accounts)) {
+                $msg = "No active account found matching '" . htmlspecialchars($input) . "'. Please enter your valid username (e.g. superadmin) or registered email.";
+                $type = "error";
                 DB::query(
                     "INSERT INTO password_resets (user_id, identifier_hash, token_hash, ip_address, expires_at, created_at) VALUES (NULL, ?, NULL, ?, NULL, NOW())",
                     [$identifierHash, $ip]
                 );
+            } else {
+                $sentAny = false;
+                $sentEmails = [];
+                $lastMailError = null;
+                foreach ($accounts as $acct) {
+                    $email = trim((string)($acct['email'] ?? ''));
+                    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        continue;
+                    }
+                    // Invalidate older unused links for this account
+                    DB::query("UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL AND token_hash IS NOT NULL", [(int)$acct['id']]);
+
+                    $token = bin2hex(random_bytes(32));
+                    $tokenHash = hash('sha256', $token);
+                    $res = DB::query(
+                        "INSERT INTO password_resets (user_id, identifier_hash, token_hash, ip_address, expires_at, created_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE), NOW())",
+                        [(int)$acct['id'], $identifierHash, $tokenHash, $ip]
+                    );
+                    if (!is_array($res)) {
+                        error_log('Password reset failed: could not insert token into password_resets for user #' . (int)$acct['id'] . ' (' . DB::$lastError . ')');
+                        continue;
+                    }
+                    $resetUrl = base_url('/reset-password.php') . '?token=' . urlencode($token);
+                    $mailRes = Mailer::sendPasswordResetEmail($email, $acct['fullname'] ?? $acct['username'], $resetUrl, $acct['tenant_id'] ?? null, $acct['username']);
+                    if (!empty($mailRes['success'])) {
+                        $sentAny = true;
+                        $sentEmails[] = $email;
+                        Auth::auditLog('PASSWORD_RESET_REQUESTED', "Password reset link requested for user {$acct['username']}", !empty($acct['tenant_id']) ? (int)$acct['tenant_id'] : null);
+                    } else {
+                        $lastMailError = $mailRes['error'] ?? 'SMTP delivery error';
+                        error_log('Password reset email failed for user #' . (int)$acct['id'] . ': ' . $lastMailError);
+                    }
+                }
+
+                if ($sentAny) {
+                    $uniqueEmails = implode(', ', array_unique($sentEmails));
+                    $msg = "Password reset link has been sent to {$uniqueEmails}! Please check your Inbox (and Spam folder). The link is valid for 5 minutes.";
+                    $type = "success";
+                } else {
+                    $msg = "Failed to send reset email: " . ($lastMailError ?: 'Could not dispatch message. Please check SMTP settings.');
+                    $type = "error";
+                }
             }
         }
-
-        // Same response whether or not the account exists / was rate limited
-        $msg = $genericMsg;
-        $type = "info";
     }
 }
 ?>

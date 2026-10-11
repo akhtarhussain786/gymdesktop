@@ -92,19 +92,21 @@ class Mailer {
     /**
      * Send password reset link email
      */
-    public static function sendPasswordResetEmail($to, $name, $resetUrl, $tenantId = null) {
+    public static function sendPasswordResetEmail($to, $name, $resetUrl, $tenantId = null, $username = null) {
         $safeName = htmlspecialchars((string)($name ?: 'there'), ENT_QUOTES, 'UTF-8');
+        $safeUser = htmlspecialchars((string)($username ?: ''), ENT_QUOTES, 'UTF-8');
         $safeUrl  = htmlspecialchars((string)$resetUrl, ENT_QUOTES, 'UTF-8');
         $subject  = 'Reset your Fitisify password';
+        $userBadge = $safeUser ? " (Username: <strong>{$safeUser}</strong>)" : "";
         $htmlBody = <<<HTML
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Reset your password</title></head>
 <body style="margin:0;padding:30px 10px;background:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:28px;">
-    <h2 style="margin-top:0;color:#0f172a;">Password reset request</h2>
-    <p style="font-size:15px;line-height:1.6;">Hello {$safeName},</p>
-    <p style="font-size:15px;line-height:1.6;">We received a request to reset the password for your Fitisify account. Click the button below to choose a new password. This link expires in 1 hour and can only be used once.</p>
+    <h2 style="margin-top:0;color:#0f172a;">Password Reset Request</h2>
+    <p style="font-size:15px;line-height:1.6;">Hello {$safeName}{$userBadge},</p>
+    <p style="font-size:15px;line-height:1.6;">We received a request to reset the password for your Fitisify account. Click the button below to choose a new password. <strong>This link expires in 5 minutes</strong> and can only be used once.</p>
     <p style="text-align:center;margin:28px 0;">
       <a href="{$safeUrl}" style="background:#2563eb;color:#ffffff;padding:12px 26px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;">Reset Password</a>
     </p>
