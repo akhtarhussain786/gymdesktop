@@ -110,7 +110,7 @@ $orphanCount = DemoSeeder::countOrphans();
 $recentLogs = DB::fetchAll("SELECT * FROM email_delivery_logs ORDER BY id DESC LIMIT 10");
 
 // Load Mobile App Release Info
-$appPlayStoreUrl = get_platform_setting('app_playstore_url', 'https://play.google.com/store/apps/details?id=com.fitisify.gym_member_app');
+$appPlayStoreUrl = get_platform_setting('app_playstore_url', 'https://play.google.com/store/apps/details?id=com.fitisify.memberapp.gymMemberApp');
 $appApkExternalUrl = get_platform_setting('app_apk_external_url', '');
 $appVersion = get_platform_setting('app_version', 'v1.0.5');
 $appMinAndroid = get_platform_setting('app_min_android', 'Android 8.0+');
@@ -411,7 +411,7 @@ include __DIR__ . '/../includes/topbar.php';
             <div class="form-row">
                 <div class="form-group" style="flex: 1;">
                     <label class="form-label"><i class="fab fa-google-play" style="color: #38bdf8;"></i> Google Play Store URL</label>
-                    <input type="url" name="app_playstore_url" class="form-control" placeholder="https://play.google.com/store/apps/details?id=..." value="<?php echo htmlspecialchars($appPlayStoreUrl); ?>" />
+                    <input type="url" name="app_playstore_url" class="form-control" placeholder="https://play.google.com/store/apps/details?id=com.fitisify.memberapp.gymMemberApp" value="<?php echo htmlspecialchars($appPlayStoreUrl); ?>" />
                     <small style="color: var(--text-muted); font-size: 0.78rem; margin-top: 4px; display: block;">
                         The Play Store button on the main homepage will redirect users here.
                     </small>
