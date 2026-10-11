@@ -6,6 +6,8 @@ import 'package:flutter_cashfree_pg_sdk/utils/cfenums.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfpaymentgateway/cfpaymentgatewayservice.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfupipayment.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfupi.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfwebcheckoutpayment.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cfupi/cfupiutils.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
 
 /// Model representing a detected or supported UPI Application on the device
@@ -149,14 +151,52 @@ class UpiPaymentService {
     isPopular: true,
   );
 
-  /// UPI apps actually installed on this phone ("Any UPI app" first). Detection uses canLaunchUrl,
-  /// which only sees the schemes declared in the AndroidManifest `<queries>` / iOS LSApplicationQueriesSchemes.
+  /// UPI apps actually installed on this phone ("Any UPI app" first).
+  /// Uses a 2-tier discovery mechanism:
+  /// 1. Cashfree Native SDK discovery via CFUPIUtils.getUPIApps() on Android.
+  /// 2. Scheme queries matching AndroidManifest `<queries>` as an instant reliable fallback.
   static Future<List<InstalledUpiApp>> getInstalledUpiApps() async {
     final installed = <InstalledUpiApp>[genericUpiApp];
+
+    // 1. Try Cashfree native package discovery on Android
+    try {
+      if (sdkSupported && defaultTargetPlatform == TargetPlatform.android) {
+        final cfApps = await CFUPIUtils().getUPIApps();
+        if (cfApps != null && cfApps.isNotEmpty) {
+          final detectedPackages = <String>{};
+          for (final item in cfApps) {
+            if (item is Map) {
+              final pkg = item['appPackage'] ?? item['package'] ?? item['id'] ?? item['packageName'];
+              if (pkg != null && pkg.toString().trim().isNotEmpty) {
+                detectedPackages.add(pkg.toString().trim().toLowerCase());
+              }
+            }
+          }
+          if (detectedPackages.isNotEmpty) {
+            for (final app in allKnownUpiApps) {
+              if (detectedPackages.contains(app.packageName.toLowerCase())) {
+                if (!installed.any((a) => a.id == app.id)) {
+                  installed.add(app);
+                }
+              }
+            }
+            if (installed.length > 1) {
+              return installed;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('CFUPIUtils discovery: $e');
+    }
+
+    // 2. Reliable fallback scheme detection
     for (final app in allKnownUpiApps) {
       try {
         if (await canLaunchUrl(Uri.parse(app.schemePrefix))) {
-          installed.add(app);
+          if (!installed.any((a) => a.id == app.id)) {
+            installed.add(app);
+          }
         }
       } catch (_) {}
     }
@@ -177,10 +217,10 @@ class UpiPaymentService {
     return (mode == 'production' || mode == 'prod' || mode == 'live') ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
   }
 
-  /// Starts Cashfree's native UPI intent for [app] on the given order. Callbacks are registered for
-  /// every payment so they always reach the screen that started it. The success callback only means
-  /// "the UPI app returned": the caller must still verify the order with the server.
-  /// Returns false when the SDK could not even be started (the caller then uses a fallback).
+  /// Starts Cashfree's native UPI intent for [app] on the given order.
+  /// - For specific apps (PhonePe, GPay, etc.): CFUPIChannel.INTENT with package name.
+  /// - For "Any UPI App": CFUPIChannel.INTENT_WITH_UI which opens the SDK's native UPI selector.
+  /// Returns false when the SDK could not be started.
   static bool startSdkUpiPayment({
     required InstalledUpiApp app,
     required String orderId,
@@ -197,8 +237,9 @@ class UpiPaymentService {
           .setPaymentSessionId(paymentSessionId)
           .build();
 
+      final channel = app.isGeneric ? CFUPIChannel.INTENT_WITH_UI : CFUPIChannel.INTENT;
       final upi = CFUPIBuilder()
-          .setChannel(CFUPIChannel.INTENT)
+          .setChannel(channel)
           .setUPIID(app.cashfreeAppId)
           .build();
 
@@ -213,6 +254,70 @@ class UpiPaymentService {
       return true;
     } catch (e) {
       debugPrint('Cashfree SDK UPI intent could not start: $e');
+      return false;
+    }
+  }
+
+  /// Complete launcher for chosen UPI app with native Cashfree SDK intent and fallback.
+  static Future<bool> launchSelectedUpiApp({
+    required InstalledUpiApp app,
+    required String orderId,
+    required String paymentSessionId,
+    required String cashfreeMode,
+    required void Function(String orderId) onVerify,
+    required void Function(CFErrorResponse error, String orderId) onError,
+    Map<String, dynamic>? upiLinks,
+    String? upiIntentUrl,
+    String? checkoutUrl,
+  }) async {
+    // 1. Try Cashfree native UPI Intent
+    final started = startSdkUpiPayment(
+      app: app,
+      orderId: orderId,
+      paymentSessionId: paymentSessionId,
+      cashfreeMode: cashfreeMode,
+      onVerify: onVerify,
+      onError: onError,
+    );
+    if (started) return true;
+
+    // 2. Direct deep link fallback (if sideloaded APK integrity check blocks SDK)
+    final link = deepLinkFor(app, upiLinks: upiLinks, upiIntentUrl: upiIntentUrl);
+    if (link != null) {
+      return await launchDeepLink(link);
+    }
+    if (checkoutUrl != null && checkoutUrl.isNotEmpty) {
+      return await openCheckoutInBrowser(checkoutUrl);
+    }
+    return false;
+  }
+
+  /// Official Cashfree Drop-in / Web Checkout launcher for Card & Netbanking payments
+  static bool launchNativeDropin({
+    required String orderId,
+    required String paymentSessionId,
+    required String cashfreeMode,
+    required void Function(String orderId) onVerify,
+    required void Function(CFErrorResponse error, String orderId) onError,
+  }) {
+    if (!sdkSupported || orderId.isEmpty || paymentSessionId.isEmpty) return false;
+    try {
+      final session = CFSessionBuilder()
+          .setEnvironment(environmentFor(cashfreeMode))
+          .setOrderId(orderId)
+          .setPaymentSessionId(paymentSessionId)
+          .build();
+
+      final webCheckout = CFWebCheckoutPaymentBuilder()
+          .setSession(session)
+          .build();
+
+      _cfService.setCallback(onVerify, onError);
+      debugPrint('Invoking Cashfree SDK Web Checkout for order $orderId');
+      _cfService.doPayment(webCheckout);
+      return true;
+    } catch (e) {
+      debugPrint('Cashfree SDK Web Checkout could not start: $e');
       return false;
     }
   }
