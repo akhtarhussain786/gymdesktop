@@ -27,7 +27,7 @@ if (!file_exists($apkPath)) {
     exit();
 }
 
-$version = get_platform_setting('app_version', 'v1.0.4');
+$version = get_platform_setting('app_version', 'v1.0.5');
 $cleanVersion = preg_replace('/[^a-zA-Z0-9._-]/', '', $version);
 $filename = 'Fitisify_Member_App_' . $cleanVersion . '.apk';
 $filesize = filesize($apkPath);

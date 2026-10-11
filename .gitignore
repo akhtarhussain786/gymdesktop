@@ -24,5 +24,6 @@ gym_member_app/*.iml
 # Temporary files
 scratch/
 backups_url_fix/
+*.aab
 .DS_Store
 Thumbs.db

@@ -91,7 +91,7 @@ $currencies = get_supported_currencies();
 // Dynamic Mobile App Release Settings
 $appPlayStoreUrl = get_platform_setting('app_playstore_url', 'https://play.google.com/store/apps/details?id=com.fitisify.gym_member_app');
 $appApkExternalUrl = get_platform_setting('app_apk_external_url', '');
-$appVersion = get_platform_setting('app_version', 'v1.0.4');
+$appVersion = get_platform_setting('app_version', 'v1.0.5');
 $appMinAndroid = get_platform_setting('app_min_android', 'Android 8.0+');
 $appApkLocalPath = __DIR__ . '/uploads/apk/fitisify_member_app.apk';
 $appApkExists = file_exists($appApkLocalPath);

@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_mobile_app_setti
     
     $playstoreUrl = trim($_POST['app_playstore_url'] ?? '');
     $externalApkUrl = trim($_POST['app_apk_external_url'] ?? '');
-    $appVersion = trim($_POST['app_version'] ?? 'v1.0.4');
+    $appVersion = trim($_POST['app_version'] ?? 'v1.0.5');
     $minAndroid = trim($_POST['app_min_android'] ?? 'Android 8.0+');
     $releaseNotes = trim($_POST['app_release_notes'] ?? '');
     
@@ -112,7 +112,7 @@ $recentLogs = DB::fetchAll("SELECT * FROM email_delivery_logs ORDER BY id DESC L
 // Load Mobile App Release Info
 $appPlayStoreUrl = get_platform_setting('app_playstore_url', 'https://play.google.com/store/apps/details?id=com.fitisify.gym_member_app');
 $appApkExternalUrl = get_platform_setting('app_apk_external_url', '');
-$appVersion = get_platform_setting('app_version', 'v1.0.4');
+$appVersion = get_platform_setting('app_version', 'v1.0.5');
 $appMinAndroid = get_platform_setting('app_min_android', 'Android 8.0+');
 $appReleaseNotes = get_platform_setting('app_release_notes', 'Official Fitisify Athlete & Member Companion Mobile App with real-time QR gate check-in, dynamic workout logging, automated diet plans, fee payments, and push notifications.');
 
@@ -428,7 +428,7 @@ include __DIR__ . '/../includes/topbar.php';
             <div class="form-row">
                 <div class="form-group" style="flex: 1;">
                     <label class="form-label"><i class="fas fa-tag"></i> App Version Name / Build</label>
-                    <input type="text" name="app_version" class="form-control" placeholder="e.g. v1.0.4" value="<?php echo htmlspecialchars($appVersion); ?>" required />
+                    <input type="text" name="app_version" class="form-control" placeholder="e.g. v1.0.5" value="<?php echo htmlspecialchars($appVersion); ?>" required />
                 </div>
                 <div class="form-group" style="flex: 1;">
                     <label class="form-label"><i class="fab fa-android"></i> Minimum OS Requirement</label>
