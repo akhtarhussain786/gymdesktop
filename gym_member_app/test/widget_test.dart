@@ -52,10 +52,8 @@ void main() {
 
     await tester.pump();
 
-    // Verify Title & Inputs
-    expect(find.text('Find Your Gym'), findsOneWidget);
-    expect(find.byIcon(Icons.fitness_center_rounded), findsWidgets);
-    expect(find.text('Gym A (GYM-A)'), findsOneWidget);
-    expect(find.text('Gym B (GYM-B)'), findsOneWidget);
+    // Verify Title & Branding
+    expect(find.text('Welcome to FITISIFY OS'), findsOneWidget);
+    expect(find.text('Select your gym to continue'), findsOneWidget);
   });
 }
