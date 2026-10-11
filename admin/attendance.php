@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/subscription_engine.php';
 Auth::requireAuth(['gym_admin', 'staff', 'trainer']);
 
 $page = 'attendance';
@@ -9,13 +10,18 @@ $tenantId = Tenant::getTenantId();
 $tenant = Tenant::getCurrent(); // Guarantees local gym timezone
 
 $todayDate = date('Y-m-d');
-$rawDate = $_GET['date'] ?? $todayDate;
+$rawDate = is_string($_GET['date'] ?? null) ? trim($_GET['date']) : $todayDate;
 $selectedDate = $todayDate;
 if (!empty($rawDate)) {
-    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $rawDate)) {
-        $selectedDate = $rawDate;
-    } elseif (preg_match('/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/', $rawDate, $m)) {
-        $selectedDate = sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
+    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $rawDate, $m)) {
+        if (checkdate((int)$m[2], (int)$m[3], (int)$m[1])) {
+            $selectedDate = $rawDate;
+        }
+    } elseif (preg_match('#^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$#', $rawDate, $m)) {
+        // DD/MM/YYYY or DD-MM-YYYY (strtotime would read DD/MM as MM/DD)
+        if (checkdate((int)$m[2], (int)$m[1], (int)$m[3])) {
+            $selectedDate = sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
+        }
     } else {
         $ts = strtotime($rawDate);
         if ($ts !== false) {
@@ -50,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['mem
 
     if ($action === 'checkin') {
         $planMonths = max(1, (int)$member['plan']);
-        $expiry = !empty($member['paid_date']) ? date('Y-m-d', strtotime("+{$planMonths} months", strtotime($member['paid_date']))) : null;
+        $expiry = !empty($member['paid_date']) ? SubscriptionEngine::addMonths($member['paid_date'], $planMonths) : null;
         if ($member['status'] !== 'Active' || $expiry === null || $expiry < $selectedDate) {
             redirect("attendance.php?date=" . urlencode($selectedDate), 'error', 'Membership is not active/has expired. Please renew before check-in.');
         }

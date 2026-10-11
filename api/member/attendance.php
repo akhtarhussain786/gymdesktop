@@ -106,8 +106,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // GET Request: Retrieve History & Monthly Summary
-$month = (string)($_GET['month'] ?? date('Y-m')); // e.g. 2026-08
-if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
+$month = (string)($_GET['month'] ?? ''); // e.g. 2026-08
+$monthRequested = (bool)preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month);
+if (!$monthRequested) {
     $month = date('Y-m');
 }
 
@@ -157,11 +158,12 @@ $response = [
         'month_sessions' => $totalMonth,
         'current_month' => $month,
         'today_status' => $todayStatus,
-        'today_check_in' => $todayRecord['curr_time'] ?? null,
-        'today_check_out' => $todayRecord['check_out_time'] ?? null
+        'today_check_in' => !empty($todayRecord['curr_time']) ? $todayRecord['curr_time'] : null,
+        'today_check_out' => !empty($todayRecord['check_out_time']) ? $todayRecord['check_out_time'] : null
     ],
     'checkin_dates' => array_values(array_unique($checkinDates)),
-    'history' => array_map(function($a) {
+    // The app's month browser sends ?month= and labels the list "for this month"; without it the full log is returned
+    'history' => $monthRequested ? $monthRecords : array_map(function($a) {
         return [
             'id' => (int)$a['id'],
             'date' => $a['curr_date'],

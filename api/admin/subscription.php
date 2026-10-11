@@ -29,6 +29,8 @@ if ($method === 'POST') {
 
     // Action 1: Create Cashfree SaaS Renewal Order or Activate Free Trial
     if ($action === 'create_order' || $action === 'activate_trial' || $action === 'activate_free_plan') {
+        // Billing changes are for the gym owner only (same as the web panel)
+        AdminAuthMiddleware::requireRole(AdminAuthMiddleware::ROLES_OWNER);
         $planId = (int)($input['plan_id'] ?? 0);
         $cycle = strtolower(trim($input['billing_cycle'] ?? 'monthly'));
         $couponCode = strtoupper(trim($input['coupon_code'] ?? ''));
@@ -43,15 +45,46 @@ if ($method === 'POST') {
             ApiResponse::error('Selected plan was not found or is inactive', 400);
         }
 
-        if ($plan['billing_cycle'] === 'trial' || $action === 'activate_trial' || $action === 'activate_free_plan') {
+        $planIsFree = ($plan['billing_cycle'] === 'trial')
+            || ((float)$plan['price_monthly'] <= 0 && (float)($plan['price_yearly'] ?? 0) <= 0);
+
+        if ($action === 'activate_trial' || $action === 'activate_free_plan') {
+            // A free trial can only ever activate a free / trial plan — never a paid plan for free
+            if (!$planIsFree) {
+                ApiResponse::error('A free trial is only available on the free trial plan. Please choose a billing cycle to pay for this plan.', 400);
+            }
             $cycle = 'trial';
+        } elseif ($planIsFree) {
+            $cycle = 'trial';
+        } elseif ($cycle === 'trial') {
+            // "trial" is not a billing cycle for a paid plan
+            $cycle = 'monthly';
         }
 
         // Handle Free Trial / Demo Plan activation directly (No online gateway charge needed)
-        if ($cycle === 'trial' || (float)$plan['price_monthly'] <= 0) {
+        if ($cycle === 'trial') {
+            // One free trial per gym, only for gyms that have never paid, and never for cancelled gyms.
+            // (Prevents re-activating a trial forever, or a paying gym being cut back to a few trial days.)
+            $usedTrial = (int)DB::fetchValue("SELECT COUNT(*) FROM saas_payments WHERE tenant_id = ? AND billing_cycle = 'trial' AND status = 'approved'", [$tenantId]);
+            $paidBefore = (int)DB::fetchValue("SELECT COUNT(*) FROM saas_payments WHERE tenant_id = ? AND status = 'approved' AND total_payable > 0", [$tenantId]);
+            if ($usedTrial > 0 || strtolower((string)$tenant['status']) === 'trial') {
+                ApiResponse::error('This gym has already used its free trial. Please choose a paid plan to continue.', 400);
+            }
+            if ($paidBefore > 0) {
+                ApiResponse::error('Free trials are only available to new gyms. Please choose a paid plan to renew.', 400);
+            }
+            if (in_array(strtolower((string)$tenant['status']), ['cancelled', 'suspended', 'inactive'], true)) {
+                ApiResponse::error('This gym account is not active. Please contact support.', 403);
+            }
+
             $trialDays = max(1, (int)($plan['trial_days'] ?: 4));
             $today = date('Y-m-d');
             $expiryDate = date('Y-m-d', strtotime("+$trialDays days"));
+            // Never shorten a subscription that already runs longer than the trial
+            $currentExpiry = substr((string)($tenant['subscription_expiry'] ?? ''), 0, 10);
+            if ($currentExpiry !== '' && strpos($currentExpiry, '0000-00-00') !== 0 && $currentExpiry > $expiryDate) {
+                ApiResponse::error('Your current subscription already runs until ' . date('d M Y', strtotime($currentExpiry)) . '.', 400);
+            }
             $orderId = 'TRIAL_' . date('Ymd') . '_' . substr(bin2hex(random_bytes(4)), 0, 8);
 
             DB::insert('saas_payments', [
@@ -147,7 +180,8 @@ if ($method === 'POST') {
             $customerName,
             $customerPhone,
             $customerEmail,
-            $returnUrl
+            $returnUrl,
+            CashfreeGateway::notifyUrl()
         );
 
         if (!$cfResult['success']) {
@@ -159,41 +193,22 @@ if ($method === 'POST') {
         $paymentSessionId = $cfResult['payment_session_id'];
         $checkoutUrl = base_url('/saas-renew-checkout.php?order_id=' . urlencode($orderId) . '&payment_session_id=' . urlencode($paymentSessionId));
 
-        // Generate native UPI Intent payload and app-specific links if supported by merchant gateway
+        // UPI intent links for this order (locked amount, signed by Cashfree). Only the "link" channel
+        // returns app deep links; "qrcode" returns a QR *image*, which must never be handed to the app
+        // as a link to open. Requires UPI Intent / S2S to be enabled on the Cashfree account.
         $upiLinks = [];
         $upiIntentUrl = null;
         try {
-            // 1. Attempt channel 'link'
             $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'link');
-            if (empty($upiRes['data']['url']) && empty($upiRes['data']['payload'])) {
-                // 2. Attempt channel 'intent'
-                $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'intent');
-            }
-            if (empty($upiRes['data']['url']) && empty($upiRes['data']['payload'])) {
-                // 3. Attempt channel 'qrcode' (returns upi://pay dynamic string)
-                $upiRes = CashfreeGateway::createUpiPayment($paymentSessionId, 'qrcode');
-            }
-
-            if (!empty($upiRes['data']['url'])) {
-                $upiIntentUrl = $upiRes['data']['url'];
-                $upiLinks['default'] = $upiIntentUrl;
-            }
-            if (!empty($upiRes['data']['payload'])) {
-                if (is_array($upiRes['data']['payload'])) {
-                    $upiLinks = array_merge($upiLinks, $upiRes['data']['payload']);
-                    $upiIntentUrl = $upiIntentUrl ?: ($upiLinks['default'] ?? $upiLinks['qrcode'] ?? reset($upiLinks));
-                } elseif (is_string($upiRes['data']['payload'])) {
-                    $upiIntentUrl = $upiIntentUrl ?: $upiRes['data']['payload'];
-                    $upiLinks['default'] = $upiIntentUrl;
-                }
-            }
-            if (empty($upiIntentUrl) && !empty($upiRes['data']['link'])) {
-                $upiIntentUrl = $upiRes['data']['link'];
-                $upiLinks['cashfree_link'] = $upiRes['data']['link'];
-            }
-            if (empty($upiIntentUrl) && !empty($upiRes['data']['intent_url'])) {
-                $upiIntentUrl = $upiRes['data']['intent_url'];
-                $upiLinks['default'] = $upiIntentUrl;
+            $upiLinks = CashfreeGateway::extractUpiDeepLinks($upiRes);
+            if (!empty($upiLinks)) {
+                $upiIntentUrl = $upiLinks['default'] ?? reset($upiLinks);
+            } else {
+                error_log('Cashfree UPI intent links unavailable for ' . $orderId . ': ' . substr(json_encode([
+                    'code' => $upiRes['code'] ?? null,
+                    'type' => $upiRes['type'] ?? null,
+                    'message' => $upiRes['message'] ?? null
+                ]), 0, 300));
             }
         } catch (Throwable $e) {
             error_log("Cashfree createUpiPayment error: " . $e->getMessage());
@@ -232,6 +247,8 @@ if ($method === 'POST') {
                                       LEFT JOIN subscription_plans sp ON t.subscription_plan_id = sp.id 
                                       WHERE t.id = ?", [$tenantId]);
 
+        // Recompute from the renewed expiry (the cached tenant was loaded before the payment was applied)
+        Tenant::setCurrent(array_merge($tenant, $updatedTenant ?: []));
         $subStatus = Tenant::getSubscriptionStatus();
 
         ApiResponse::success([

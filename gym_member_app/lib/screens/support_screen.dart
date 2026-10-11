@@ -68,11 +68,12 @@ class _SupportScreenState extends State<SupportScreen> {
           _selectedCategory,
         );
 
+    if (!mounted) return;
     setState(() {
       _isSubmitting = false;
     });
 
-    if (success && mounted) {
+    if (success) {
       _subjectController.clear();
       _messageController.clear();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,7 +108,7 @@ class _SupportScreenState extends State<SupportScreen> {
       ),
       body: Builder(
         builder: (context) {
-          if (provider.loading && data == null) {
+          if (provider.isLoading(MemberModule.support) && data == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
@@ -115,9 +116,9 @@ class _SupportScreenState extends State<SupportScreen> {
             );
           }
 
-          if (provider.error != null && data == null) {
+          if (provider.errorFor(MemberModule.support) != null && data == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.support)!,
               onRetry: () => provider.fetchSupport(refresh: true),
             );
           }

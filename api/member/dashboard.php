@@ -66,7 +66,7 @@ try {
          FROM member_assigned_plans ap 
          LEFT JOIN workout_plans wp ON ap.workout_plan_id = wp.id AND wp.tenant_id = ap.tenant_id 
          LEFT JOIN diet_plans dp ON ap.diet_plan_id = dp.id AND dp.tenant_id = ap.tenant_id 
-         LEFT JOIN staffs s ON ap.trainer_id = s.user_id AND s.tenant_id = ap.tenant_id 
+         " . api_trainer_join_sql('ap', 's') . "
          WHERE ap.member_id = ? AND ap.tenant_id = ? AND ap.status = 'active' 
          ORDER BY ap.id DESC LIMIT 1",
         [$memberId, $tenantId]
@@ -249,9 +249,10 @@ $dashboard = [
         'email' => (string)($member['email'] ?? ''),
         'phone' => (string)($member['contact'] ?? ''),
         'avatar' => api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null),
-        'weight_current' => (float)($member['current_weight'] ?? $member['curr_weight'] ?? 0),
-        'weight_initial' => (float)($member['initial_weight'] ?? $member['ini_weight'] ?? 0),
-        'body_type' => (string)($member['curr_body_type'] ?? $member['curr_bodytype'] ?? $member['body_type'] ?? 'Athletic')
+        // curr_weight / ini_weight / curr_bodytype exist on every install and are what the app and panel update
+        'weight_current' => (float)($member['curr_weight'] ?? $member['current_weight'] ?? 0),
+        'weight_initial' => (float)($member['ini_weight'] ?? $member['initial_weight'] ?? 0),
+        'body_type' => (string)($member['curr_bodytype'] ?? $member['curr_body_type'] ?? $member['body_type'] ?? 'Athletic')
     ],
     'membership' => [
         'plan_name' => (string)(($member['services'] ?? '') ?: 'General Fitness Plan'),
@@ -265,8 +266,9 @@ $dashboard = [
     ],
     'attendance' => [
         'today_status' => $todayAttendance ? (empty($todayAttendance['check_out_time']) ? 'Checked In' : 'Completed') : 'Not Checked In',
-        'today_check_in' => (string)($todayAttendance['curr_time'] ?? ''),
-        'today_check_out' => (string)($todayAttendance['check_out_time'] ?? ''),
+        // null (not '') when absent: the app shows the Self Check-In / Check-Out buttons on == null
+        'today_check_in' => !empty($todayAttendance['curr_time']) ? (string)$todayAttendance['curr_time'] : null,
+        'today_check_out' => !empty($todayAttendance['check_out_time']) ? (string)$todayAttendance['check_out_time'] : null,
         'total_lifetime_sessions' => (int)($member['attendance_count'] ?? 0)
     ],
     'payments' => [

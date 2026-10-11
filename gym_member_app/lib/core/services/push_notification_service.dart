@@ -30,7 +30,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 class PushNotificationService {
-  static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  // Getter (not a cached static) so nothing touches FirebaseMessaging before Firebase.initializeApp() ran
+  static FirebaseMessaging get _messaging => FirebaseMessaging.instance;
   static final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   static const String _channelId = 'gym_high_importance_channel';
@@ -48,11 +49,41 @@ class PushNotificationService {
   );
 
   static bool _initialized = false;
+  static Future<void>? _initFuture;
   static String? _cachedDeviceToken;
   static String? _lastSyncStatus;
 
   /// Global callback when a notification is clicked to trigger in-app navigation
   static Function(Map<String, dynamic> data)? onNotificationClick;
+
+  /// Navigator used for notification-click navigation (attached to the MaterialApp)
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  // A click that arrives before the first real screen is shown (app launched from a notification)
+  // is held until the splash screen has finished routing.
+  static bool _appReady = false;
+  static Map<String, dynamic>? _pendingClick;
+
+  static void markAppReady() {
+    _appReady = true;
+    final pending = _pendingClick;
+    _pendingClick = null;
+    if (pending != null) {
+      _dispatchNotificationClick(pending);
+    }
+  }
+
+  static void _dispatchNotificationClick(Map<String, dynamic> data) {
+    if (!_appReady || onNotificationClick == null) {
+      _pendingClick = data;
+      return;
+    }
+    try {
+      onNotificationClick!(data);
+    } catch (e) {
+      debugPrint('[FCM] Notification click handler error: $e');
+    }
+  }
 
   /// Retrieve active or cached device token
   static Future<String?> getDeviceToken() async {
@@ -91,8 +122,13 @@ class PushNotificationService {
     };
   }
 
-  /// Initialize Firebase Cloud Messaging and Local Notifications
-  static Future<void> initialize() async {
+  /// Initialize Firebase Cloud Messaging and Local Notifications.
+  /// Safe to call more than once; concurrent callers share the same initialization.
+  static Future<void> initialize() {
+    return _initFuture ??= _initialize();
+  }
+
+  static Future<void> _initialize() async {
     if (_initialized) return;
 
     try {
@@ -147,7 +183,9 @@ class PushNotificationService {
           if (response.payload != null && response.payload!.isNotEmpty) {
             try {
               final payloadMap = jsonDecode(response.payload!);
-              onNotificationClick?.call(payloadMap);
+              if (payloadMap is Map) {
+                _dispatchNotificationClick(Map<String, dynamic>.from(payloadMap));
+              }
             } catch (_) {}
           }
         },
@@ -169,14 +207,14 @@ class PushNotificationService {
       // 7. Handle notification click when app is opened from background
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         debugPrint('[FCM Opened] From background: ${message.data}');
-        onNotificationClick?.call(message.data);
+        _dispatchNotificationClick(Map<String, dynamic>.from(message.data));
       });
 
       // 8. Handle notification click when app was completely terminated
       final initialMessage = await _messaging.getInitialMessage();
       if (initialMessage != null) {
         debugPrint('[FCM Initial] App opened from terminated state: ${initialMessage.data}');
-        onNotificationClick?.call(initialMessage.data);
+        _dispatchNotificationClick(Map<String, dynamic>.from(initialMessage.data));
       }
 
       // 9. Listen for token refreshes
@@ -274,6 +312,9 @@ class PushNotificationService {
     );
   }
 
+  /// Persistent per-install device ID (also sent on login so each phone keeps its own session)
+  static Future<String> getDeviceId() => _getDeviceId();
+
   /// Retrieve persistent unique device ID
   static Future<String> _getDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -288,9 +329,20 @@ class PushNotificationService {
     return deviceId;
   }
 
-  /// Synchronize FCM Device Token with the backend API
+  /// Synchronize FCM Device Token with the backend API (only while a user is logged in)
   static Future<void> syncDeviceToken({String? customToken}) async {
     try {
+      // A token is registered for the signed-in account only; when logged out there is nothing to link it to.
+      final authToken = ApiService.activeToken;
+      if (authToken == null || authToken.isEmpty) {
+        _lastSyncStatus = 'Skipped: not logged in';
+        return;
+      }
+
+      if (!_initialized) {
+        await initialize();
+      }
+
       String? token = customToken;
       if (token == null || token.isEmpty) {
         try {
@@ -307,15 +359,17 @@ class PushNotificationService {
       }
 
       _cachedDeviceToken = token;
-      debugPrint('[FCM] Active Device Token: $token');
 
-      final authToken = await SecureStorageService.getToken();
+      // The session may have ended while Firebase was answering
+      if (ApiService.activeToken != authToken) {
+        _lastSyncStatus = 'Skipped: session changed';
+        return;
+      }
+
       final userRole = await SecureStorageService.getUserRole() ?? 'member';
       final gymCode = await SecureStorageService.getCurrentGymCode();
       final isAdmin = ['gym_admin', 'staff', 'super_admin', 'trainer'].contains(userRole.toLowerCase());
-      final endpoint = (isAdmin && authToken != null && authToken.isNotEmpty)
-          ? ApiConfig.adminDeviceToken
-          : ApiConfig.deviceToken;
+      final endpoint = isAdmin ? ApiConfig.adminDeviceToken : ApiConfig.deviceToken;
 
       final deviceId = await _getDeviceId();
 
@@ -328,45 +382,29 @@ class PushNotificationService {
         'user_role': userRole,
       };
 
-      try {
-        final res = await ApiService.post(
-          endpoint,
-          body: payload,
-          gymCode: gymCode,
-          isAdmin: isAdmin && authToken != null && authToken.isNotEmpty,
-        );
-        _lastSyncStatus = 'Synced successfully at ${DateTime.now().toIso8601String()}';
-        debugPrint('[FCM] Device push token synced successfully with backend ($endpoint). Response: $res');
-      } catch (postErr) {
-        debugPrint('[FCM] Primary endpoint ($endpoint) sync error: $postErr. Trying universal fallback endpoint.');
-        // Fallback to universal member/guest device token endpoint
-        if (endpoint != ApiConfig.deviceToken) {
-          final fallbackRes = await ApiService.post(
-            ApiConfig.deviceToken,
-            body: payload,
-            gymCode: gymCode,
-            isAdmin: false,
-          );
-          _lastSyncStatus = 'Synced via fallback at ${DateTime.now().toIso8601String()}';
-          debugPrint('[FCM] Fallback token sync response: $fallbackRes');
-        } else {
-          rethrow;
-        }
-      }
+      final res = await ApiService.post(
+        endpoint,
+        body: payload,
+        gymCode: gymCode,
+        isAdmin: isAdmin,
+      );
+      _lastSyncStatus = 'Synced successfully at ${DateTime.now().toIso8601String()}';
+      debugPrint('[FCM] Device push token synced successfully with backend ($endpoint). Response: $res');
     } catch (e) {
       _lastSyncStatus = 'Sync error: $e';
       debugPrint('[FCM] Failed to sync device push token: $e');
     }
   }
 
-  /// Unregister device token upon user logout
-  static Future<void> unregisterDeviceToken() async {
+  /// Unregister device token upon user logout. [authToken]/[role]/[gymCode] describe the session being
+  /// closed; they are passed explicitly because local storage may already be cleared (or hold a new session).
+  static Future<void> unregisterDeviceToken({String? authToken, String? role, String? gymCode}) async {
     try {
       final deviceId = await _getDeviceId();
-      final authToken = await SecureStorageService.getToken();
-      if (authToken == null || authToken.isEmpty) return;
+      final token = (authToken != null && authToken.isNotEmpty) ? authToken : await SecureStorageService.getToken();
+      if (token == null || token.isEmpty) return;
 
-      final userRole = await SecureStorageService.getUserRole();
+      final userRole = role ?? await SecureStorageService.getUserRole();
       final isAdmin = ['gym_admin', 'staff', 'super_admin', 'trainer'].contains((userRole ?? '').toLowerCase());
       final endpoint = isAdmin ? ApiConfig.adminDeviceToken : ApiConfig.deviceToken;
 
@@ -377,6 +415,11 @@ class PushNotificationService {
           'device_id': deviceId,
         },
         isAdmin: isAdmin,
+        gymCode: gymCode,
+        bearerToken: token,
+        // Called during logout: a rejected token here must not trigger another logout
+        handleUnauthorized: false,
+        timeout: const Duration(seconds: 15),
       );
       _lastSyncStatus = 'Session unlinked on logout';
       debugPrint('[FCM] Device push token session unlinked on logout.');

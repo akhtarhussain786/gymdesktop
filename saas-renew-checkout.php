@@ -3,12 +3,13 @@
  * Cashfree Hosted Drop-in Checkout Page for Gym SaaS Subscription Renewal / Upgrade
  */
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/cashfree.php';
 require_once __DIR__ . '/core/helpers.php';
 require_once __DIR__ . '/core/subscription_engine.php';
+require_once __DIR__ . '/core/account_provisioner.php';
 
 $orderId = trim($_GET['order_id'] ?? '');
 if (empty($orderId)) {
@@ -29,7 +30,11 @@ if ($payment['status'] === 'approved') {
     redirect(base_url('/saas-renew-callback.php?order_id=' . urlencode($orderId)));
 }
 
-$paymentSessionId = $_GET['payment_session_id'] ?? '';
+// Query-string values are echoed into the page: accept only the shapes the app / API generate
+$paymentSessionId = is_string($_GET['payment_session_id'] ?? null) ? trim($_GET['payment_session_id']) : '';
+if (!preg_match('/^[A-Za-z0-9_.=\-]{1,512}$/', $paymentSessionId)) {
+    $paymentSessionId = '';
+}
 $error = null;
 
 if (empty($paymentSessionId)) {
@@ -47,15 +52,33 @@ if (empty($paymentSessionId)) {
     if ($cfResult['success']) {
         $paymentSessionId = $cfResult['payment_session_id'];
     } else {
-        $error = $cfResult['error'] ?? 'Could not initialize Cashfree gateway.';
+        // The order normally exists at Cashfree already (created by the app / admin panel, or this is
+        // "Try Again"): pay the same order instead of failing, and never start a second payment for a paid one.
+        $existingOrder = AccountProvisioner::gatewayOrderState($orderId);
+        if ($existingOrder['state'] === 'paid') {
+            redirect(base_url('/saas-renew-callback.php?order_id=' . urlencode($orderId)));
+        } elseif ($existingOrder['state'] === 'active' && !empty($existingOrder['payment_session_id'])) {
+            $paymentSessionId = $existingOrder['payment_session_id'];
+        } elseif ($existingOrder['state'] === 'closed') {
+            $error = 'This payment link has expired. Please start the renewal again from your dashboard.';
+        } else {
+            $error = $cfResult['error'] ?? 'Could not initialize Cashfree gateway.';
+        }
     }
 }
 
 $cashfreeMode = CashfreeGateway::getMode();
 $jsSdkUrl = CashfreeGateway::getJsSdkUrl();
 $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
-$mode = strtolower(trim($_GET['mode'] ?? ''));
-$targetApp = strtolower(trim($_GET['app'] ?? $_GET['target_app'] ?? ''));
+$mode = is_string($_GET['mode'] ?? null) ? strtolower(trim($_GET['mode'])) : '';
+if (!in_array($mode, ['upi', 'cards'], true)) {
+    $mode = '';
+}
+$targetApp = $_GET['app'] ?? ($_GET['target_app'] ?? '');
+$targetApp = is_string($targetApp) ? strtolower(trim($targetApp)) : '';
+if (!preg_match('/^[a-z0-9_]{1,30}$/', $targetApp)) {
+    $targetApp = '';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -228,7 +251,7 @@ $targetApp = strtolower(trim($_GET['app'] ?? $_GET['target_app'] ?? ''));
 
             <div class="price-hero">
                 <div class="plan-tag"><?php echo htmlspecialchars($payment['plan_name']); ?> • <?php echo ucfirst(htmlspecialchars($payment['billing_cycle'])); ?></div>
-                <div class="amount"><?php echo $currency . number_format((float)$payment['total_payable'], 2); ?></div>
+                <div class="amount"><?php echo e($currency) . number_format((float)$payment['total_payable'], 2); ?></div>
                 <div class="cycle">Total Payable including taxes</div>
             </div>
 
@@ -236,7 +259,7 @@ $targetApp = strtolower(trim($_GET['app'] ?? $_GET['target_app'] ?? ''));
             <div id="cashfree-drop-in">
                 <div style="text-align: center; padding: 30px 0; color: var(--text-muted);">
                     <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #6366f1; margin-bottom: 12px;"></i>
-                    <div id="status-text"><?php echo ($mode === 'upi') ? 'Opening ' . ucfirst($targetApp ?: 'UPI App') . '...' : 'Connecting to Payment Gateway...'; ?></div>
+                    <div id="status-text"><?php echo e(($mode === 'upi') ? 'Opening ' . ucfirst($targetApp ?: 'UPI App') . '...' : 'Connecting to Payment Gateway...'); ?></div>
                 </div>
             </div>
         </div>
@@ -252,10 +275,10 @@ $targetApp = strtolower(trim($_GET['app'] ?? $_GET['target_app'] ?? ''));
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     <?php if (!empty($paymentSessionId)): ?>
-        const cashfree = Cashfree({ mode: "<?php echo $cashfreeMode; ?>" });
-        const mode = "<?php echo $mode; ?>";
-        const targetApp = "<?php echo $targetApp; ?>";
-        const paymentSessionId = "<?php echo $paymentSessionId; ?>";
+        const cashfree = Cashfree({ mode: <?php echo js_value($cashfreeMode); ?> });
+        const mode = <?php echo js_value($mode); ?>;
+        const targetApp = <?php echo js_value($targetApp); ?>;
+        const paymentSessionId = <?php echo js_value((string)$paymentSessionId); ?>;
 
         function triggerUpiApp(appName) {
             try {

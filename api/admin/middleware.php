@@ -105,12 +105,21 @@ class AdminAuthMiddleware {
             ApiResponse::forbidden('Gym account does not exist.');
         }
 
+        // Suspended / inactive gyms cannot use the app at all (same rule as the web login)
+        $tenantStatus = strtolower((string)($tenant['status'] ?? 'active'));
+        if (in_array($tenantStatus, ['suspended', 'inactive'], true)) {
+            ApiResponse::forbidden('This gym account is currently ' . $tenantStatus . '. Please contact support.');
+        }
+
         // Set global tenant context for helpers
         Tenant::setTenantId($tenantId);
         Tenant::setCurrent($tenant);
 
         // Apply Gym local time
         api_apply_tenant_timezone($tenant);
+
+        // Per-endpoint role rules (mirror the web panel) and read-only mode for expired gyms
+        self::enforceEndpointPolicy($role);
 
         // Update token last used
         DB::query("UPDATE member_tokens SET last_used_at = NOW() WHERE id = ?", [$tokenRecord['id']]);
@@ -124,7 +133,78 @@ class AdminAuthMiddleware {
             'user' => $user,
             'tenant_id' => $tenantId,
             'user_id' => $userId,
-            'role' => $role
+            'role' => $role,
+            'token_id' => (int)$tokenRecord['id']
         ];
+    }
+
+    const ROLES_OWNER = ['gym_admin', 'super_admin'];
+    const ROLES_MANAGERS = ['gym_admin', 'staff', 'super_admin'];
+
+    /**
+     * Which roles may read (GET) / change (POST, PUT, DELETE) each endpoint. Endpoints not listed are open to
+     * every gym role. Endpoints with several actions behind one method (subscription, notifications,
+     * edit_member delete) additionally check inside the endpoint with requireRole().
+     */
+    private static function endpointPolicy() {
+        return [
+            'staffs.php'          => ['read' => null,                  'write' => self::ROLES_OWNER],
+            'settings.php'        => ['read' => null,                  'write' => self::ROLES_OWNER],
+            'rates.php'           => ['read' => null,                  'write' => self::ROLES_OWNER],
+            'expenses.php'        => ['read' => self::ROLES_OWNER,     'write' => self::ROLES_OWNER],
+            'reports.php'         => ['read' => self::ROLES_OWNER,     'write' => self::ROLES_OWNER],
+            'transactions.php'    => ['read' => self::ROLES_MANAGERS,  'write' => self::ROLES_MANAGERS],
+            'add_member.php'      => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+            'edit_member.php'     => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+            'collect_payment.php' => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+            'classes.php'         => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+            'equipment.php'       => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+            'announcements.php'   => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+            'inquiries.php'       => ['read' => null,                  'write' => self::ROLES_MANAGERS],
+        ];
+    }
+
+    private static function enforceEndpointPolicy($role) {
+        $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        $isWrite = !in_array($method, ['GET', 'HEAD', 'OPTIONS'], true);
+
+        $policy = self::endpointPolicy()[$script] ?? null;
+        if ($policy) {
+            $allowed = $isWrite ? $policy['write'] : $policy['read'];
+            if ($allowed !== null && !in_array($role, $allowed, true)) {
+                ApiResponse::forbidden('This action is only available to the gym owner' . ($allowed === self::ROLES_MANAGERS ? ' or staff' : '') . '.');
+            }
+        }
+
+        // Expired (past grace) / cancelled gyms are read-only. Renewal (api/admin/subscription.php and the
+        // api/subscription/* endpoints), push-token and notification endpoints handle this themselves
+        // (renewing and marking notifications read must keep working).
+        $scriptPath = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
+        $isRenewalApi = (strpos($scriptPath, '/api/subscription/') !== false);
+        if ($isWrite && !$isRenewalApi && !in_array($script, ['subscription.php', 'device_token.php', 'notifications.php'], true)) {
+            self::requireWritable();
+        }
+    }
+
+    /**
+     * 403 unless the authenticated user has one of $roles
+     */
+    public static function requireRole(array $roles) {
+        $user = self::$authenticatedUser;
+        $role = strtolower((string)($user['role'] ?? ''));
+        if (!in_array($role, $roles, true)) {
+            ApiResponse::forbidden('This action is only available to the gym owner' . ($roles === self::ROLES_MANAGERS ? ' or staff' : '') . '.');
+        }
+    }
+
+    /**
+     * 403 when the gym is in read-only mode (platform subscription expired past grace / cancelled)
+     */
+    public static function requireWritable() {
+        if (Tenant::isReadOnly()) {
+            $sub = Tenant::getSubscriptionStatus();
+            ApiResponse::error($sub['message'] ?: 'Your gym subscription has expired. Please renew to make changes.', 403, null, ['read_only' => true]);
+        }
     }
 }

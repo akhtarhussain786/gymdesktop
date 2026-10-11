@@ -35,7 +35,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_staff'])) {
 
     if (!empty($_POST['new_password'])) {
         $hash = password_hash($_POST['new_password'], PASSWORD_DEFAULT); // was unsalted md5
-        DB::update('staffs', ['password' => $hash], 'user_id = ? AND tenant_id = ?', [$staffId, $tenantId]);
+        // The person may also sign in through a users row (web + admin app): the new password must
+        // replace the old one there too, and existing app sessions must stop working.
+        Auth::syncLinkedPasswords('staffs', $staffId, $tenantId, $hash);
+        $hasStaffLink = in_array('staff_id', DB::tableColumns('users') ?? [], true);
+        if ($hasStaffLink) {
+            $linkedUsers = DB::fetchAll(
+                "SELECT id, staff_id FROM users WHERE tenant_id = ? AND role NOT IN ('member', 'super_admin', 'superadmin')
+                 AND (staff_id = ? OR (staff_id IS NULL AND username = ? AND role IN ('staff', 'trainer')))",
+                [$tenantId, $staffId, $staff['username']]
+            );
+        } else {
+            $linkedUsers = DB::fetchAll(
+                "SELECT id, NULL AS staff_id FROM users WHERE tenant_id = ? AND username = ? AND role IN ('staff', 'trainer')",
+                [$tenantId, $staff['username']]
+            );
+        }
+        foreach ($linkedUsers as $lu) {
+            if (empty($lu['staff_id'])) {
+                // Matched by username only, so syncLinkedPasswords() could not reach it
+                DB::update('users', ['password' => $hash], 'id = ? AND tenant_id = ?', [(int)$lu['id'], $tenantId]);
+            }
+            Auth::revokeApiTokens($tenantId, (int)$lu['id']);
+            if (($_SESSION['auth_source'] ?? '') === 'users' && (int)($_SESSION['account_id'] ?? 0) === (int)$lu['id']) {
+                Auth::refreshPasswordFingerprint();
+            }
+        }
     }
 
     Auth::auditLog('UPDATE_STAFF', "Updated staff $fullname (#$staffId)");

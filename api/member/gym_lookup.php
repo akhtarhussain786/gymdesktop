@@ -14,9 +14,10 @@ if (empty($gymCode)) {
     ApiResponse::error('Please enter a valid Gym Code.', 422, ['gym_code' => 'Gym Code is required.']);
 }
 
-// Throttle code-guessing / enumeration per IP
+// Throttle code-guessing / enumeration per IP. Only failed lookups count toward the tight limit: the app
+// re-verifies its saved gym on every cold start, and members on a shared gym Wi-Fi share one IP.
 $lookupRateKey = api_rate_key(['gym_lookup_ip', api_client_ip()]);
-if (api_rate_limited('gym_lookup', $lookupRateKey, 30, 600)) {
+if (api_rate_limited('gym_lookup_fail', $lookupRateKey, 30, 600) || api_rate_limited('gym_lookup', $lookupRateKey, 300, 600)) {
     ApiResponse::error('Too many lookups. Please wait a few minutes and try again.', 429);
 }
 api_rate_record('gym_lookup', $lookupRateKey);
@@ -35,6 +36,7 @@ $gym = DB::fetchOne(
 );
 
 if (!$gym) {
+    api_rate_record('gym_lookup_fail', $lookupRateKey);
     ApiResponse::notFound('No gym found matching this Gym Code. Please verify your Gym Code and try again.');
 }
 

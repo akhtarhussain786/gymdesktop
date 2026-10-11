@@ -525,8 +525,10 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
           setCardState(() => isActionBusy = true);
           final provider = Provider.of<AdminProvider>(context, listen: false);
           final docData = await provider.fetchMemberRegistrationData(member.memberId);
+          // This builder's own context (not the screen's) is the one used below
+          if (!context.mounted) return null;
           setCardState(() => isActionBusy = false);
-          if (docData == null && mounted) {
+          if (docData == null) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('Failed to load official registration details from server.'),
@@ -615,7 +617,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           final doc = await fetchDoc();
-                          if (doc != null && mounted) {
+                          if (doc != null && context.mounted) {
                             await PdfService.shareRegistrationPdf(context, doc);
                           }
                         },
@@ -637,7 +639,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
                       child: OutlinedButton.icon(
                         onPressed: () async {
                           final doc = await fetchDoc();
-                          if (doc != null && mounted) {
+                          if (doc != null && context.mounted) {
                             PdfService.previewRegistrationPdf(context, doc);
                           }
                         },
@@ -659,7 +661,7 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen> with 
                       child: OutlinedButton.icon(
                         onPressed: () async {
                           final doc = await fetchDoc();
-                          if (doc != null && mounted) {
+                          if (doc != null && context.mounted) {
                             await PdfService.downloadRegistrationPdf(context, doc);
                           }
                         },

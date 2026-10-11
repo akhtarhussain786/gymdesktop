@@ -102,8 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'status' => 'active'
             ]);
 
+            // The super admin knows this password: the gym owner must replace it at first login
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            DB::insert('users', [
+            $adminUserId = DB::insert('users', [
                 'tenant_id' => $tenantId,
                 'branch_id' => $branchId,
                 'role' => 'gym_admin',
@@ -112,8 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'email' => $email,
                 'fullname' => $owner_name,
                 'phone' => $phone,
-                'status' => 'active'
+                'status' => 'active',
+                'must_change_password' => 1
             ]);
+            if ($adminUserId) {
+                Auth::revokeApiTokens($tenantId, $adminUserId);
+            }
 
             Tenant::ensureDefaultRates($tenantId);
 
@@ -225,21 +230,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'branches'
         ];
 
-        DB::beginTransaction();
-
-        // Delete from all tenant-specific tables (attendance is tenant-scoped; never match by user_id
-        // alone since legacy user_id values are not unique across tables)
+        // Tables that exist on this install with a tenant_id column (schemas differ between installs)
+        $tablesToClean = [];
         foreach ($tablesWithTenantId as $tbl) {
-            $tblExists = (int)DB::fetchValue("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", [$tbl]);
-            if ($tblExists) {
-                DB::query("DELETE FROM `{$tbl}` WHERE tenant_id = ?", [$id]);
+            $cols = DB::tableColumns($tbl);
+            if ($cols !== null && in_array('tenant_id', $cols, true)) {
+                $tablesToClean[] = $tbl;
             }
         }
 
-        // Delete reset tokens, members, users and tenant record
-        DB::query("DELETE FROM password_resets WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ? AND role NOT IN ('super_admin','superadmin'))", [$id]);
-        DB::query("DELETE FROM members WHERE tenant_id = ?", [$id]);
-        DB::query("DELETE FROM users WHERE tenant_id = ? AND role NOT IN ('super_admin','superadmin')", [$id]);
+        DB::beginTransaction();
+
+        // Delete from all tenant-specific tables (attendance is tenant-scoped; never match by user_id
+        // alone since legacy user_id values are not unique across tables). Any failed statement rolls
+        // the whole deletion back so a gym is never left half-deleted.
+        $statements = [];
+        foreach ($tablesToClean as $tbl) {
+            $statements[] = ["DELETE FROM `{$tbl}` WHERE tenant_id = ?", [$id]];
+        }
+        $statements[] = ["DELETE FROM password_resets WHERE user_id IN (SELECT id FROM users WHERE tenant_id = ? AND role NOT IN ('super_admin','superadmin'))", [$id]];
+        $statements[] = ["DELETE FROM members WHERE tenant_id = ?", [$id]];
+        $statements[] = ["DELETE FROM users WHERE tenant_id = ? AND role NOT IN ('super_admin','superadmin')", [$id]];
+
+        foreach ($statements as $stmt) {
+            if (!is_array(DB::query($stmt[0], $stmt[1]))) {
+                $failedError = DB::$lastError;
+                DB::rollback();
+                error_log("Tenant #{$id} deletion rolled back at: {$stmt[0]} ({$failedError})");
+                redirect('tenants.php', 'error', 'Failed to delete gym tenant. No changes were made.');
+            }
+        }
         $deleted = DB::query("DELETE FROM tenants WHERE id = ?", [$id]);
 
         if (!is_array($deleted) || (int)$deleted['affected'] !== 1) {
@@ -253,7 +273,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$plans = DB::fetchAll("SELECT * FROM subscription_plans ORDER BY price ASC");
+// Older installs have no subscription_plans.price column (only price_monthly / price_yearly)
+$planOrderCol = in_array('price', DB::tableColumns('subscription_plans') ?? [], true) ? 'price' : 'price_monthly';
+$plans = DB::fetchAll("SELECT * FROM subscription_plans ORDER BY {$planOrderCol} ASC, id ASC");
 $tenants = DB::fetchAll("SELECT t.*, p.name as plan_name, 
                          (SELECT COUNT(*) FROM members m WHERE m.tenant_id = t.id) as member_count,
                          (SELECT COUNT(*) FROM staffs s WHERE s.tenant_id = t.id) as staff_count 
@@ -414,7 +436,7 @@ include __DIR__ . '/../includes/topbar.php';
                         <label class="form-label">Subscription Plan</label>
                         <select name="subscription_plan_id" id="edit-plan" class="form-select">
                             <?php foreach ($plans as $p): ?>
-                                <option value="<?php echo $p['id']; ?>"><?php echo e($p['name']); ?> (₹<?php echo number_format($p['price_monthly'] ?: $p['price'], 0); ?>/mo)</option>
+                                <option value="<?php echo $p['id']; ?>"><?php echo e($p['name']); ?> (₹<?php echo number_format($p['price_monthly'] ?: ($p['price'] ?? 0), 0); ?>/mo)</option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -518,7 +540,7 @@ include __DIR__ . '/../includes/topbar.php';
                         <select name="subscription_plan_id" class="form-select" required>
                             <?php foreach ($plans as $p): ?>
                                 <option value="<?php echo $p['id']; ?>" <?php echo $p['id'] == 2 ? 'selected' : ''; ?>>
-                                    <?php echo e($p['name']); ?> (₹<?php echo number_format($p['price_monthly'] ?: $p['price'], 0); ?>/mo)
+                                    <?php echo e($p['name']); ?> (₹<?php echo number_format($p['price_monthly'] ?: ($p['price'] ?? 0), 0); ?>/mo)
                                 </option>
                             <?php endforeach; ?>
                         </select>

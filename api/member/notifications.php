@@ -20,15 +20,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $input['action'] ?? 'mark_read';
     $notificationId = (int)($input['notification_id'] ?? 0);
 
+    // Only this member's own rows: broadcast rows (no recipient) carry a single is_read flag shared by
+    // every member who can see them, so one member must not flip it for the whole gym / platform.
     if ($action === 'mark_all_read') {
         DB::query(
-            "UPDATE notifications SET is_read = 1 WHERE (tenant_id = ? OR tenant_id IS NULL) AND (recipient_member_id = ? OR target_type IN ('all_members', 'broadcast'))",
+            "UPDATE notifications SET is_read = 1 WHERE tenant_id = ? AND recipient_member_id = ? AND is_read = 0",
             [$tenantId, $memberId]
         );
         ApiResponse::success(null, 'All notifications marked as read.');
     } else {
         if ($notificationId > 0) {
-            DB::query("UPDATE notifications SET is_read = 1 WHERE id = ?", [$notificationId]);
+            DB::query(
+                "UPDATE notifications SET is_read = 1 WHERE id = ? AND tenant_id = ? AND recipient_member_id = ?",
+                [$notificationId, $tenantId, $memberId]
+            );
         }
         ApiResponse::success(null, 'Notification marked as read.');
     }
@@ -38,11 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $limit = (int)($_GET['limit'] ?? 30);
 $notifications = NotificationEngine::getMemberNotifications($tenantId, $memberId, $limit);
 
+// Rows "mark all as read" can clear (see above), so the badge always resets
 $unreadCount = (int)DB::fetchValue(
-    "SELECT COUNT(*) FROM notifications 
-     WHERE (tenant_id = ? OR tenant_id IS NULL) 
-       AND (recipient_member_id = ? OR (target_type IN ('all_members', 'broadcast') AND recipient_member_id IS NULL))
-       AND is_read = 0",
+    "SELECT COUNT(*) FROM notifications WHERE tenant_id = ? AND recipient_member_id = ? AND is_read = 0",
     [$tenantId, $memberId]
 );
 

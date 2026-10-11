@@ -27,11 +27,31 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     });
   }
 
+  // The invoice's real state as reported by the server (paid / partial / pending / unpaid / cancelled)
+  ({String label, Color color, IconData icon}) _statusStyle(String rawStatus) {
+    switch (rawStatus.trim().toLowerCase()) {
+      case 'paid':
+        return (label: 'PAID', color: AppColors.success, icon: Icons.verified_rounded);
+      case 'partial':
+        return (label: 'PARTIALLY PAID', color: AppColors.warning, icon: Icons.timelapse_rounded);
+      case 'pending':
+        return (label: 'PENDING VERIFICATION', color: AppColors.warning, icon: Icons.hourglass_top_rounded);
+      case 'cancelled':
+        return (label: 'CANCELLED', color: AppColors.danger, icon: Icons.cancel_rounded);
+      case 'unpaid':
+        return (label: 'UNPAID', color: AppColors.danger, icon: Icons.pending_rounded);
+      default:
+        final label = rawStatus.trim().isEmpty ? 'UNKNOWN' : rawStatus.trim().toUpperCase();
+        return (label: label, color: AppColors.warning, icon: Icons.info_outline_rounded);
+    }
+  }
+
   void _showReceiptModal(InvoiceItem invoice) {
     _showFullTaxInvoiceDialog(invoice);
   }
 
   void _showFullTaxInvoiceDialog(InvoiceItem invoice) {
+    final statusStyle = _statusStyle(invoice.status);
     final auth = context.read<AuthProvider>();
     final tenant = auth.currentTenant;
     final member = auth.currentMember;
@@ -250,19 +270,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.1),
+                          color: statusStyle.color.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                          border: Border.all(color: statusStyle.color.withValues(alpha: 0.3)),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.verified_rounded, color: AppColors.success, size: 22),
+                            Icon(statusStyle.icon, color: statusStyle.color, size: 22),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('PAYMENT STATUS: VERIFIED PAID', style: GoogleFonts.plusJakartaSans(fontSize: 11.5, color: AppColors.success, fontWeight: FontWeight.w800)),
+                                  Text('PAYMENT STATUS: ${statusStyle.label}', style: GoogleFonts.plusJakartaSans(fontSize: 11.5, color: statusStyle.color, fontWeight: FontWeight.w800)),
                                   Text('Method: ${invoice.paymentMethod} ${invoice.transactionRef != null && invoice.transactionRef!.isNotEmpty ? "• Ref: ${invoice.transactionRef}" : ""}', style: GoogleFonts.plusJakartaSans(fontSize: 11, color: AppColors.darkTextSecondary)),
                                 ],
                               ),
@@ -295,7 +315,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                     'Plan: ${invoice.serviceName} (${invoice.planMonths} Mo)\n'
                                     'Date: ${invoice.paymentDate}\n'
                                     'Paid Amount: ${tenant?.currency ?? "₹"}${invoice.paidAmount.toStringAsFixed(2)}\n'
-                                    'Status: PAID (Verified)\n'
+                                    'Status: ${statusStyle.label}\n'
                                     'Payment Method: ${invoice.paymentMethod}\n'
                                     '==============================';
                                 Clipboard.setData(ClipboardData(text: text));
@@ -347,7 +367,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     final tenant = context.read<AuthProvider>().currentTenant;
     final currency = tenant?.currency ?? '₹';
 
-    if (provider.loading && data == null) {
+    if (provider.isLoading(MemberModule.payments) && data == null) {
       return Scaffold(
         backgroundColor: AppColors.bg(context),
         body: const Center(
@@ -358,11 +378,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       );
     }
 
-    if (provider.error != null && data == null) {
+    if (provider.errorFor(MemberModule.payments) != null && data == null) {
       return Scaffold(
         backgroundColor: AppColors.bg(context),
         body: ErrorRetryView(
-          message: provider.error!,
+          message: provider.errorFor(MemberModule.payments)!,
           onRetry: () => provider.fetchPayments(refresh: true),
         ),
       );

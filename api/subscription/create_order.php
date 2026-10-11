@@ -11,6 +11,8 @@ require_once __DIR__ . '/../../core/cashfree.php';
 require_once __DIR__ . '/../../core/subscription_engine.php';
 
 $auth = AdminAuthMiddleware::authenticate();
+// Billing changes are for the gym owner only (same as api/admin/subscription.php)
+AdminAuthMiddleware::requireRole(AdminAuthMiddleware::ROLES_OWNER);
 $tenantId = (int)$auth['tenant_id'];
 
 $rawInput = file_get_contents('php://input');
@@ -89,7 +91,8 @@ $cfResult = CashfreeGateway::createOrder(
     $customerName,
     $customerPhone,
     $customerEmail,
-    $returnUrl
+    $returnUrl,
+    CashfreeGateway::notifyUrl()
 );
 
 if (!$cfResult['success']) {

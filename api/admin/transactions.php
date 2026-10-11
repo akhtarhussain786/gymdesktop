@@ -39,8 +39,6 @@ if (!$schemaChecked) {
         if (!api_column_exists('invoices', 'created_by')) {
             @DB::query("ALTER TABLE `invoices` ADD COLUMN `created_by` int DEFAULT NULL");
         }
-        // Auto-clean orphaned invoices from deleted members
-        @DB::query("DELETE FROM invoices WHERE tenant_id = ? AND member_id NOT IN (SELECT user_id FROM members WHERE tenant_id = ?)", [$tenantId, $tenantId]);
     } catch (Throwable $e) {
         error_log("Transactions schema check: " . $e->getMessage());
     }
@@ -59,38 +57,43 @@ $summary = [
 ];
 
 if (api_table_exists('invoices')) {
+    // Collected = paid_amount on paid/partial invoices; legacy 'paid' rows that never stored paid_amount count
+    // their amount. Same definition as dashboard.php and reports.php.
+    $collectedSql = "COALESCE(SUM(CASE WHEN LOWER(status) = 'paid' AND COALESCE(paid_amount, 0) <= 0 THEN COALESCE(amount, 0) ELSE COALESCE(paid_amount, 0) END), 0)";
+    $collectedWhere = "tenant_id = ? AND LOWER(status) IN ('paid', 'partial')";
+
     // Total Collection
     $summary['total_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial')",
+        "SELECT $collectedSql FROM invoices 
+         WHERE $collectedWhere",
         [$tenantId]
     );
 
     // Today Collection
     $summary['today_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND payment_date = CURDATE()",
+        "SELECT $collectedSql FROM invoices 
+         WHERE $collectedWhere AND payment_date = CURDATE()",
         [$tenantId]
     );
 
     // This Month Collection
     $summary['this_month_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND payment_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')",
+        "SELECT $collectedSql FROM invoices 
+         WHERE $collectedWhere AND payment_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')",
         [$tenantId]
     );
 
     // Cash Collection
     $summary['cash_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND LOWER(COALESCE(payment_method, 'Cash')) = 'cash'",
+        "SELECT $collectedSql FROM invoices 
+         WHERE $collectedWhere AND LOWER(COALESCE(payment_method, 'Cash')) = 'cash'",
         [$tenantId]
     );
 
     // Online / UPI / Card Collection
     $summary['online_upi_collection'] = (float)DB::fetchValue(
-        "SELECT COALESCE(SUM(CASE WHEN paid_amount > 0 THEN paid_amount ELSE amount END), 0) FROM invoices 
-         WHERE tenant_id = ? AND status IN ('Paid', 'Partial', 'paid', 'partial') AND LOWER(COALESCE(payment_method, '')) != 'cash' AND LOWER(COALESCE(payment_method, '')) != ''",
+        "SELECT $collectedSql FROM invoices 
+         WHERE $collectedWhere AND LOWER(COALESCE(payment_method, '')) != 'cash' AND LOWER(COALESCE(payment_method, '')) != ''",
         [$tenantId]
     );
 
@@ -135,7 +138,7 @@ if ($dateFilter === 'today') {
     $where[] = "i.payment_date = CURDATE()";
 } elseif ($dateFilter === 'yesterday') {
     $where[] = "i.payment_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY)";
-} elseif ($dateFilter === 'last_7_days') {
+} elseif ($dateFilter === 'last_7_days' || $dateFilter === '7_days') { // the app sends '7_days'
     $where[] = "i.payment_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)";
 } elseif ($dateFilter === 'this_month') {
     $where[] = "i.payment_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')";
@@ -242,7 +245,8 @@ foreach ($rows as $row) {
         'collected_by' => $row['created_by_name'],
         'created_at' => $row['created_at'],
         'notes' => $row['notes'] ?? '',
-        'receipt_url' => base_url('/api/member/receipt_html.php?id=' . $row['id'])
+        // Signed link: the receipt opens in a browser, which cannot send the app's login token
+        'receipt_url' => api_admin_receipt_url($tenantId, (int)$row['id'])
     ];
 }
 

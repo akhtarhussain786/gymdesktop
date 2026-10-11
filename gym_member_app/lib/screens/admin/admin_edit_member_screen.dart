@@ -26,7 +26,9 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
   late String _status;
   late String _gender;
   late DateTime _expiryDate;
-  late DateTime _dor;
+  // Only sent when the admin actually changed it (the server otherwise keeps the stored value)
+  bool _expiryChanged = false;
+  String _initialWeightText = '';
 
   @override
   void initState() {
@@ -35,7 +37,12 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
     _phoneCtrl = TextEditingController(text: widget.member.phone);
     _emailCtrl = TextEditingController(text: widget.member.email);
     _addressCtrl = TextEditingController(text: widget.member.address);
-    _weightCtrl = TextEditingController(text: '70');
+    // Weight is only known when the server sends it; never assume a default value
+    final weight = widget.member.currWeight;
+    _initialWeightText = (weight != null && weight > 0)
+        ? (weight == weight.roundToDouble() ? weight.toStringAsFixed(0) : weight.toString())
+        : '';
+    _weightCtrl = TextEditingController(text: _initialWeightText);
     _services = widget.member.services.isNotEmpty ? widget.member.services : 'General Fitness';
     _planMonths = widget.member.planMonths > 0 ? widget.member.planMonths : 1;
     _status = widget.member.membershipStatus;
@@ -46,12 +53,6 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
       _expiryDate = DateTime.parse(widget.member.expiryDate);
     } catch (_) {
       _expiryDate = DateTime.now().add(Duration(days: 30 * _planMonths));
-    }
-
-    try {
-      _dor = DateTime.parse(widget.member.startDate);
-    } catch (_) {
-      _dor = DateTime.now();
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,6 +100,7 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
     if (picked != null) {
       setState(() {
         _expiryDate = picked;
+        _expiryChanged = true;
         if (_expiryDate.isAfter(DateTime.now())) {
           _status = 'Active';
         }
@@ -110,12 +112,16 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
     setState(() {
       final base = _expiryDate.isBefore(DateTime.now()) ? DateTime.now() : _expiryDate;
       _expiryDate = DateTime(base.year, base.month + months, base.day);
+      _expiryChanged = true;
       _status = 'Active';
     });
   }
 
   void _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final weightText = _weightCtrl.text.trim();
+    final weightChanged = weightText.isNotEmpty && weightText != _initialWeightText;
 
     try {
       await context.read<AdminProvider>().updateMember(
@@ -128,9 +134,10 @@ class _AdminEditMemberScreenState extends State<AdminEditMemberScreen> {
         services: _services,
         planMonths: _planMonths,
         status: _status,
-        expiryDate: DateFormat('yyyy-MM-dd').format(_expiryDate),
-        dor: DateFormat('yyyy-MM-dd').format(_dor),
-        currWeight: double.tryParse(_weightCtrl.text.trim()),
+        // Joining date, weight and expiry are kept by the server unless sent; the trainer is re-sent when known
+        trainerId: widget.member.trainerId,
+        expiryDate: _expiryChanged ? DateFormat('yyyy-MM-dd').format(_expiryDate) : null,
+        currWeight: weightChanged ? double.tryParse(weightText) : null,
       );
 
       if (mounted) {

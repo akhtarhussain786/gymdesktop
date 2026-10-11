@@ -16,7 +16,8 @@ Options -Indexes
     </IfModule>
 </FilesMatch>
 
-<FilesMatch "(?i)(\.(env|sql|log|bak|old|orig|swp|ini|sh|dist)$|^error_log$|^(?!robots\.txt$).*\.txt$)">
+# (incl. app signing keystores / key.properties and rotated error_log.* files)
+<FilesMatch "(?i)(\.(env|sql|log|bak|old|orig|swp|ini|sh|dist|jks|keystore|properties)$|^error_log([._-].*)?$|^(?!robots\.txt$).*\.txt$)">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
@@ -29,6 +30,9 @@ Options -Indexes
 # Fallback when mod_rewrite is unavailable: block include-only / private directories
 <IfModule !mod_rewrite.c>
     RedirectMatch 403 (?i)/(core|database|logs|config)(/|$)
+    # Flutter app source (signing keystore, key.properties) is never served
+    RedirectMatch 403 (?i)/gym_member_app(/|$)
+    RedirectMatch 403 (?i)\.(jks|keystore|properties)$
     RedirectMatch 403 /\.(?!well-known/)
 </IfModule>
 
@@ -38,6 +42,9 @@ Options -Indexes
 
     # Block include-only & private directories (core/ is never requested directly by the browser)
     RewriteRule ^(core|database|logs|config)(/|$) - [F,L,NC]
+    # Flutter app source (signing keystore, key.properties); the APK is served by download-apk.php
+    RewriteRule ^gym_member_app(/|$) - [F,L,NC]
+    RewriteRule \.(jks|keystore|properties)$ - [F,L,NC]
     # Include-only PHP fragments (partials, DB shims, API bootstrap) are never pages
     RewriteRule (^|/)includes/ - [F,L,NC]
     RewriteRule (^|/)(dbcon|db2|session)(\.php)?$ - [F,L,NC]

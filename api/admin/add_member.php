@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/middleware.php';
+require_once __DIR__ . '/../../core/subscription_engine.php';
 
 $auth = AdminAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
@@ -63,7 +64,7 @@ $address = trim($input['address'] ?? '');
 $gender = trim($input['gender'] ?? 'Male');
 $services = trim($input['services'] ?? 'General Fitness');
 $planMonths = max(1, (int)($input['plan_months'] ?? $input['plan'] ?? 1));
-$dor = !empty($input['dor']) ? trim($input['dor']) : date('Y-m-d');
+$dor = !empty($input['dor']) ? trim((string)$input['dor']) : date('Y-m-d');
 $email = trim($input['email'] ?? '');
 
 $totalAmount = (float)($input['total_amount'] ?? $input['amount'] ?? 0.0);
@@ -79,6 +80,8 @@ if (empty($contact)) $errors['phone'] = 'Mobile Phone Number is required.';
 if ($totalAmount < 0) $errors['total_amount'] = 'Total amount cannot be negative.';
 if ($paidAmount < 0) $errors['paid_amount'] = 'Paid amount cannot be negative.';
 if ($paidAmount > $totalAmount) $paidAmount = $totalAmount;
+if (!add_member_valid_date($dor)) $errors['dor'] = 'Joining date must be a valid date (YYYY-MM-DD).';
+if ($dueDate !== null && !add_member_valid_date($dueDate)) $errors['due_date'] = 'Due date must be a valid date (YYYY-MM-DD).';
 
 if (!empty($errors)) {
     ApiResponse::error('Validation failed', 422, $errors);
@@ -88,27 +91,22 @@ if (!empty($errors)) {
 $cleanPhone = preg_replace('/[^0-9]/', '', $contact);
 $customUsername = trim($input['username'] ?? '');
 
-if (!empty($customUsername)) {
-    $username = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $customUsername));
-    $exists = DB::fetchValue("SELECT 1 FROM members WHERE username = ? LIMIT 1", [$username]) 
-           || DB::fetchValue("SELECT 1 FROM users WHERE username = ? LIMIT 1", [$username]);
-    if ($exists) {
-        $username = $username . rand(10, 99);
-    }
-} else {
-    $baseUsername = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $fullname));
-    if (strlen($baseUsername) < 3) {
-        $baseUsername = 'mem' . ($cleanPhone ?: rand(1000, 9999));
-    }
-    $username = $baseUsername;
-    $suffix = 1;
-    while (DB::fetchValue("SELECT 1 FROM members WHERE username = ? LIMIT 1", [$username]) || DB::fetchValue("SELECT 1 FROM users WHERE username = ? LIMIT 1", [$username])) {
-        $username = $baseUsername . $suffix;
-        $suffix++;
-    }
+// Usernames are capped at 40 chars (username columns are varchar(60) on older installs)
+$baseUsername = !empty($customUsername)
+    ? substr(strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $customUsername)), 0, 40)
+    : substr(strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $fullname)), 0, 40);
+if (strlen($baseUsername) < 3) {
+    $baseUsername = 'mem' . ($cleanPhone ? substr($cleanPhone, -10) : rand(1000, 9999));
+}
+$username = $baseUsername;
+$suffix = 1;
+while (DB::fetchValue("SELECT 1 FROM members WHERE username = ? LIMIT 1", [$username]) || DB::fetchValue("SELECT 1 FROM users WHERE username = ? LIMIT 1", [$username])) {
+    $username = $baseUsername . $suffix;
+    $suffix++;
 }
 
-$password = !empty($input['password']) ? trim($input['password']) : '123456';
+// No password supplied: a random one (returned below so the admin can hand it over), never a shared default
+$password = !empty($input['password']) ? trim((string)$input['password']) : add_member_random_password();
 $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
 
@@ -117,7 +115,7 @@ $avatarFilename = null;
 if (!empty($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
     $tmpName = $_FILES['photo']['tmp_name'];
     $ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
-    if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+    if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp']) && @getimagesize($tmpName) !== false) {
         $avatarFilename = 'avatar_' . $tenantId . '_' . time() . '_' . rand(100, 999) . '.' . ($ext === 'jpeg' ? 'jpg' : $ext);
         $uploadDir = __DIR__ . '/../../uploads/avatars/';
         if (!is_dir($uploadDir)) {
@@ -132,7 +130,7 @@ if (!empty($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
     }
     if (!empty($b64) && !str_starts_with($b64, 'avatar_') && !str_starts_with($b64, 'http')) {
         $decoded = base64_decode($b64);
-        if ($decoded !== false && strlen($decoded) > 50) {
+        if ($decoded !== false && strlen($decoded) > 50 && @getimagesizefromstring($decoded) !== false) {
             $avatarFilename = 'avatar_' . $tenantId . '_' . time() . '_' . rand(100, 999) . '.jpg';
             $uploadDir = __DIR__ . '/../../uploads/avatars/';
             if (!is_dir($uploadDir)) {
@@ -167,7 +165,8 @@ try {
         'plan' => $planMonths,
         'address' => $address,
         'contact' => $contact,
-        'email' => $email ?: ($username . '@gym.com'),
+        // No placeholder address: password-reset mail must never go to a made-up domain
+        'email' => $email !== '' ? $email : null,
         'status' => 'Active',
         'attendance_count' => 0
     ];
@@ -199,7 +198,7 @@ try {
         'username' => $username,
         'password' => $passwordHash,
         'fullname' => $fullname,
-        'email' => $email ?: ($username . '@gym.com'),
+        'email' => $email !== '' ? $email : null,
         'phone' => $contact,
         'role' => 'member',
         'status' => 'active'
@@ -212,12 +211,12 @@ try {
         $userCols['photo'] = $avatarFilename;
     }
 
-    DB::insert('users', $userCols);
+    if (!DB::insert('users', $userCols)) {
+        throw new RuntimeException('users insert failed: ' . DB::$lastError);
+    }
 
-    // 5. Generate Tenant-aware Invoice
-    $invCount = (int)DB::fetchValue("SELECT COUNT(*) FROM invoices WHERE tenant_id = ?", [$tenantId]);
-    $tenantSlug = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $tenant['slug'] ?? $tenant['gym_name'] ?? 'GYM'), 0, 4));
-    $invoiceNumber = 'INV-' . $tenantSlug . '-' . date('Ym') . '-' . str_pad($invCount + 1, 4, '0', STR_PAD_LEFT);
+    // 5. Generate Tenant-aware Invoice (temporary number, replaced by an id-derived one after insert)
+    $invoiceNumber = SubscriptionEngine::tempInvoiceNumber();
 
     $invoiceStatus = ($dueAmount <= 0) ? 'Paid' : ($paidAmount > 0 ? 'Partial' : 'Unpaid');
     $currency = !empty($tenant['currency']) ? $tenant['currency'] : '₹';
@@ -246,24 +245,31 @@ try {
     }
 
     $invId = DB::insert('invoices', $invCols);
+    if (!$invId) {
+        throw new RuntimeException('invoice insert failed: ' . DB::$lastError);
+    }
+    $invoiceNumber = SubscriptionEngine::assignInvoiceNumber($invId, $tenant, $dor) ?: $invoiceNumber;
 
     // 6. Create initial active subscription record if table exists
-    $customExpiry = !empty($input['expiry_date']) ? trim($input['expiry_date']) : null;
-    $expiryDate = (!empty($customExpiry) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $customExpiry))
-        ? $customExpiry
-        : date('Y-m-d', strtotime("+$planMonths months", strtotime($dor)));
+    $customExpiry = !empty($input['expiry_date']) ? trim((string)$input['expiry_date']) : null;
+    $defaultExpiry = SubscriptionEngine::addMonths($dor, $planMonths);
+    $expiryDate = ($customExpiry !== null && add_member_valid_date($customExpiry)) ? $customExpiry : $defaultExpiry;
 
-    if (!empty($customExpiry) && $customExpiry !== date('Y-m-d', strtotime("+$planMonths months", strtotime($dor)))) {
+    if ($expiryDate !== $defaultExpiry) {
         // Adjust paid_date on member so computed expiry matches
-        $newPaidDate = date('Y-m-d', strtotime("-$planMonths months", strtotime($customExpiry)));
+        $newPaidDate = SubscriptionEngine::addMonths($expiryDate, -$planMonths);
+        // No start maps exactly onto some month-end expiries: use the earliest that does not shorten it
+        for ($i = 0; $i < 4 && SubscriptionEngine::addMonths($newPaidDate, $planMonths) < $expiryDate; $i++) {
+            $newPaidDate = date('Y-m-d', strtotime('+1 day', strtotime($newPaidDate)));
+        }
         DB::update('members', ['paid_date' => $newPaidDate], 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
     }
 
     if (api_table_exists('member_subscriptions')) {
-        DB::insert('member_subscriptions', [
+        $subId = DB::insert('member_subscriptions', [
             'tenant_id' => $tenantId,
             'member_id' => $memberId,
-            'plan_name_snapshot' => $services,
+            'plan_name_snapshot' => mb_substr($services, 0, 191),
             'plan_price_snapshot' => $totalAmount,
             'plan_duration_snapshot' => $planMonths,
             'start_date' => $dor,
@@ -274,6 +280,9 @@ try {
             'activated_at' => date('Y-m-d H:i:s'),
             'created_at' => date('Y-m-d H:i:s')
         ]);
+        if (!$subId) {
+            throw new RuntimeException('member_subscriptions insert failed: ' . DB::$lastError);
+        }
     }
 
     DB::commit();
@@ -302,5 +311,19 @@ try {
 } catch (Throwable $e) {
     DB::rollback();
     error_log("Add Member API Error: " . $e->getMessage() . "\n" . $e->getTraceAsString());
-    ApiResponse::error('Failed to create member: ' . $e->getMessage(), 500);
+    ApiResponse::error('Failed to create member. Please check the details and try again.', 500);
+}
+
+function add_member_valid_date($d) {
+    if (!is_string($d) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $d, $m)) return false;
+    return checkdate((int)$m[2], (int)$m[3], (int)$m[1]);
+}
+
+function add_member_random_password($length = 8) {
+    $chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    $out = '';
+    for ($i = 0; $i < $length; $i++) {
+        $out .= $chars[random_int(0, strlen($chars) - 1)];
+    }
+    return $out;
 }

@@ -45,7 +45,7 @@ class _MembershipScreenState extends State<MembershipScreen> {
       ),
       body: Builder(
         builder: (context) {
-          if (provider.loading && provider.membership == null) {
+          if (provider.isLoading(MemberModule.membership) && provider.membership == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
@@ -53,9 +53,9 @@ class _MembershipScreenState extends State<MembershipScreen> {
             );
           }
 
-          if (provider.error != null && provider.membership == null) {
+          if (provider.errorFor(MemberModule.membership) != null && provider.membership == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.membership)!,
               onRetry: () => provider.fetchMembership(refresh: true),
             );
           }

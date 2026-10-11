@@ -63,7 +63,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           : null,
       body: Builder(
         builder: (context) {
-          if (provider.loading && data == null) {
+          if (provider.isLoading(MemberModule.attendance) && data == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
@@ -71,9 +71,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             );
           }
 
-          if (provider.error != null && data == null) {
+          if (provider.errorFor(MemberModule.attendance) != null && data == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.attendance)!,
               onRetry: _loadAttendance,
             );
           }
@@ -215,15 +215,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             width: double.infinity,
                             height: 46,
                             child: ElevatedButton.icon(
-                              onPressed: provider.loading
+                              onPressed: provider.attendanceActionRunning
                                   ? null
                                   : () async {
-                                      final msg = await provider.checkIn();
-                                      if (context.mounted && msg != null) {
+                                      final result = await provider.checkIn();
+                                      if (context.mounted) {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
-                                            content: Text(msg),
-                                            backgroundColor: AppColors.success,
+                                            content: Text(result.message),
+                                            backgroundColor: result.success ? AppColors.success : AppColors.danger,
                                             behavior: SnackBarBehavior.floating,
                                           ),
                                         );
@@ -231,7 +231,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                     },
                               icon: const Icon(Icons.touch_app_rounded, color: Color(0xFF05080D), size: 18),
                               label: Text(
-                                provider.loading ? 'Recording Check-In...' : 'Check In Now',
+                                provider.attendanceActionRunning ? 'Recording Check-In...' : 'Check In Now',
                                 style: GoogleFonts.plusJakartaSans(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 14.5,
@@ -250,15 +250,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             width: double.infinity,
                             height: 46,
                             child: ElevatedButton.icon(
-                              onPressed: provider.loading
+                              onPressed: provider.attendanceActionRunning
                                   ? null
                                   : () async {
-                                      final msg = await provider.checkOut();
-                                      if (context.mounted && msg != null) {
+                                      final result = await provider.checkOut();
+                                      if (context.mounted) {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
-                                            content: Text(msg),
-                                            backgroundColor: AppColors.warning,
+                                            content: Text(result.message),
+                                            backgroundColor: result.success ? AppColors.warning : AppColors.danger,
                                             behavior: SnackBarBehavior.floating,
                                           ),
                                         );
@@ -266,7 +266,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                     },
                               icon: const Icon(Icons.exit_to_app_rounded, color: Colors.white, size: 18),
                               label: Text(
-                                provider.loading ? 'Recording Check-Out...' : 'Check Out Now',
+                                provider.attendanceActionRunning ? 'Recording Check-Out...' : 'Check Out Now',
                                 style: GoogleFonts.plusJakartaSans(
                                   fontWeight: FontWeight.w800,
                                   fontSize: 14.5,

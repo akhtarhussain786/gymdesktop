@@ -1,8 +1,24 @@
 <?php
 /**
  * Database Diagnostic Tool
- * Access in browser: https://gymsaas.nexoralabtechnologies.com/check_db.php
+ * Run from the command line: php check_db.php
+ * Web access only when CHECK_DB_KEY is set in the environment: /check_db.php?key=<CHECK_DB_KEY>
  */
+
+// It prints connection details and raw MySQL errors, so it is hidden (404) from everyone else.
+// Decided before any database connection is attempted.
+if (PHP_SAPI !== 'cli') {
+    require_once __DIR__ . '/core/env.php';
+    $checkDbKey = (string)env('CHECK_DB_KEY', '');
+    $givenKey = isset($_GET['key']) && is_string($_GET['key']) ? $_GET['key'] : '';
+    if ($checkDbKey === '' || !hash_equals($checkDbKey, $givenKey)) {
+        http_response_code(404);
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!DOCTYPE html><html><head><title>404 Not Found</title></head><body><h1>Not Found</h1><p>The requested URL was not found on this server.</p></body></html>';
+        exit();
+    }
+    header('X-Robots-Tag: noindex');
+}
 
 header('Content-Type: text/html; charset=utf-8');
 

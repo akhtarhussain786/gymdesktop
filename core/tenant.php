@@ -133,6 +133,20 @@ class Tenant {
      */
     public static function getSubscriptionStatus() {
         $tenant = self::getCurrent();
+        $expiryRaw = (string)($tenant['subscription_expiry'] ?? '');
+        if ($expiryRaw === '' || strpos($expiryRaw, '0000-00-00') === 0) {
+            // No expiry on record: never treat an unknown date as "expired" (that would lock the gym out)
+            $status = $tenant['status'] ?? 'active';
+            $blocked = in_array($status, ['suspended', 'cancelled', 'inactive'], true);
+            return [
+                'state' => $blocked ? $status : ($status === 'trial' ? 'trial' : 'active'),
+                'is_active' => !$blocked,
+                'can_write' => !$blocked,
+                'days_left' => 0,
+                'expiry_date' => null,
+                'message' => $blocked ? 'Gym account is ' . ucfirst($status) . '. Please renew subscription to restore full access.' : null
+            ];
+        }
         $today = new DateTime(date('Y-m-d'));
         $expiry = new DateTime($tenant['subscription_expiry'] ?? date('Y-m-d'));
         $interval = $today->diff($expiry);
@@ -207,6 +221,48 @@ class Tenant {
     }
 
     /**
+     * Whether read-only mode for expired / cancelled gyms is enforced.
+     * Kill switch: set SAAS_READONLY_ENFORCEMENT=false in .env to disable it without a code change.
+     */
+    public static function readOnlyEnforced() {
+        $flag = strtolower(trim((string)env('SAAS_READONLY_ENFORCEMENT', 'true')));
+        return !in_array($flag, ['0', 'false', 'off', 'no'], true);
+    }
+
+    /**
+     * True when the current gym may not save new data (expired past grace, cancelled, suspended)
+     */
+    public static function isReadOnly() {
+        return self::readOnlyEnforced() && self::getTenantId() > 0 && !self::canWrite();
+    }
+
+    /**
+     * Stop a write request for a read-only gym. Web pages get a flash message + redirect to the renewal page.
+     */
+    public static function requireWrite() {
+        if (!self::isReadOnly()) {
+            return;
+        }
+        $sub = self::getSubscriptionStatus();
+        $msg = $sub['message'] ?: 'Your gym subscription has expired. Renew to make changes.';
+        $wantsJson = (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false)
+            || (strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest');
+        if ($wantsJson) {
+            if (!headers_sent()) {
+                http_response_code(403);
+                header('Content-Type: application/json; charset=utf-8');
+            }
+            echo json_encode(['success' => false, 'message' => $msg, 'read_only' => true]);
+            exit();
+        }
+        if (function_exists('set_flash')) {
+            set_flash('error', $msg);
+        }
+        header('Location: ' . (function_exists('base_url') ? base_url('/admin/subscription') : '/admin/subscription'));
+        exit();
+    }
+
+    /**
      * Render alert banner if subscription needs attention
      */
     public static function renderExpiryBanner() {
@@ -245,6 +301,13 @@ class Tenant {
         if ($tenantId <= 0) {
             return ['allowed' => true, 'current' => 0, 'max' => 999999];
         }
+        // The tenant row may have been loaded without the plan limits (e.g. by the app's token middleware)
+        if (!array_key_exists('max_staff', $tenant) || !array_key_exists('max_members', $tenant) || !array_key_exists('max_branches', $tenant)) {
+            $limits = DB::fetchOne("SELECT p.max_members, p.max_staff, p.max_branches FROM tenants t LEFT JOIN subscription_plans p ON t.subscription_plan_id = p.id WHERE t.id = ?", [$tenantId]);
+            if ($limits) {
+                $tenant = array_merge($tenant, $limits);
+            }
+        }
 
         if ($resource === 'members') {
             $count = (int)DB::fetchValue("SELECT COUNT(*) FROM members WHERE tenant_id = ?", [$tenantId]);
@@ -277,7 +340,16 @@ class Tenant {
 
         try {
             $existing = DB::fetchValue("SELECT COUNT(*) FROM rates WHERE tenant_id = ?", [$tenantId]);
-            if ((int)$existing === 0) {
+            // Seed sample packages only once per gym, so a gym that deletes all its packages doesn't get them back
+            $seedKey = 'seeded_rates_' . $tenantId;
+            $alreadySeeded = function_exists('get_platform_setting') && get_platform_setting($seedKey, '') !== '';
+            if ((int)$existing > 0 && !$alreadySeeded && function_exists('set_platform_setting')) {
+                set_platform_setting($seedKey, '1');
+            }
+            if ((int)$existing === 0 && !$alreadySeeded) {
+                if (function_exists('set_platform_setting')) {
+                    set_platform_setting($seedKey, '1');
+                }
                 $defaults = [
                     ['name' => 'Fitness', 'charge' => 500.00],
                     ['name' => 'Cardio & Aerobics', 'charge' => 800.00],

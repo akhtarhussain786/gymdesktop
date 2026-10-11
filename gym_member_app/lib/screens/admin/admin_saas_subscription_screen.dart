@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -16,19 +15,17 @@ class AdminSaasSubscriptionScreen extends StatefulWidget {
   State<AdminSaasSubscriptionScreen> createState() => _AdminSaasSubscriptionScreenState();
 }
 
-class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScreen> with WidgetsBindingObserver {
+class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScreen> {
   String _selectedCycle = 'monthly'; // monthly, quarterly, yearly
   final _couponController = TextEditingController();
 
+  // Order currently being paid. Verification itself happens only inside the checkout screen.
   String? _activeOrderId;
-  Timer? _pollingTimer;
   bool _isCreatingOrder = false;
-  bool _isAutoVerifying = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AdminProvider>().fetchSaasSubscription();
     });
@@ -36,18 +33,8 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _pollingTimer?.cancel();
     _couponController.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _activeOrderId != null && !_isAutoVerifying) {
-      // User returned from PhonePe / GPay / Paytm / Browser: verify with backend immediately!
-      _triggerVerification(_activeOrderId!, isBackgroundPoll: true);
-    }
   }
 
   Future<void> _handlePlanSelection(AdminSaasPlanItem plan) async {
@@ -134,13 +121,18 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                           _summaryRow('Staff Limit', 'Up to ${plan.maxStaff} Staff'),
                           const Divider(height: 16, color: Colors.white12),
                           _summaryRow(
-                            'Payable Amount',
+                            'Plan Price',
                             '$currency${price.toStringAsFixed(0)}',
                             isBold: true,
                             valueColor: AppColors.lime,
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'The final amount (including any tax or coupon discount) is calculated by the server and shown on the payment screen.',
+                      style: GoogleFonts.plusJakartaSans(fontSize: 11, color: Colors.white54),
                     ),
                     const SizedBox(height: 14),
 
@@ -173,7 +165,6 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                                   plan: plan,
                                   cycle: _selectedCycle,
                                   coupon: _couponController.text.trim(),
-                                  price: price,
                                   currency: currency,
                                 );
                               },
@@ -184,7 +175,7 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
                         ),
                         icon: const Icon(Icons.lock_outline_rounded, size: 18),
                         label: Text(
-                          'Subscribe / Pay Now ($currency${price.toStringAsFixed(0)})',
+                          'Continue to Secure Payment',
                           style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14),
                         ),
                       ),
@@ -203,46 +194,55 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
     required AdminSaasPlanItem plan,
     required String cycle,
     required String coupon,
-    required double price,
     required String currency,
   }) async {
-    if (_isCreatingOrder) return;
+    // One payment at a time: a second order must not start while one is still open
+    if (_isCreatingOrder || _activeOrderId != null) return;
 
     setState(() {
       _isCreatingOrder = true;
     });
 
+    final navigator = Navigator.of(context, rootNavigator: true);
+    var progressDialogOpen = false;
+    void closeProgressDialog() {
+      if (progressDialogOpen) {
+        progressDialogOpen = false;
+        navigator.pop();
+      }
+    }
+
     // Show loading indicator: Creating payment order...
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => PopScope(
-          canPop: false,
-          child: AlertDialog(
-            backgroundColor: const Color(0xFF1E1E2C),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            content: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                children: [
-                  const CircularProgressIndicator(color: AppColors.lime, strokeWidth: 3),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    child: Text(
-                      'Creating payment order...',
-                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
+    progressDialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1E1E2C),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              children: [
+                const CircularProgressIndicator(color: AppColors.lime, strokeWidth: 3),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Text(
+                    'Creating payment order...',
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
-      );
-    }
+      ),
+    );
 
     final admin = context.read<AdminProvider>();
+    final gymName = context.read<AuthProvider>().currentTenant?.gymName;
     try {
       final res = await admin.createSaasCashfreeOrder(
         planId: plan.id,
@@ -251,16 +251,14 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
       );
 
       // Close "Creating payment order..." dialog
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
+      closeProgressDialog();
+      if (!mounted) return;
 
       // 1. If this is a Free Trial / 0-Rupee Demo plan, it was activated directly!
       if (res != null && (res['is_trial'] == true || res['verified'] == true) && (res['checkout_url'] == null || res['checkout_url'].toString().isEmpty)) {
-        if (mounted) {
-          await admin.fetchSaasSubscription();
-          _showRenewalSuccessDialog();
-        }
+        await admin.fetchSaasSubscription();
+        if (!mounted) return;
+        _showRenewalSuccessDialog();
         return;
       }
 
@@ -269,25 +267,25 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
         final checkoutUrl = res['checkout_url']?.toString() ?? '';
         final paymentSessionId = res['payment_session_id']?.toString();
         final upiIntentUrl = res['upi_intent_url']?.toString();
-        final upiLinks = res['upi_links'] is Map<String, dynamic>
-            ? (res['upi_links'] as Map<String, dynamic>)
-            : (res['upi_links'] is Map ? Map<String, dynamic>.from(res['upi_links']) : null);
+        final upiLinks = res['upi_links'] is Map ? Map<String, dynamic>.from(res['upi_links']) : null;
         final cashfreeMode = res['cashfree_mode']?.toString() ?? 'production';
-        final finalPayable = (res['total_payable'] != null) ? (double.tryParse('${res['total_payable']}') ?? price) : price;
+        // The amount shown is always the server's total for this order (never computed in the app)
+        final serverTotal = double.tryParse('${res['total_payable'] ?? ''}');
+        final serverCurrency = (res['currency']?.toString().isNotEmpty ?? false) ? res['currency'].toString() : currency;
         _activeOrderId = orderId;
 
-        // Open Native In-App Payment Checkout Screen (UPI Intent + Native SDK)
-        if (mounted) {
-          final gymName = context.read<AuthProvider>().currentTenant?.gymName;
-          final isSuccess = await Navigator.push<bool>(
+        bool? isSuccess;
+        try {
+          // Open Native In-App Payment Checkout Screen (Cashfree UPI intent / card checkout)
+          isSuccess = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
               builder: (ctx) => InAppPaymentCheckoutScreen(
                 orderId: orderId,
                 checkoutUrl: checkoutUrl,
                 planName: plan.name,
-                amount: finalPayable,
-                currency: currency,
+                amount: serverTotal,
+                currency: serverCurrency,
                 paymentSessionId: paymentSessionId,
                 upiIntentUrl: upiIntentUrl,
                 upiLinks: upiLinks,
@@ -296,75 +294,47 @@ class _AdminSaasSubscriptionScreenState extends State<AdminSaasSubscriptionScree
               ),
             ),
           );
+        } finally {
+          _activeOrderId = null;
+        }
+        if (!mounted) return;
 
-          if (isSuccess == true && mounted) {
-            // Refresh SaaS data and show celebration success modal!
-            await admin.fetchSaasSubscription();
-            _showRenewalSuccessDialog();
-          } else if (mounted) {
-            // Check status silently in case payment succeeded right before exiting
-            await _triggerVerification(orderId, isBackgroundPoll: true);
-          }
+        if (isSuccess == true) {
+          // Refresh SaaS data and show celebration success modal!
+          await admin.fetchSaasSubscription();
+          if (!mounted) return;
+          _showRenewalSuccessDialog();
+        } else {
+          // The admin left checkout early: one quiet check in case the payment completed just before
+          final verified = await admin.verifySaasOrder(orderId);
+          if (!mounted) return;
+          if (verified) _showRenewalSuccessDialog();
         }
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not create payment order. Please try again.'),
-              backgroundColor: AppColors.danger,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not create payment order. Please try again.'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
       }
     } catch (e) {
+      closeProgressDialog();
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Payment was not completed. Please try again: $e'),
+            content: Text('Could not start the payment. Please try again: $e'),
             backgroundColor: AppColors.danger,
           ),
         );
       }
     } finally {
+      _activeOrderId = null;
       if (mounted) {
         setState(() {
           _isCreatingOrder = false;
         });
       }
-    }
-  }
-
-  Future<void> _triggerVerification(String orderId, {bool isBackgroundPoll = false}) async {
-    if (_isAutoVerifying) return;
-    _isAutoVerifying = true;
-
-    try {
-      final success = await context.read<AdminProvider>().verifySaasOrder(orderId);
-      if (success) {
-        _pollingTimer?.cancel();
-        _activeOrderId = null;
-
-        if (mounted) {
-          // Close verification waiting dialog
-          Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst || route.settings.name == '/');
-
-          // Refresh subscription info
-          await context.read<AdminProvider>().fetchSaasSubscription();
-
-          // Show Success popup
-          _showRenewalSuccessDialog();
-        }
-      } else if (!isBackgroundPoll && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Payment was not completed. Please try again.'),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-      }
-    } finally {
-      _isAutoVerifying = false;
     }
   }
 

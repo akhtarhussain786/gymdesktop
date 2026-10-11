@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/middleware.php';
+require_once __DIR__ . '/../../core/subscription_engine.php';
 
 $auth = AdminAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
@@ -55,6 +56,17 @@ if ($memberId <= 0) {
 if ($amountCollected <= 0) {
     ApiResponse::error('Amount collected must be greater than 0', 400);
 }
+$amountCollected = round($amountCollected, 2);
+$pd = DateTime::createFromFormat('Y-m-d', $paymentDate);
+if (!$pd || $pd->format('Y-m-d') !== $paymentDate || $paymentDate > date('Y-m-d')) {
+    ApiResponse::error('Invalid payment date.', 422);
+}
+if ($newDueDate !== null) {
+    $dd = DateTime::createFromFormat('Y-m-d', $newDueDate);
+    if (!$dd || $dd->format('Y-m-d') !== $newDueDate) {
+        ApiResponse::error('Invalid due date.', 422);
+    }
+}
 
 // 1. Verify Member
 $member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId]);
@@ -73,16 +85,33 @@ try {
     $gymName = !empty($tenant['gym_name']) ? $tenant['gym_name'] : 'Our Gym';
 
     if ($paymentType === 'renewal') {
-        // --- MEMBERSHIP RENEWAL FLOW ---
+        // --- MEMBERSHIP RENEWAL FLOW (same queue rules as the web "Record Payment" page) ---
         $planMonths = max(1, (int)($input['plan_months'] ?? $member['plan'] ?? 1));
         $services = trim($input['services'] ?? $member['services'] ?? 'General Fitness');
-        $totalPlanFee = (float)($input['total_plan_fee'] ?? $amountCollected);
-        $remainingDue = max(0.0, $totalPlanFee - $amountCollected);
+        $totalPlanFee = round((float)($input['total_plan_fee'] ?? $amountCollected), 2);
+        if ($totalPlanFee <= 0) {
+            throw new InvalidArgumentException('Plan fee must be greater than 0.');
+        }
+        if ($amountCollected - $totalPlanFee > 0.009) {
+            throw new InvalidArgumentException('Amount collected cannot be more than the plan fee.');
+        }
+        $remainingDue = round(max(0.0, $totalPlanFee - $amountCollected), 2);
 
-        // Generate Invoice Number
-        $invCount = (int)DB::fetchValue("SELECT COUNT(*) FROM invoices WHERE tenant_id = ?", [$tenantId]);
-        $tenantSlug = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $tenant['slug'] ?? $tenant['gym_name'] ?? 'GYM'), 0, 4));
-        $invoiceNumber = 'INV-' . $tenantSlug . '-' . date('Ym') . '-' . str_pad($invCount + 1, 4, '0', STR_PAD_LEFT);
+        // Serialise concurrent renewals for this member, then queue the new period after the current one
+        // (a member renewing early keeps their remaining days)
+        DB::fetchAll("SELECT id FROM member_subscriptions WHERE tenant_id = ? AND member_id = ? FOR UPDATE", [$tenantId, $memberId]);
+        $startDate = SubscriptionEngine::calculateNextStartDate($tenantId, $memberId);
+        $expiryDate = SubscriptionEngine::calculateExpiryDate($startDate, $planMonths);
+        $today = date('Y-m-d');
+        $hasActive = (int)DB::fetchValue(
+            "SELECT COUNT(*) FROM member_subscriptions WHERE tenant_id = ? AND member_id = ? AND status = 'active' AND expiry_date >= ?",
+            [$tenantId, $memberId, $today]
+        );
+        $subStatus = ($hasActive > 0 || strtotime($startDate) > strtotime($today)) ? 'upcoming' : 'active';
+        $upcomingCount = (int)DB::fetchValue(
+            "SELECT COUNT(*) FROM member_subscriptions WHERE tenant_id = ? AND member_id = ? AND status = 'upcoming'",
+            [$tenantId, $memberId]
+        );
 
         $invStatus = ($remainingDue <= 0) ? 'Paid' : 'Partial';
 
@@ -90,8 +119,9 @@ try {
             'tenant_id' => $tenantId,
             'branch_id' => $branchId,
             'member_id' => $memberId,
-            'invoice_number' => $invoiceNumber,
-            'service_name' => $services,
+            // Collision-free number is assigned from the inserted id below
+            'invoice_number' => SubscriptionEngine::tempInvoiceNumber(),
+            'service_name' => $services . ($subStatus === 'upcoming' ? ' (Upcoming)' : ''),
             'plan_months' => $planMonths,
             'amount' => $totalPlanFee,
             'paid_amount' => $amountCollected,
@@ -99,7 +129,7 @@ try {
             'payment_method' => $paymentMethod,
             'payment_date' => $paymentDate,
             'status' => $invStatus,
-            'transaction_ref' => strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid()), 0, 8)),
+            'transaction_ref' => strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid('', true)), 0, 8)),
             'notes' => $notes,
             'created_by' => $auth['user_id'] ?? null,
             'created_at' => date('Y-m-d H:i:s')
@@ -110,13 +140,13 @@ try {
         }
 
         $invId = DB::insert('invoices', $invCols);
-
-        // Calculate Start Date and Expiry Date
-        $startDate = $paymentDate;
-        $expiryDate = date('Y-m-d', strtotime("+$planMonths months", strtotime($startDate)));
+        if (!$invId) {
+            throw new RuntimeException('Could not create invoice: ' . DB::$lastError);
+        }
+        $invoiceNumber = SubscriptionEngine::assignInvoiceNumber($invId, $tenant, $paymentDate);
 
         if (api_table_exists('member_subscriptions')) {
-            DB::insert('member_subscriptions', [
+            $subId = DB::insert('member_subscriptions', [
                 'tenant_id' => $tenantId,
                 'member_id' => $memberId,
                 'plan_name_snapshot' => $services,
@@ -124,40 +154,55 @@ try {
                 'plan_duration_snapshot' => $planMonths,
                 'start_date' => $startDate,
                 'expiry_date' => $expiryDate,
-                'status' => 'active',
+                'status' => $subStatus,
                 'payment_id' => $invId,
-                'queue_position' => 1,
-                'activated_at' => date('Y-m-d H:i:s'),
+                'queue_position' => ($subStatus === 'upcoming' ? $upcomingCount + 1 : 1),
+                'activated_at' => ($subStatus === 'active' ? date('Y-m-d H:i:s') : null),
                 'created_at' => date('Y-m-d H:i:s')
             ]);
+            if (!$subId) {
+                throw new RuntimeException('Could not create membership period: ' . DB::$lastError);
+            }
         }
 
-        // Update Member
-        $memberUpdate = [
-            'services' => $services,
-            'amount' => $totalPlanFee,
-            'plan' => $planMonths,
-            'status' => 'Active',
-            'paid_date' => $startDate
-        ];
+        // Update Member (the plan fields only change now if the new period starts today)
+        $memberUpdate = [];
+        if ($subStatus === 'active') {
+            $memberUpdate = [
+                'services' => $services,
+                'amount' => $totalPlanFee,
+                'plan' => $planMonths,
+                'status' => 'Active',
+                'paid_date' => $startDate,
+                'reminder' => 0
+            ];
+        }
+        // Total dues = every open (partial / unpaid) invoice, not just this one
+        $totalDue = (float)DB::fetchValue(
+            "SELECT COALESCE(SUM(GREATEST(0, amount - paid_amount)), 0) FROM invoices
+             WHERE tenant_id = ? AND member_id = ? AND status IN ('Partial', 'Unpaid')",
+            [$tenantId, $memberId]
+        );
         if (api_column_exists('members', 'due_amount')) {
-            $memberUpdate['due_amount'] = $remainingDue;
+            $memberUpdate['due_amount'] = $totalDue;
         }
         if (api_column_exists('members', 'due_date')) {
-            $memberUpdate['due_date'] = $remainingDue > 0 ? $newDueDate : null;
+            $memberUpdate['due_date'] = $totalDue > 0 ? $newDueDate : null;
+        }
+        if (!empty($memberUpdate)) {
+            DB::update('members', $memberUpdate, 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
         }
 
-        DB::update('members', $memberUpdate, 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
-
-        $finalDue = $remainingDue;
+        $finalDue = $totalDue;
         $lastReceiptId = $invId;
         $lastInvoiceNumber = $invoiceNumber;
 
     } else {
         // --- INSTANT DUE CLEARANCE / PARTIAL SETTLEMENT FLOW ---
+        // Only real dues: 'Pending' invoices are member UPI claims still awaiting staff verification
         $openInvoices = DB::fetchAll(
             "SELECT * FROM invoices 
-             WHERE tenant_id = ? AND member_id = ? AND status IN ('Partial', 'Unpaid', 'Pending')
+             WHERE tenant_id = ? AND member_id = ? AND status IN ('Partial', 'Unpaid')
              ORDER BY payment_date ASC, id ASC",
             [$tenantId, $memberId]
         );
@@ -195,37 +240,37 @@ try {
 
         // If no open invoice existed or excess paid, create a dedicated payment settlement invoice
         if ($remainingToAllocate > 0 || empty($openInvoices)) {
-            $invCount = (int)DB::fetchValue("SELECT COUNT(*) FROM invoices WHERE tenant_id = ?", [$tenantId]);
-            $tenantSlug = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $tenant['slug'] ?? $tenant['gym_name'] ?? 'GYM'), 0, 4));
-            $invoiceNumber = 'INV-' . $tenantSlug . '-' . date('Ym') . '-' . str_pad($invCount + 1, 4, '0', STR_PAD_LEFT);
-
+            $settleAmount = round($remainingToAllocate > 0 ? $remainingToAllocate : $amountCollected, 2);
             $lastReceiptId = DB::insert('invoices', [
                 'tenant_id' => $tenantId,
                 'branch_id' => $branchId,
                 'member_id' => $memberId,
-                'invoice_number' => $invoiceNumber,
+                'invoice_number' => SubscriptionEngine::tempInvoiceNumber(),
                 'service_name' => 'Due Balance Payment (' . $member['services'] . ')',
                 'plan_months' => (int)($member['plan'] ?? 1),
-                'amount' => $amountCollected,
-                'paid_amount' => $amountCollected,
+                'amount' => $settleAmount,
+                'paid_amount' => $settleAmount,
                 'discount' => 0.00,
                 'payment_method' => $paymentMethod,
                 'payment_date' => $paymentDate,
                 'due_date' => null,
                 'status' => 'Paid',
-                'transaction_ref' => strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid()), 0, 8)),
+                'transaction_ref' => strtoupper($paymentMethod) . '-' . strtoupper(substr(md5(uniqid('', true)), 0, 8)),
                 'notes' => $notes,
                 'created_by' => $auth['user_id'] ?? null,
                 'created_at' => date('Y-m-d H:i:s')
             ]);
-            $lastInvoiceNumber = $invoiceNumber;
+            if (!$lastReceiptId) {
+                throw new RuntimeException('Could not create receipt: ' . DB::$lastError);
+            }
+            $lastInvoiceNumber = SubscriptionEngine::assignInvoiceNumber($lastReceiptId, $tenant, $paymentDate);
         }
 
         // Recompute Total Remaining Dues for Member
         $recalcDue = (float)DB::fetchValue(
             "SELECT COALESCE(SUM(GREATEST(0, amount - paid_amount)), 0) 
              FROM invoices 
-             WHERE tenant_id = ? AND member_id = ? AND status IN ('Partial', 'Unpaid', 'Pending')",
+             WHERE tenant_id = ? AND member_id = ? AND status IN ('Partial', 'Unpaid')",
             [$tenantId, $memberId]
         );
 
@@ -270,12 +315,15 @@ try {
         'due_date' => $finalDue > 0 ? $newDueDate : null,
         'invoice_id' => $lastReceiptId,
         'invoice_number' => $lastInvoiceNumber,
-        'receipt_url' => base_url('/api/member/receipt_html.php?id=' . $lastReceiptId),
+        'receipt_url' => api_admin_receipt_url($tenantId, $lastReceiptId),
         'whatsapp_message' => $waText
     ], 'Payment of ' . $currency . number_format($amountCollected, 2) . ' recorded successfully!');
 
+} catch (InvalidArgumentException $e) {
+    DB::rollback();
+    ApiResponse::error($e->getMessage(), 422);
 } catch (Throwable $e) {
     DB::rollback();
     error_log("Collect Payment API Error: " . $e->getMessage());
-    ApiResponse::error('Failed to record payment: ' . $e->getMessage(), 500);
+    ApiResponse::error('Failed to record payment. Please try again.', 500);
 }

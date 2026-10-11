@@ -72,9 +72,10 @@ $totalActiveDevices = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) F
 $history = DB::fetchAll(
     "SELECT n.*, u.fullname as sender_name 
      FROM notifications n 
-     LEFT JOIN users u ON n.sender_user_id = u.id 
-     WHERE n.tenant_id = ? AND n.sender_role IN ('gym_admin', 'staff')
-     GROUP BY n.title, n.created_at 
+     JOIN (SELECT MIN(id) AS id FROM notifications
+           WHERE tenant_id = ? AND sender_role IN ('gym_admin', 'staff')
+           GROUP BY title, created_at) first_row ON first_row.id = n.id
+     LEFT JOIN users u ON n.sender_user_id = u.id AND u.tenant_id = n.tenant_id 
      ORDER BY n.id DESC 
      LIMIT 50",
     [$tenantId]

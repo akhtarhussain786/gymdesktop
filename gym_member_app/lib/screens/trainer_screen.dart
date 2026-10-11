@@ -45,7 +45,7 @@ class _TrainerScreenState extends State<TrainerScreen> {
       ),
       body: Builder(
         builder: (context) {
-          if (provider.loading && data == null) {
+          if (provider.isLoading(MemberModule.trainer) && data == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
@@ -53,9 +53,9 @@ class _TrainerScreenState extends State<TrainerScreen> {
             );
           }
 
-          if (provider.error != null && data == null) {
+          if (provider.errorFor(MemberModule.trainer) != null && data == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.trainer)!,
               onRetry: () => provider.fetchTrainer(refresh: true),
             );
           }

@@ -1,11 +1,9 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfsession/cfsession.dart';
 import 'package:flutter_cashfree_pg_sdk/utils/cfenums.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfpaymentgateway/cfpaymentgatewayservice.dart';
-import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfdropcheckoutpayment.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfupipayment.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cfpayment/cfupi.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
@@ -21,6 +19,9 @@ class InstalledUpiApp {
   final IconData iconData;
   final bool isPopular;
 
+  /// Keys under which the server's `upi_links` may hold this app's deep link
+  final List<String> linkKeys;
+
   const InstalledUpiApp({
     required this.id,
     required this.name,
@@ -30,12 +31,30 @@ class InstalledUpiApp {
     required this.badgeText,
     required this.iconData,
     this.isPopular = false,
+    this.linkKeys = const [],
   });
+
+  bool get isGeneric => id == 'generic';
+
+  /// The app id Cashfree's UPI intent expects: the package name on Android, the app's URL scheme on iOS.
+  /// Empty for "Any UPI app" so the phone offers every installed UPI app.
+  String get cashfreeAppId {
+    if (isGeneric) return '';
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      final scheme = Uri.tryParse(schemePrefix)?.scheme ?? '';
+      return scheme.isEmpty ? '' : '$scheme://';
+    }
+    return packageName;
+  }
 }
 
 class UpiPaymentService {
   static final CFPaymentGatewayService _cfService = CFPaymentGatewayService();
-  static bool _callbacksInitialized = false;
+
+  /// Only real app deep links are ever opened for a payment (never http(s)/data: URLs such as a QR image)
+  static const Set<String> upiSchemes = {
+    'upi', 'tez', 'phonepe', 'paytmmp', 'paytm', 'bhim', 'credpay', 'whatsapp', 'amazonpay', 'mobikwik', 'freecharge',
+  };
 
   /// Complete list of major Indian UPI application definitions
   static const List<InstalledUpiApp> allKnownUpiApps = [
@@ -48,6 +67,7 @@ class UpiPaymentService {
       badgeText: 'Instant UPI',
       iconData: Icons.account_balance_wallet_rounded,
       isPopular: true,
+      linkKeys: ['phonepe'],
     ),
     InstalledUpiApp(
       id: 'gpay',
@@ -58,6 +78,7 @@ class UpiPaymentService {
       badgeText: 'Instant UPI',
       iconData: Icons.g_mobiledata_rounded,
       isPopular: true,
+      linkKeys: ['gpay', 'googlepay', 'google_pay', 'tez'],
     ),
     InstalledUpiApp(
       id: 'paytm',
@@ -68,6 +89,7 @@ class UpiPaymentService {
       badgeText: 'Instant UPI',
       iconData: Icons.payment_rounded,
       isPopular: true,
+      linkKeys: ['paytm', 'paytmmp'],
     ),
     InstalledUpiApp(
       id: 'bhim',
@@ -78,6 +100,7 @@ class UpiPaymentService {
       badgeText: 'NPCI Official',
       iconData: Icons.shield_rounded,
       isPopular: true,
+      linkKeys: ['bhim'],
     ),
     InstalledUpiApp(
       id: 'cred',
@@ -88,6 +111,7 @@ class UpiPaymentService {
       badgeText: 'Cashback',
       iconData: Icons.credit_card_rounded,
       isPopular: false,
+      linkKeys: ['cred', 'credpay'],
     ),
     InstalledUpiApp(
       id: 'amazon',
@@ -98,6 +122,7 @@ class UpiPaymentService {
       badgeText: 'Amazon',
       iconData: Icons.shopping_bag_rounded,
       isPopular: false,
+      linkKeys: ['amazon', 'amazonpay'],
     ),
     InstalledUpiApp(
       id: 'whatsapp',
@@ -108,13 +133,14 @@ class UpiPaymentService {
       badgeText: 'WhatsApp',
       iconData: Icons.chat_rounded,
       isPopular: false,
+      linkKeys: ['whatsapp'],
     ),
   ];
 
   /// Generic UPI Intent option (triggers Android system UPI app chooser)
   static const InstalledUpiApp genericUpiApp = InstalledUpiApp(
     id: 'generic',
-    name: 'Any UPI App (System Chooser)',
+    name: 'Any UPI App',
     packageName: '',
     schemePrefix: 'upi://pay',
     brandColor: Color(0xFF10B981),
@@ -123,321 +149,144 @@ class UpiPaymentService {
     isPopular: true,
   );
 
-  /// Detects which UPI apps are installed and queryable on the user's Android phone
+  /// UPI apps actually installed on this phone ("Any UPI app" first). Detection uses canLaunchUrl,
+  /// which only sees the schemes declared in the AndroidManifest `<queries>` / iOS LSApplicationQueriesSchemes.
   static Future<List<InstalledUpiApp>> getInstalledUpiApps() async {
-    final List<InstalledUpiApp> installed = [];
-    final Set<String> foundIds = {};
-
-    // Check scheme availability via url_launcher & AndroidManifest package queries
+    final installed = <InstalledUpiApp>[genericUpiApp];
     for (final app in allKnownUpiApps) {
-      if (!foundIds.contains(app.id)) {
-        try {
-          final uri = Uri.parse(app.schemePrefix);
-          final canOpen = await canLaunchUrl(uri);
-          if (canOpen) {
-            foundIds.add(app.id);
-            installed.add(app);
-          }
-        } catch (_) {}
-      }
+      try {
+        if (await canLaunchUrl(Uri.parse(app.schemePrefix))) {
+          installed.add(app);
+        }
+      } catch (_) {}
     }
-
-    // Always include standard major apps so user can attempt direct launch
-    for (final app in allKnownUpiApps) {
-      if (!foundIds.contains(app.id)) {
-        installed.add(app);
-        foundIds.add(app.id);
-      }
-    }
-
-    // Always include system chooser option at the top
-    if (!foundIds.contains('generic')) {
-      installed.insert(0, genericUpiApp);
-    }
-
     return installed;
   }
 
-  /// Fetches live UPI deep links directly from Cashfree client endpoint if not pre-populated
-  static Future<Map<String, dynamic>?> fetchLiveUpiLinks({
-    required String paymentSessionId,
-    required String cashfreeMode,
-  }) async {
-    try {
-      final baseUrl = (cashfreeMode.toLowerCase() == 'production' || cashfreeMode.toLowerCase() == 'prod')
-          ? 'https://api.cashfree.com/pg'
-          : 'https://sandbox.cashfree.com/pg';
+  static bool get sdkSupported =>
+      !kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS);
 
-      final url = Uri.parse('$baseUrl/orders/sessions');
-      final headers = {
-        'x-api-version': '2023-08-01',
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      };
-
-      // 1. Try channel: 'link'
-      final bodyLink = jsonEncode({
-        'payment_session_id': paymentSessionId,
-        'payment_method': {
-          'upi': {
-            'channel': 'link'
-          }
-        }
-      });
-
-      final responseLink = await http.post(url, headers: headers, body: bodyLink).timeout(const Duration(seconds: 8));
-      if (responseLink.statusCode == 200) {
-        final decoded = jsonDecode(responseLink.body);
-        if (decoded is Map && decoded['data'] != null) {
-          final data = decoded['data'];
-          final Map<String, dynamic> results = {};
-          if (data['payload'] is Map) {
-            results.addAll(Map<String, dynamic>.from(data['payload']));
-          }
-          if (data['url'] != null) {
-            results['default'] = data['url'].toString();
-          }
-          if (results.isNotEmpty) return results;
-        }
-      }
-
-      // 2. Try channel: 'qrcode' (dynamic merchant UPI QR string)
-      final bodyQr = jsonEncode({
-        'payment_session_id': paymentSessionId,
-        'payment_method': {
-          'upi': {
-            'channel': 'qrcode'
-          }
-        }
-      });
-
-      final responseQr = await http.post(url, headers: headers, body: bodyQr).timeout(const Duration(seconds: 8));
-      if (responseQr.statusCode == 200) {
-        final decoded = jsonDecode(responseQr.body);
-        if (decoded is Map && decoded['data'] != null) {
-          final data = decoded['data'];
-          final Map<String, dynamic> results = {};
-          if (data['payload'] is Map) {
-            results.addAll(Map<String, dynamic>.from(data['payload']));
-          } else if (data['payload'] is String) {
-            results['default'] = data['payload'].toString();
-          }
-          if (data['url'] != null) {
-            results['default'] = data['url'].toString();
-          }
-          if (results.isNotEmpty) return results;
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching live UPI links from Cashfree client session: $e');
-    }
-    return null;
+  static bool isUpiDeepLink(String? url) {
+    if (url == null || url.trim().isEmpty) return false;
+    final uri = Uri.tryParse(url.trim());
+    return uri != null && upiSchemes.contains(uri.scheme.toLowerCase());
   }
 
-  /// Launch chosen UPI app directly via Cashfree SDK or direct Intent
-  static Future<bool> launchSelectedUpiApp({
+  static CFEnvironment environmentFor(String cashfreeMode) {
+    final mode = cashfreeMode.trim().toLowerCase();
+    return (mode == 'production' || mode == 'prod' || mode == 'live') ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+  }
+
+  /// Starts Cashfree's native UPI intent for [app] on the given order. Callbacks are registered for
+  /// every payment so they always reach the screen that started it. The success callback only means
+  /// "the UPI app returned": the caller must still verify the order with the server.
+  /// Returns false when the SDK could not even be started (the caller then uses a fallback).
+  static bool startSdkUpiPayment({
     required InstalledUpiApp app,
-    required String orderId,
-    required double amount,
-    String? paymentSessionId,
-    String cashfreeMode = 'production',
-    String? upiIntentUrl,
-    Map<String, dynamic>? upiLinks,
-    String gymName = 'Fitisify SaaS',
-    Function(String orderId)? onVerify,
-    Function(String error, String orderId)? onError,
-  }) async {
-    // 1. Try Cashfree Native SDK UPI Intent first if paymentSessionId is available
-    if (paymentSessionId != null && paymentSessionId.isNotEmpty) {
-      try {
-        final env = (cashfreeMode.toLowerCase() == 'production' || cashfreeMode.toLowerCase() == 'prod')
-            ? CFEnvironment.PRODUCTION
-            : CFEnvironment.SANDBOX;
-
-        if (onVerify != null && onError != null) {
-          _initCallbacks(onVerify, onError);
-        }
-
-        final session = CFSessionBuilder()
-            .setEnvironment(env)
-            .setOrderId(orderId)
-            .setPaymentSessionId(paymentSessionId)
-            .build();
-
-        CFUPI upi;
-        if (app.id == 'generic' || app.packageName.isEmpty) {
-          upi = CFUPIBuilder()
-              .setChannel(CFUPIChannel.INTENT)
-              .build();
-        } else {
-          upi = CFUPIBuilder()
-              .setChannel(CFUPIChannel.INTENT)
-              .setUPIID(app.packageName)
-              .build();
-        }
-
-        final upiPayment = CFUPIPaymentBuilder()
-            .setSession(session)
-            .setUPI(upi)
-            .build();
-
-        debugPrint('Invoking Cashfree SDK UPI Payment for ${app.name} (${app.packageName})');
-        _cfService.doPayment(upiPayment);
-        return true;
-      } catch (e) {
-        debugPrint('Cashfree Native SDK UPI failed, falling back to direct intent URI: $e');
-      }
-    }
-
-    // 2. Gather all existing upiLinks & upiIntentUrl
-    return launchDirectUpiLink(
-      app: app,
-      upiIntentUrl: upiIntentUrl,
-      upiLinks: upiLinks,
-      paymentSessionId: paymentSessionId,
-      cashfreeMode: cashfreeMode,
-    );
-  }
-
-  /// Launch pre-resolved or direct UPI link for the given application
-  static Future<bool> launchDirectUpiLink({
-    required InstalledUpiApp app,
-    String? upiIntentUrl,
-    Map<String, dynamic>? upiLinks,
-    String? paymentSessionId,
-    String cashfreeMode = 'production',
-  }) async {
-    final Map<String, dynamic> links = upiLinks != null ? Map<String, dynamic>.from(upiLinks) : {};
-    String? targetUrl = upiIntentUrl;
-
-    // 1. If no valid gateway links provided and session ID exists, attempt fetch
-    if ((targetUrl == null || targetUrl.isEmpty) && (paymentSessionId != null && paymentSessionId.isNotEmpty)) {
-      final fetched = await fetchLiveUpiLinks(
-        paymentSessionId: paymentSessionId,
-        cashfreeMode: cashfreeMode,
-      );
-      if (fetched != null && fetched.isNotEmpty) {
-        links.addAll(fetched);
-        targetUrl = links['default'] ?? links['qrcode'] ?? (links.isNotEmpty ? links.values.first.toString() : null);
-      }
-    }
-
-    // 2. Match app-specific URL from links
-    if (links.isNotEmpty) {
-      if (app.id != 'generic' && links.containsKey(app.id) && links[app.id] != null) {
-        targetUrl = links[app.id].toString();
-      } else if (app.id == 'gpay' && (links['gpay'] != null || links['googlepay'] != null)) {
-        targetUrl = (links['gpay'] ?? links['googlepay']).toString();
-      } else if (app.id == 'phonepe' && links['phonepe'] != null) {
-        targetUrl = links['phonepe'].toString();
-      } else if (app.id == 'paytm' && links['paytm'] != null) {
-        targetUrl = links['paytm'].toString();
-      } else if (app.id == 'bhim' && links['bhim'] != null) {
-        targetUrl = links['bhim'].toString();
-      } else if (app.id == 'cred' && links['cred'] != null) {
-        targetUrl = links['cred'].toString();
-      } else if (links.containsKey('default') && links['default'] != null) {
-        targetUrl = links['default'].toString();
-      } else if (links.containsKey('qrcode') && links['qrcode'] != null) {
-        targetUrl = links['qrcode'].toString();
-      }
-    }
-
-    if (targetUrl == null || targetUrl.isEmpty) {
-      debugPrint('No direct gateway UPI link available for ${app.name}');
-      return false;
-    }
-
-    // 3. Adapt URL scheme for targeted app if starting with generic upi://pay
-    String finalUrl = targetUrl;
-    if (app.id != 'generic' && app.schemePrefix != 'upi://pay' && targetUrl.startsWith('upi://pay?')) {
-      final query = targetUrl.substring('upi://pay?'.length);
-      finalUrl = '${app.schemePrefix}?$query';
-    } else if (app.id == 'generic' && !targetUrl.startsWith('upi://pay?')) {
-      final queryIndex = targetUrl.indexOf('?');
-      if (queryIndex != -1) {
-        final query = targetUrl.substring(queryIndex + 1);
-        finalUrl = 'upi://pay?$query';
-      }
-    }
-
-    debugPrint('Launching UPI Intent URL: $finalUrl (App: ${app.name})');
-
-    // 4. Try launching target app with external application mode
-    try {
-      final uri = Uri.parse(finalUrl);
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (launched) return true;
-    } catch (e) {
-      debugPrint('Error launching specific scheme: $e');
-    }
-
-    // 5. Fallback: launch with standard generic upi:// scheme (triggers Android System Chooser)
-    try {
-      if (!finalUrl.startsWith('upi://pay?')) {
-        final queryIndex = finalUrl.indexOf('?');
-        if (queryIndex != -1) {
-          final query = finalUrl.substring(queryIndex + 1);
-          final genericUri = Uri.parse('upi://pay?$query');
-          final fallbackLaunched = await launchUrl(genericUri, mode: LaunchMode.externalApplication);
-          if (fallbackLaunched) return true;
-        }
-      }
-    } catch (e) {
-      debugPrint('Error launching generic fallback: $e');
-    }
-
-    return false;
-  }
-
-  /// Launch Native Cashfree Drop-in SDK for Cards (Debit/Credit) & Net Banking
-  static Future<void> launchNativeDropin({
     required String orderId,
     required String paymentSessionId,
     required String cashfreeMode,
-    required Function(String orderId) onVerify,
-    required Function(String error, String orderId) onError,
-  }) async {
+    required void Function(String orderId) onVerify,
+    required void Function(CFErrorResponse error, String orderId) onError,
+  }) {
+    if (!sdkSupported || orderId.isEmpty || paymentSessionId.isEmpty) return false;
     try {
-      _initCallbacks(onVerify, onError);
-
-      final env = (cashfreeMode.toLowerCase() == 'production' || cashfreeMode.toLowerCase() == 'prod')
-          ? CFEnvironment.PRODUCTION
-          : CFEnvironment.SANDBOX;
-
       final session = CFSessionBuilder()
-          .setEnvironment(env)
+          .setEnvironment(environmentFor(cashfreeMode))
           .setOrderId(orderId)
           .setPaymentSessionId(paymentSessionId)
           .build();
 
-      final dropCheckout = CFDropCheckoutPaymentBuilder()
-          .setSession(session)
+      final upi = CFUPIBuilder()
+          .setChannel(CFUPIChannel.INTENT)
+          .setUPIID(app.cashfreeAppId)
           .build();
 
-      _cfService.doPayment(dropCheckout);
+      final upiPayment = CFUPIPaymentBuilder()
+          .setSession(session)
+          .setUPI(upi)
+          .build();
+
+      _cfService.setCallback(onVerify, onError);
+      debugPrint('Invoking Cashfree SDK UPI intent for ${app.name} (${app.cashfreeAppId.isEmpty ? 'chooser' : app.cashfreeAppId})');
+      _cfService.doPayment(upiPayment);
+      return true;
     } catch (e) {
-      debugPrint('Native Cashfree SDK Dropin Error: $e');
-      onError(e.toString(), orderId);
+      debugPrint('Cashfree SDK UPI intent could not start: $e');
+      return false;
     }
   }
 
-  static void _initCallbacks(Function(String) onVerify, Function(String, String) onError) {
-    if (!_callbacksInitialized) {
-      _cfService.setCallback(
-        (orderId) {
-          debugPrint('Cashfree SDK Callback Verified: $orderId');
-          onVerify(orderId);
-        },
-        (CFErrorResponse errorResponse, String orderId) {
-          debugPrint('Cashfree SDK Callback Error: ${errorResponse.getMessage()} (Order: $orderId)');
-          onError(errorResponse.getMessage() ?? 'Payment was cancelled or failed', orderId);
-        },
-      );
-      _callbacksInitialized = true;
+  static String _errorText(CFErrorResponse error) =>
+      '${error.getCode()} ${error.getType()} ${error.getStatus()} ${error.getMessage()}'.toLowerCase();
+
+  /// Cashfree's production integrity check refuses UPI intent for apps not installed from the Play Store.
+  static bool isInstallerNotApproved(CFErrorResponse error) {
+    final text = _errorText(error);
+    return text.contains('installer') || text.contains('not_approved') || text.contains('not approved') || text.contains('integrity');
+  }
+
+  /// True when Cashfree reports that the customer cancelled / the payment itself failed,
+  /// as opposed to the SDK being unable to start (e.g. installer_package_not_approved).
+  static bool isPaymentAttemptFailure(CFErrorResponse error) {
+    if (isInstallerNotApproved(error)) return false;
+    final text = _errorText(error);
+    return text.contains('cancel') ||
+        text.contains('dropped') ||
+        text.contains('user_aborted') ||
+        text.contains('payment_failed') ||
+        text.contains('declined');
+  }
+
+  /// The server-provided deep link to use for [app] (app-specific first, then the generic upi:// link).
+  static String? deepLinkFor(InstalledUpiApp app, {Map<String, dynamic>? upiLinks, String? upiIntentUrl}) {
+    final links = <String, String>{};
+    upiLinks?.forEach((key, value) {
+      final link = value?.toString().trim() ?? '';
+      if (isUpiDeepLink(link)) links[key.toLowerCase()] = link;
+    });
+
+    if (!app.isGeneric) {
+      for (final key in app.linkKeys) {
+        final link = links[key];
+        if (link != null) return link;
+      }
+    }
+
+    String? link = links['default'];
+    if (link == null && isUpiDeepLink(upiIntentUrl)) link = upiIntentUrl!.trim();
+    link ??= links.values.isNotEmpty ? links.values.first : null;
+    if (link == null) return null;
+
+    // "Any UPI app" must open the system chooser: use the standard upi:// form of the same payment request
+    if (app.isGeneric && !link.toLowerCase().startsWith('upi://')) {
+      final query = Uri.tryParse(link)?.query ?? '';
+      if (query.contains('pa=')) return 'upi://pay?$query';
+    }
+    return link;
+  }
+
+  /// Opens a UPI deep link in the UPI app (or Android's chooser for upi://). No canLaunchUrl() gate:
+  /// on Android 11+ it would hide apps that are not declared in `<queries>`.
+  static Future<bool> launchDeepLink(String link) async {
+    if (!isUpiDeepLink(link)) return false;
+    try {
+      return await launchUrl(Uri.parse(link.trim()), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Could not open UPI link: $e');
+      return false;
+    }
+  }
+
+  /// Opens the hosted checkout page in the phone's browser (it can open any UPI app itself).
+  static Future<bool> openCheckoutInBrowser(String checkoutUrl) async {
+    final uri = Uri.tryParse(checkoutUrl.trim());
+    if (uri == null || !(uri.scheme == 'https' || uri.scheme == 'http')) return false;
+    try {
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Could not open checkout page: $e');
+      return false;
     }
   }
 }

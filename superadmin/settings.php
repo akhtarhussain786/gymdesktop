@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['seed_demo_gym_account
     if ($res['success']) {
         Auth::auditLog('SUPER_SEED_DEMO', "Super Admin reset showcase DEMO FITNESS & GYM account.");
         $creds = $res['credentials'] ?? [];
-        redirect('settings.php', 'success', "Demo Gym Synchronized: Code <code>{$creds['gym_code']}</code> | Admin: <code>{$creds['admin_username']}</code> / <code>{$creds['admin_password']}</code>");
+        redirect('settings.php', 'success', "Demo Gym Synchronized: Code {$creds['gym_code']} | Admin: {$creds['admin_username']} / {$creds['admin_password']}");
     } else {
         redirect('settings.php', 'error', "Failed to seed demo gym: " . ($res['error'] ?? 'Unknown error'));
     }

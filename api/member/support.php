@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Fetch member's past inquiries
 $inquiries = DB::fetchAll(
-    "SELECT id, category, subject, message, reply, status, created_at, updated_at 
+    "SELECT id, category, subject, message, reply, status, created_at 
      FROM member_inquiries 
      WHERE tenant_id = ? AND member_id = ? 
      ORDER BY id DESC LIMIT 100",

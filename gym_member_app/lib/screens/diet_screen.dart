@@ -46,7 +46,7 @@ class _DietScreenState extends State<DietScreen> {
       ),
       body: Builder(
         builder: (context) {
-          if (provider.loading && data == null) {
+          if (provider.isLoading(MemberModule.diet) && data == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.cyan),
@@ -54,9 +54,9 @@ class _DietScreenState extends State<DietScreen> {
             );
           }
 
-          if (provider.error != null && data == null) {
+          if (provider.errorFor(MemberModule.diet) != null && data == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.diet)!,
               onRetry: () => provider.fetchDiet(refresh: true),
             );
           }

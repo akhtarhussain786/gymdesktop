@@ -56,6 +56,20 @@ class AdminProvider extends ChangeNotifier {
   String _activeSort = 'recent';
   int _totalMembers = 0;
   int _currentPage = 1;
+  int _totalMemberPages = 1;
+  bool _isMembersLoadingMore = false;
+  int _membersRequestSeq = 0;
+  static const int _membersPageSize = 50;
+
+  // Every member (all pages) for pickers such as "assign plan" / "mark attendance"
+  List<AdminMemberItem> _allMembers = [];
+  bool _isAllMembersLoading = false;
+
+  // Raw settings as loaded from the server, so a save re-sends the gym's own values (never defaults)
+  Map<String, dynamic>? _settingsRaw;
+
+  // Bumped by clearAll(): replies that arrive after logout / gym switch are dropped
+  int _generation = 0;
 
   // Getters
   AdminDashboardData? get dashboardData => _dashboardData;
@@ -108,31 +122,100 @@ class AdminProvider extends ChangeNotifier {
   String get activeSort => _activeSort;
   int get totalMembers => _totalMembers;
   int get currentPage => _currentPage;
+  bool get hasMoreMembers => _currentPage < _totalMemberPages;
+  bool get isMembersLoadingMore => _isMembersLoadingMore;
+  List<AdminMemberItem> get allMembers => _allMembers;
+  bool get isAllMembersLoading => _isAllMembersLoading;
+
+  /// Drops every cached admin module (logout / gym switch / new login).
+  void clearAll() {
+    _generation++;
+    _dashboardData = null;
+    _members = [];
+    _memberDetail = null;
+    _rates = [];
+    _gymQr = null;
+    _transactionSummary = null;
+    _transactions = [];
+    _staffFilterOptions = [];
+    _isTransactionsLoading = false;
+    _isTransactionsPaginationLoading = false;
+    _txnCurrentPage = 1;
+    _txnTotalPages = 1;
+    _txnTotalCount = 0;
+    _txnHasMore = false;
+    _staffs = [];
+    _attendanceLogs = [];
+    _expenses = [];
+    _totalExpenses = 0.0;
+    _equipmentList = [];
+    _equipmentValuation = 0.0;
+    _equipmentUnits = 0;
+    _workoutPlans = [];
+    _dietPlans = [];
+    _classes = [];
+    _announcements = [];
+    _inquiries = [];
+    _openInquiriesCount = 0;
+    _reportsData = null;
+    _settingsData = null;
+    _settingsRaw = null;
+    _saasSubscription = null;
+    _saasPlans = [];
+    _saasHistory = [];
+    _isDashboardLoading = false;
+    _isMembersLoading = false;
+    _isDetailLoading = false;
+    _isActionLoading = false;
+    _isSectionLoading = false;
+    _isSaasLoading = false;
+    _errorMessage = null;
+    _activeFilter = 'all';
+    _searchQuery = '';
+    _activeSort = 'recent';
+    _totalMembers = 0;
+    _currentPage = 1;
+    _totalMemberPages = 1;
+    _isMembersLoadingMore = false;
+    _membersRequestSeq++;
+    _allMembers = [];
+    _isAllMembersLoading = false;
+    notifyListeners();
+  }
+
+  static int _asInt(dynamic v, int fallback) => v is int ? v : (v is num ? v.toInt() : int.tryParse('$v') ?? fallback);
+  static double _asDouble(dynamic v, double fallback) => v is num ? v.toDouble() : double.tryParse('$v') ?? fallback;
 
   // 1. Fetch Admin Dashboard KPIs
   Future<void> fetchDashboard({bool refresh = false}) async {
     if (_dashboardData != null && !refresh && !_isDashboardLoading) return;
 
+    final generation = _generation;
     _isDashboardLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
       final data = await ApiService.get(ApiConfig.adminDashboard, isAdmin: true);
+      if (generation != _generation) return;
       if (data != null) {
         _dashboardData = AdminDashboardData.fromJson(data);
       }
     } on ApiException catch (e) {
+      if (generation != _generation) return;
       _errorMessage = e.message;
     } catch (e) {
+      if (generation != _generation) return;
       _errorMessage = 'Failed to load admin dashboard: ${e.toString()}';
     } finally {
-      _isDashboardLoading = false;
-      notifyListeners();
+      if (generation == _generation) {
+        _isDashboardLoading = false;
+        notifyListeners();
+      }
     }
   }
 
-  // 2. Fetch Gym Members with Filter & Search
+  // 2. Fetch Gym Members with Filter & Search (first page; use loadMoreMembers() for the next pages)
   Future<void> fetchMembers({
     String? search,
     String? filter,
@@ -143,47 +226,132 @@ class AdminProvider extends ChangeNotifier {
     if (search != null) _searchQuery = search;
     if (filter != null) _activeFilter = filter;
     if (sort != null) _activeSort = sort;
-    _currentPage = page;
 
+    // Search fires on every keystroke: only the newest request may update the list
+    final seq = ++_membersRequestSeq;
     _isMembersLoading = true;
+    _isMembersLoadingMore = false;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final queryParams = <String, String>{
-        'page': _currentPage.toString(),
-        'limit': '50',
-        'filter': _activeFilter,
-        'sort': _activeSort,
-      };
-      if (_searchQuery.trim().isNotEmpty) {
-        queryParams['search'] = _searchQuery.trim();
-      }
-
-      final data = await ApiService.get(
-        ApiConfig.adminMembers,
-        queryParams: queryParams,
-        isAdmin: true,
-      );
-
-      if (data != null && data['members'] is List) {
-        _members = (data['members'] as List)
-            .map((item) => AdminMemberItem.fromJson(item as Map<String, dynamic>))
-            .toList();
-        if (data['pagination'] != null) {
-          _totalMembers = (data['pagination']['total'] is int)
-              ? data['pagination']['total']
-              : int.tryParse('${data['pagination']['total']}') ?? _members.length;
-        }
+      final data = await _requestMembersPage(page);
+      if (seq != _membersRequestSeq) return;
+      if (data != null) {
+        _members = data.items;
+        _currentPage = data.page;
+        _totalMemberPages = data.totalPages;
+        _totalMembers = data.total;
       }
     } on ApiException catch (e) {
+      if (seq != _membersRequestSeq) return;
       _errorMessage = e.message;
     } catch (e) {
+      if (seq != _membersRequestSeq) return;
       _errorMessage = 'Failed to load members: ${e.toString()}';
     } finally {
-      _isMembersLoading = false;
-      notifyListeners();
+      if (seq == _membersRequestSeq) {
+        _isMembersLoading = false;
+        notifyListeners();
+      }
     }
+  }
+
+  /// Appends the next page of the current filter/search to [members].
+  Future<void> loadMoreMembers() async {
+    if (_isMembersLoading || _isMembersLoadingMore || !hasMoreMembers) return;
+    final seq = _membersRequestSeq;
+    _isMembersLoadingMore = true;
+    notifyListeners();
+    try {
+      final data = await _requestMembersPage(_currentPage + 1);
+      if (seq != _membersRequestSeq) return;
+      if (data != null) {
+        final known = _members.map((m) => m.memberId).toSet();
+        _members = [..._members, ...data.items.where((m) => !known.contains(m.memberId))];
+        _currentPage = data.page;
+        _totalMemberPages = data.totalPages;
+        _totalMembers = data.total;
+      }
+    } catch (e) {
+      if (seq != _membersRequestSeq) return;
+      _errorMessage = e is ApiException ? e.message : 'Failed to load more members.';
+    } finally {
+      if (seq == _membersRequestSeq) {
+        _isMembersLoadingMore = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<({List<AdminMemberItem> items, int page, int totalPages, int total})?> _requestMembersPage(
+    int page, {
+    String? filter,
+    String? sort,
+    String? search,
+    int limit = _membersPageSize,
+  }) async {
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+      'filter': filter ?? _activeFilter,
+      'sort': sort ?? _activeSort,
+    };
+    final query = search ?? _searchQuery;
+    if (query.trim().isNotEmpty) {
+      queryParams['search'] = query.trim();
+    }
+
+    final data = await ApiService.get(
+      ApiConfig.adminMembers,
+      queryParams: queryParams,
+      isAdmin: true,
+    );
+    if (data is! Map || data['members'] is! List) return null;
+
+    final items = (data['members'] as List)
+        .map((item) => AdminMemberItem.fromJson(item as Map<String, dynamic>))
+        .toList();
+    final pagination = data['pagination'] is Map ? data['pagination'] as Map : const {};
+    final total = _asInt(pagination['total'], items.length);
+    final currentPage = _asInt(pagination['page'], page);
+    final totalPages = pagination.containsKey('total_pages')
+        ? _asInt(pagination['total_pages'], currentPage)
+        : (items.length >= limit ? currentPage + 1 : currentPage);
+    return (items: items, page: currentPage, totalPages: totalPages, total: total);
+  }
+
+  /// Loads every member (all pages, A-Z) for pickers that must offer the whole member list.
+  Future<List<AdminMemberItem>> fetchAllMembers() async {
+    if (_isAllMembersLoading) return _allMembers;
+    final generation = _generation;
+    _isAllMembersLoading = true;
+    notifyListeners();
+    try {
+      final collected = <AdminMemberItem>[];
+      final seen = <int>{};
+      var page = 1;
+      // Hard stop keeps a broken pagination answer from looping forever (100 x 100 members)
+      while (page <= 100) {
+        final data = await _requestMembersPage(page, filter: 'all', sort: 'name_asc', search: '', limit: 100);
+        if (generation != _generation) return const [];
+        if (data == null) break;
+        for (final m in data.items) {
+          if (seen.add(m.memberId)) collected.add(m);
+        }
+        if (data.items.isEmpty || page >= data.totalPages) break;
+        page++;
+      }
+      _allMembers = collected;
+    } catch (_) {
+      // Keep whatever was loaded before
+    } finally {
+      if (generation == _generation) {
+        _isAllMembersLoading = false;
+        notifyListeners();
+      }
+    }
+    return _allMembers;
   }
 
   // 3. Fetch Single Member Detail
@@ -291,6 +459,7 @@ class AdminProvider extends ChangeNotifier {
     String? notes,
     String? photoPath,
     Uint8List? photoBytes,
+    String? username,
   }) async {
     _isActionLoading = true;
     _errorMessage = null;
@@ -312,7 +481,9 @@ class AdminProvider extends ChangeNotifier {
       if (email != null && email.trim().isNotEmpty) fields['email'] = email.trim();
       if (address != null && address.trim().isNotEmpty) fields['address'] = address.trim();
       if (dueDate != null && dueDate.isNotEmpty) fields['due_date'] = dueDate;
+      // No password -> the server generates a random temporary one and returns it
       if (password != null && password.isNotEmpty) fields['password'] = password;
+      if (username != null && username.trim().isNotEmpty) fields['username'] = username.trim();
       if (dor != null && dor.isNotEmpty) fields['dor'] = dor;
       if (expiryDate != null && expiryDate.isNotEmpty) fields['expiry_date'] = expiryDate;
       if (transactionRef != null && transactionRef.trim().isNotEmpty) fields['transaction_ref'] = transactionRef.trim();
@@ -493,7 +664,9 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> addStaff({
+  /// Adds a staff member. Username and password are optional: when left empty the server
+  /// generates them. Returns the server's data (may contain the generated username / temporary password).
+  Future<Map<String, dynamic>> addStaff({
     required String fullname,
     required String phone,
     String? email,
@@ -501,24 +674,35 @@ class AdminProvider extends ChangeNotifier {
     String gender = 'Male',
     String? address,
     double salary = 0.0,
+    String? username,
     String? password,
   }) async {
-    await ApiService.post(
+    final body = <String, dynamic>{
+      'action': 'add',
+      'fullname': fullname,
+      'contact': phone,
+      'email': email ?? '',
+      'designation': designation,
+      'gender': gender,
+      'address': address ?? '',
+      'salary': salary,
+    };
+    if (username != null && username.trim().isNotEmpty) body['username'] = username.trim();
+    if (password != null && password.isNotEmpty) body['password'] = password;
+
+    final envelope = await ApiService.post(
       ApiConfig.adminStaffs,
-      body: {
-        'action': 'add',
-        'fullname': fullname,
-        'contact': phone,
-        'email': email ?? '',
-        'designation': designation,
-        'gender': gender,
-        'address': address ?? '',
-        'salary': salary,
-        'password': password ?? '123456',
-      },
+      body: body,
       isAdmin: true,
+      returnEnvelope: true,
     );
     await fetchStaffs();
+    final result = <String, dynamic>{};
+    if (envelope is Map) {
+      if (envelope['data'] is Map) result.addAll(Map<String, dynamic>.from(envelope['data']));
+      if (envelope['message'] != null) result['message'] = envelope['message'];
+    }
+    return result;
   }
 
   Future<void> deleteStaff(int id) async {
@@ -538,8 +722,9 @@ class AdminProvider extends ChangeNotifier {
       final queryParams = <String, String>{};
       if (date != null && date.isNotEmpty) queryParams['date'] = date;
       final data = await ApiService.get(ApiConfig.adminAttendance, queryParams: queryParams.isNotEmpty ? queryParams : null, isAdmin: true);
-      if (data != null && data['attendance'] is List) {
-        _attendanceLogs = (data['attendance'] as List).map((e) => AdminDailyAttendanceItem.fromJson(e as Map<String, dynamic>)).toList();
+      final rows = (data is Map) ? (data['records'] is List ? data['records'] : data['attendance']) : null;
+      if (rows is List) {
+        _attendanceLogs = rows.map((e) => AdminDailyAttendanceItem.fromJson(Map<String, dynamic>.from(e as Map))).toList();
       }
     } catch (_) {} finally {
       _isSectionLoading = false;
@@ -568,7 +753,7 @@ class AdminProvider extends ChangeNotifier {
       final data = await ApiService.get(ApiConfig.adminExpenses, queryParams: queryParams.isNotEmpty ? queryParams : null, isAdmin: true);
       if (data != null && data['expenses'] is List) {
         _expenses = (data['expenses'] as List).map((e) => AdminExpenseItem.fromJson(e as Map<String, dynamic>)).toList();
-        _totalExpenses = (data['total_amount'] is num) ? (data['total_amount'] as num).toDouble() : 0.0;
+        _totalExpenses = _asDouble(data['total_expense'] ?? data['total_amount'], 0.0);
       }
     } catch (_) {} finally {
       _isSectionLoading = false;
@@ -615,10 +800,11 @@ class AdminProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final data = await ApiService.get(ApiConfig.adminEquipment, isAdmin: true);
-      if (data != null && data['equipment'] is List) {
-        _equipmentList = (data['equipment'] as List).map((e) => AdminEquipmentItem.fromJson(e as Map<String, dynamic>)).toList();
-        _equipmentValuation = (data['total_valuation'] is num) ? (data['total_valuation'] as num).toDouble() : 0.0;
-        _equipmentUnits = (data['total_quantity'] is int) ? data['total_quantity'] : 0;
+      final rows = (data is Map) ? (data['equipments'] is List ? data['equipments'] : data['equipment']) : null;
+      if (rows is List) {
+        _equipmentList = rows.map((e) => AdminEquipmentItem.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        _equipmentValuation = _asDouble(data['total_valuation'], 0.0);
+        _equipmentUnits = _asInt(data['total_units'] ?? data['total_quantity'], 0);
       }
     } catch (_) {} finally {
       _isSectionLoading = false;
@@ -667,8 +853,9 @@ class AdminProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final data = await ApiService.get(ApiConfig.adminWorkouts, isAdmin: true);
-      if (data != null && data['workout_plans'] is List) {
-        _workoutPlans = (data['workout_plans'] as List).map((e) => AdminWorkoutItem.fromJson(e as Map<String, dynamic>)).toList();
+      final rows = (data is Map) ? (data['plans'] is List ? data['plans'] : data['workout_plans']) : null;
+      if (rows is List) {
+        _workoutPlans = rows.map((e) => AdminWorkoutItem.fromJson(Map<String, dynamic>.from(e as Map))).toList();
       }
     } catch (_) {} finally {
       _isSectionLoading = false;
@@ -683,12 +870,15 @@ class AdminProvider extends ChangeNotifier {
     required String exercisesJson,
     String? description,
   }) async {
+    // The server stores the routine as schedule_json (plain text); days/exercises are kept for older servers
+    final schedule = [daysJson.trim(), exercisesJson.trim()].where((part) => part.isNotEmpty).join('\n\n');
     await ApiService.post(
       ApiConfig.adminWorkouts,
       body: {
         'action': 'add',
         'name': name,
         'goal': goal,
+        'schedule_json': schedule,
         'days_json': daysJson,
         'exercises_json': exercisesJson,
         'description': description ?? '',
@@ -922,8 +1112,9 @@ class AdminProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final data = await ApiService.get(ApiConfig.adminSettings, isAdmin: true);
-      if (data != null && data['tenant'] != null) {
-        _settingsData = AdminSettingsData.fromJson(data['tenant']);
+      if (data != null && data['tenant'] is Map) {
+        _settingsRaw = Map<String, dynamic>.from(data['tenant']);
+        _settingsData = AdminSettingsData.fromJson(_settingsRaw!);
       }
     } catch (_) {} finally {
       _isSectionLoading = false;
@@ -952,9 +1143,16 @@ class AdminProvider extends ChangeNotifier {
         'address': address ?? '',
         'currency': currency,
         'upi_id': upiId ?? '',
-        'primary_color': primaryColor ?? '#3b82f6',
-        'secondary_color': secondaryColor ?? '#10b981',
       };
+      // Fields this form does not edit are re-sent exactly as loaded from the server (never app
+      // defaults), so saving the form can't reset the gym's timezone or branding colours.
+      final loaded = _settingsRaw ?? const <String, dynamic>{};
+      final effectivePrimary = primaryColor ?? loaded['primary_color']?.toString();
+      final effectiveSecondary = secondaryColor ?? loaded['secondary_color']?.toString();
+      final effectiveTimezone = loaded['timezone']?.toString();
+      if (effectivePrimary != null && effectivePrimary.isNotEmpty) body['primary_color'] = effectivePrimary;
+      if (effectiveSecondary != null && effectiveSecondary.isNotEmpty) body['secondary_color'] = effectiveSecondary;
+      if (effectiveTimezone != null && effectiveTimezone.isNotEmpty) body['timezone'] = effectiveTimezone;
       if (logoBase64 != null && logoBase64.isNotEmpty) {
         body['logo_base64'] = logoBase64;
       }
@@ -972,17 +1170,20 @@ class AdminProvider extends ChangeNotifier {
     _isSaasLoading = true;
     notifyListeners();
     try {
+      final generation = _generation;
       final data = await ApiService.get(ApiConfig.adminSubscription, isAdmin: true);
-      if (data != null) {
-        if (data['current_subscription'] != null) {
-          _saasSubscription = AdminSaasSubscriptionInfo.fromJson(data['current_subscription'] as Map<String, dynamic>);
-        }
-        if (data['plans'] is List) {
-          _saasPlans = (data['plans'] as List).map((e) => AdminSaasPlanItem.fromJson(e as Map<String, dynamic>)).toList();
-        }
-        if (data['payment_history'] is List) {
-          _saasHistory = (data['payment_history'] as List).map((e) => AdminSaasPaymentHistoryItem.fromJson(e as Map<String, dynamic>)).toList();
-        }
+      if (generation != _generation) return;
+      if (data is Map) {
+        // Always overwrite: a missing key means "none", never "keep the previous gym's data"
+        _saasSubscription = data['current_subscription'] is Map
+            ? AdminSaasSubscriptionInfo.fromJson(Map<String, dynamic>.from(data['current_subscription']))
+            : null;
+        _saasPlans = data['plans'] is List
+            ? (data['plans'] as List).map((e) => AdminSaasPlanItem.fromJson(Map<String, dynamic>.from(e as Map))).toList()
+            : [];
+        _saasHistory = data['payment_history'] is List
+            ? (data['payment_history'] as List).map((e) => AdminSaasPaymentHistoryItem.fromJson(Map<String, dynamic>.from(e as Map))).toList()
+            : [];
       }
     } catch (_) {} finally {
       _isSaasLoading = false;
@@ -1015,9 +1216,9 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
+  /// Asks the server to verify the order with Cashfree and activate the subscription.
+  /// This server answer is the only thing that decides whether a SaaS payment succeeded.
   Future<bool> verifySaasOrder(String orderId) async {
-    _isActionLoading = true;
-    notifyListeners();
     try {
       final res = await ApiService.post(
         ApiConfig.adminSubscription,
@@ -1027,14 +1228,14 @@ class AdminProvider extends ChangeNotifier {
         },
         isAdmin: true,
       );
-      await fetchSaasSubscription();
-      await fetchDashboard(refresh: true);
-      return res != null && res['verified'] == true;
+      final verified = res is Map && res['verified'] == true;
+      if (verified) {
+        await fetchSaasSubscription();
+        await fetchDashboard(refresh: true);
+      }
+      return verified;
     } catch (_) {
       return false;
-    } finally {
-      _isActionLoading = false;
-      notifyListeners();
     }
   }
 

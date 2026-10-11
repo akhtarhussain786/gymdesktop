@@ -44,7 +44,7 @@ $monthEnd = date('Y-m-t');
 // Revenue = amounts actually collected on paid/partial invoices (pending/cancelled are not income).
 // Legacy fallback to members.amount only for tenants with no invoices at all.
 if ((int)DB::fetchValue("SELECT COUNT(*) FROM invoices WHERE tenant_id = ?", [$tenantId]) > 0) {
-    $monthlyRevenue = (float)DB::fetchValue("SELECT SUM(COALESCE(paid_amount, 0)) FROM invoices WHERE tenant_id = ? AND status IN ('paid', 'partial') AND payment_date BETWEEN ? AND ?", [$tenantId, $monthStart, $monthEnd]);
+    $monthlyRevenue = (float)DB::fetchValue("SELECT SUM(CASE WHEN LOWER(status) = 'paid' AND COALESCE(paid_amount, 0) <= 0 THEN COALESCE(amount, 0) ELSE COALESCE(paid_amount, 0) END) FROM invoices WHERE tenant_id = ? AND LOWER(status) IN ('paid', 'partial') AND payment_date BETWEEN ? AND ?", [$tenantId, $monthStart, $monthEnd]);
 } else {
     $monthlyRevenue = (float)DB::fetchValue("SELECT SUM(amount) FROM members WHERE tenant_id = ? AND paid_date BETWEEN ? AND ?", [$tenantId, $monthStart, $monthEnd]);
 }
@@ -253,7 +253,7 @@ include __DIR__ . '/../includes/topbar.php';
                                     </td>
                                     <td>
                                         <div><?php echo e($m['services']); ?></div>
-                                        <div style="font-size: 0.78rem; color: var(--text-muted);"><?php echo $m['plan']; ?> Month(s)</div>
+                                        <div style="font-size: 0.78rem; color: var(--text-muted);"><?php echo e($m['plan']); ?> Month(s)</div>
                                     </td>
                                     <td><?php echo e($m['contact']); ?></td>
                                     <td><?php echo status_badge($m['status']); ?></td>

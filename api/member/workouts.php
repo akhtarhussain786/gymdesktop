@@ -39,6 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'task_desc' => $taskDesc,
             'task_status' => 'Pending'
         ]);
+        if (!$newId) {
+            ApiResponse::error('Unable to save the task right now. Please try again later.', 500);
+        }
         ApiResponse::success(['id' => (int)$newId, 'task_desc' => $taskDesc, 'task_status' => 'Pending'], 'Task added.');
     } else {
         ApiResponse::error("Invalid action. Use 'add' with task_desc or 'toggle' with todo_id.", 422);
@@ -52,7 +55,7 @@ $assignedPlans = DB::fetchAll(
             s.fullname as trainer_name, s.contact as trainer_contact
      FROM member_assigned_plans ap
      JOIN workout_plans wp ON ap.workout_plan_id = wp.id AND wp.tenant_id = ap.tenant_id
-     LEFT JOIN staffs s ON ap.trainer_id = s.user_id AND s.tenant_id = ap.tenant_id
+     " . api_trainer_join_sql('ap', 's') . "
      WHERE ap.member_id = ? AND ap.tenant_id = ?
      ORDER BY ap.id DESC",
     [$memberId, $tenantId]

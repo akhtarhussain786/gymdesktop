@@ -29,6 +29,7 @@ class _GymSwitcherDialogState extends State<GymSwitcherDialog> {
 
   Future<void> _loadSavedGyms() async {
     final gyms = await SecureStorageService.getSavedGymTenants();
+    if (!mounted) return;
     setState(() {
       _savedGyms = gyms;
     });
@@ -41,12 +42,14 @@ class _GymSwitcherDialogState extends State<GymSwitcherDialog> {
   }
 
   Future<void> _handleSwitch(String gymCode) async {
-    Navigator.pop(context);
-
+    // Everything that needs this dialog's context is captured before it closes
+    final navigator = Navigator.of(context);
     final auth = context.read<AuthProvider>();
     final dashboard = context.read<DashboardProvider>();
     final memberData = context.read<MemberDataProvider>();
     final theme = context.read<ThemeProvider>();
+
+    navigator.pop();
 
     dashboard.clear();
     memberData.clearAll();
@@ -59,8 +62,9 @@ class _GymSwitcherDialogState extends State<GymSwitcherDialog> {
       );
     }
 
-    if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
+    // The dialog is gone by now; the app's navigator is still alive
+    if (navigator.mounted) {
+      navigator.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
       );

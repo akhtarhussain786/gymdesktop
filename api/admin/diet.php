@@ -45,15 +45,22 @@ if ($method === 'POST') {
             ApiResponse::error('Invalid member or diet plan selected', 400);
         }
 
-        DB::insert('member_assigned_plans', [
+        // The caller's users.id, same as the web panel; readers map it to the staff record via users.staff_id
+        $trainerRef = $auth['user_id'] ?? null;
+
+        $assignId = DB::insert('member_assigned_plans', [
             'tenant_id' => $tenantId,
             'member_id' => $memberId,
             'diet_plan_id' => $dietPlanId,
-            'trainer_id' => $auth['user_id'] ?? null,
+            'trainer_id' => $trainerRef,
             'assigned_date' => date('Y-m-d'),
             'notes' => $notes,
             'status' => 'active'
         ]);
+
+        if (!$assignId) {
+            ApiResponse::error('Could not assign the diet plan. Please try again.', 500);
+        }
 
         ApiResponse::success([], 'Diet plan assigned to member successfully');
     }
@@ -79,15 +86,24 @@ if ($method === 'POST') {
         'created_by' => $auth['user_id'] ?? null
     ]);
 
-    Auth::auditLog('ADD_DIET_PLAN', "Created diet plan '$name'");
+    if (!$newId) {
+        ApiResponse::error('Could not save the diet plan. Please try again.', 500);
+    }
+
+    Auth::auditLog('ADD_DIET_PLAN', "Created diet plan '$name'", $tenantId, (int)$auth['user_id']);
     ApiResponse::success(['id' => $newId], "Diet plan '$name' saved successfully");
 }
 
 // GET: Retrieve diet plans & assigned plans
 $dietPlans = DB::fetchAll("SELECT * FROM diet_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
 
-// Seed template if empty
-if (empty($dietPlans)) {
+// Seed the sample template once per gym (a gym that deleted it must not get it back on every visit)
+$seedKey = 'seeded_diet_plans_' . $tenantId;
+if (!empty($dietPlans) && get_platform_setting($seedKey, '') === '') {
+    set_platform_setting($seedKey, '1');
+}
+if (empty($dietPlans) && get_platform_setting($seedKey, '') === '' && !Tenant::isReadOnly()) {
+    set_platform_setting($seedKey, '1');
     DB::insert('diet_plans', [
         'tenant_id' => $tenantId,
         'name' => 'High-Protein Muscle Gain Plan',
@@ -102,8 +118,8 @@ if (empty($dietPlans)) {
 
 $assignedSql = "SELECT ap.*, m.fullname as member_name, dp.name as plan_name 
                 FROM member_assigned_plans ap 
-                JOIN members m ON ap.member_id = m.user_id 
-                JOIN diet_plans dp ON ap.diet_plan_id = dp.id 
+                JOIN members m ON ap.member_id = m.user_id AND m.tenant_id = ap.tenant_id 
+                JOIN diet_plans dp ON ap.diet_plan_id = dp.id AND dp.tenant_id = ap.tenant_id 
                 WHERE ap.tenant_id = ? AND ap.diet_plan_id IS NOT NULL 
                 ORDER BY ap.id DESC LIMIT 50";
 $assignedPlans = DB::fetchAll($assignedSql, [$tenantId]);

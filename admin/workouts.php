@@ -69,18 +69,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
 $workoutPlans = DB::fetchAll("SELECT * FROM workout_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
 $members = DB::fetchAll("SELECT user_id, fullname, contact FROM members WHERE tenant_id = ? AND status = 'Active' ORDER BY fullname ASC", [$tenantId]);
 
-// Pre-populate standard workout templates if empty
-if (empty($workoutPlans)) {
-    DB::insert('workout_plans', [
-        'tenant_id' => $tenantId,
-        'name' => 'Full Body Hypertrophy Split',
-        'goal' => 'Muscle Building',
-        'level' => 'Intermediate',
-        'description' => '3-day full body split focusing on compound lifts and progressive overload.',
-        'schedule_json' => "Day 1 (Chest & Triceps): Barbell Bench Press 4x8, Incline Dumbbell Press 3x10, Cable Tricep Pushdown 3x12\nDay 2 (Back & Biceps): Lat Pulldowns 4x10, Barbell Rows 4x8, Bicep Hammer Curls 3x12\nDay 3 (Legs & Shoulders): Barbell Squats 4x8, Romanian Deadlifts 3x10, Overhead Dumbbell Press 4x8",
-        'created_by' => $_SESSION['user_id']
-    ]);
-    $workoutPlans = DB::fetchAll("SELECT * FROM workout_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
+// Pre-populate a standard workout template once per gym (seeding whenever the list was empty made the last plan undeletable)
+$workoutSeedKey = 'seeded_workouts_' . (int)$tenantId;
+if (get_platform_setting($workoutSeedKey, '') === '') {
+    if (empty($workoutPlans)) {
+        DB::insert('workout_plans', [
+            'tenant_id' => $tenantId,
+            'name' => 'Full Body Hypertrophy Split',
+            'goal' => 'Muscle Building',
+            'level' => 'Intermediate',
+            'description' => '3-day full body split focusing on compound lifts and progressive overload.',
+            'schedule_json' => "Day 1 (Chest & Triceps): Barbell Bench Press 4x8, Incline Dumbbell Press 3x10, Cable Tricep Pushdown 3x12\nDay 2 (Back & Biceps): Lat Pulldowns 4x10, Barbell Rows 4x8, Bicep Hammer Curls 3x12\nDay 3 (Legs & Shoulders): Barbell Squats 4x8, Romanian Deadlifts 3x10, Overhead Dumbbell Press 4x8",
+            'created_by' => $_SESSION['user_id']
+        ]);
+        $workoutPlans = DB::fetchAll("SELECT * FROM workout_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
+    }
+    set_platform_setting($workoutSeedKey, '1');
 }
 
 include __DIR__ . '/../includes/header.php';

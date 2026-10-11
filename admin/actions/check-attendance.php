@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../core/auth.php';
 require_once __DIR__ . '/../../core/helpers.php';
+require_once __DIR__ . '/../../core/subscription_engine.php';
 Auth::requireAuth(['gym_admin', 'staff', 'trainer']);
 
 // State-changing endpoint: POST + CSRF only (was a GET link, CSRF-able).
@@ -17,7 +18,7 @@ $todayDate = date('Y-m-d');
 $currentTime = date('H:i:s'); // TIME column (12h 'h:i A' lost AM/PM)
 
 $member = $memberId > 0 ? DB::fetchOne("SELECT status, paid_date, plan FROM members WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId]) : null;
-$expiry = ($member && !empty($member['paid_date'])) ? date('Y-m-d', strtotime('+' . max(1, (int)$member['plan']) . ' months', strtotime($member['paid_date']))) : null;
+$expiry = ($member && !empty($member['paid_date'])) ? SubscriptionEngine::addMonths($member['paid_date'], max(1, (int)$member['plan'])) : null;
 if (!$member || $member['status'] !== 'Active' || $expiry === null || $expiry < $todayDate) {
     set_flash('error', 'Member not found or membership expired. Please renew before check-in.');
 } else {

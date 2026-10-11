@@ -103,7 +103,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
           : null,
       body: Builder(
         builder: (context) {
-          if (provider.loading && data == null) {
+          if (provider.isLoading(MemberModule.workouts) && data == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
@@ -111,9 +111,9 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
             );
           }
 
-          if (provider.error != null && data == null) {
+          if (provider.errorFor(MemberModule.workouts) != null && data == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.workouts)!,
               onRetry: () => provider.fetchWorkouts(refresh: true),
             );
           }

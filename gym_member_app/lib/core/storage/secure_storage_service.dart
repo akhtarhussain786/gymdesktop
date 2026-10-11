@@ -42,29 +42,46 @@ class SecureStorageService {
     }
   }
 
-  // Save active bearer token with dual storage for maximum Android compatibility
+  // Bearer token lives only in encrypted secure storage (never in plain SharedPreferences)
   static Future<void> saveToken(String token) async {
     try {
       await _storage.write(key: _keyToken, value: token);
     } catch (_) {}
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyToken, token);
-    } catch (_) {}
+    await _removeLegacyPrefsToken();
   }
 
   // Get active bearer token
   static Future<String?> getToken() async {
     try {
       final token = await _storage.read(key: _keyToken);
-      if (token != null && token.isNotEmpty) return token;
+      if (token != null && token.isNotEmpty) {
+        await _removeLegacyPrefsToken();
+        return token;
+      }
     } catch (_) {}
+
+    // One-time migration: older app versions also kept the token in plain SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
       final prefToken = prefs.getString(_keyToken);
-      if (prefToken != null && prefToken.isNotEmpty) return prefToken;
+      if (prefToken != null && prefToken.isNotEmpty) {
+        try {
+          await _storage.write(key: _keyToken, value: prefToken);
+        } catch (_) {}
+        await prefs.remove(_keyToken);
+        return prefToken;
+      }
     } catch (_) {}
     return null;
+  }
+
+  static Future<void> _removeLegacyPrefsToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.containsKey(_keyToken)) {
+        await prefs.remove(_keyToken);
+      }
+    } catch (_) {}
   }
 
   // Save current selected gym code
@@ -135,6 +152,8 @@ class SecureStorageService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keyToken);
+      await prefs.remove(_keyUserRole);
+      await prefs.remove(_keyUserData);
     } catch (_) {}
     final tenantId = await getActiveTenantId();
     if (tenantId != null) {

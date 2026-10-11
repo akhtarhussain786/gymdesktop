@@ -12,10 +12,40 @@ class SEO {
     private static $cachedSettings = null;
     private static $cachedPages = null;
 
+    private static $tablesEnsured = false;
+
     /**
-     * Ensure SEO database tables exist
+     * Ensure SEO database tables exist. Public pages call this on every view, so the DDL / seeding
+     * runs at most once per install: a marker in logs/ (keyed to the database) skips it afterwards,
+     * and without the marker the tables are only created when SHOW COLUMNS says they are missing.
      */
     public static function ensureTables() {
+        if (self::$tablesEnsured) {
+            return;
+        }
+        self::$tablesEnsured = true;
+
+        $markerFile = __DIR__ . '/../logs/.seo_tables_ready';
+        $markerValue = 'v1|' . md5((string)env('DB_HOST', '') . '/' . (string)env('DB_NAME', ''));
+        $marker = @file_get_contents($markerFile);
+        if ($marker !== false && trim($marker) === $markerValue) {
+            return;
+        }
+
+        try {
+            if (DB::tableColumns('seo_settings') === null || DB::tableColumns('seo_pages') === null) {
+                self::createTables();
+            }
+            self::seedDefaultData();
+            if (DB::tableColumns('seo_settings') !== null && DB::tableColumns('seo_pages') !== null) {
+                @file_put_contents($markerFile, $markerValue, LOCK_EX);
+            }
+        } catch (Throwable $e) {
+            // Graceful fallback if database connection is offline
+        }
+    }
+
+    private static function createTables() {
         try {
             DB::query("
                 CREATE TABLE IF NOT EXISTS `seo_settings` (
@@ -48,8 +78,6 @@ class SEO {
                     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             ");
-
-            self::seedDefaultData();
         } catch (Exception $e) {
             // Graceful fallback if database connection is offline
         }

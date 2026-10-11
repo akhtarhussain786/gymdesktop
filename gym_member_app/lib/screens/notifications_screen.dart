@@ -60,6 +60,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (!widget.isAdmin) {
         await ApiService.post(ApiConfig.notifications, body: {'action': 'mark_all_read'});
       }
+      if (!mounted) return;
       setState(() {
         _unreadCount = 0;
         _notifications = _notifications.map((n) => NotificationItem(
@@ -91,6 +92,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           'notification_id': item.id,
         });
       }
+      if (!mounted) return;
       setState(() {
         if (_unreadCount > 0) _unreadCount--;
         final idx = _notifications.indexWhere((n) => n.id == item.id);

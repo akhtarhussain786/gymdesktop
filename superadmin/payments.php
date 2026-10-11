@@ -13,9 +13,21 @@ $page = 'super_payments';
 $pageTitle = 'SaaS Payments & Orders';
 $pageSubtitle = 'Monitor gateway transactions, payment verifications, and onboarding credentials delivery';
 
-// Auto-purge abandoned pending/failed orders older than 2 days (48 hours)
-$cutoffTime = date('Y-m-d H:i:s', strtotime('-2 days'));
-DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed') AND created_at < ?", [$cutoffTime]);
+/**
+ * Mark Cashfree checkouts still 'pending' after 48 hours as failed/abandoned. Nothing is deleted:
+ * manual (bank/UPI/cash) renewal requests wait for approval as long as needed, and an abandoned
+ * gateway order can still be applied if Cashfree later reports it PAID (finalizeSaasGatewayOrder
+ * and the onboarding provisioner look the order up regardless of this status).
+ */
+function mark_abandoned_gateway_orders() {
+    $cutoff = date('Y-m-d H:i:s', strtotime('-2 days'));
+    return (int)DB::update('saas_payments', [
+        'status' => 'failed',
+        'failure_reason' => 'abandoned'
+    ], "status = 'pending' AND payment_method = 'cashfree' AND created_at < ?", [$cutoff]);
+}
+
+mark_abandoned_gateway_orders();
 
 // Handle Resend / Reset Credentials Action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_credentials'])) {
@@ -67,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resend_credentials'])
             if ($mailResult['success']) {
                 set_flash('success', "New temporary credentials generated and emailed to {$payment['email']}.");
             } else {
-                set_flash('warning', "New temporary credentials generated, but email delivery encountered an issue: " . htmlspecialchars($mailResult['error']));
+                set_flash('warning', "New temporary credentials generated, but email delivery encountered an issue: " . ($mailResult['error'] ?? 'unknown error'));
             }
         } else {
             set_flash('error', "No Gym Admin user found for this tenant.");
@@ -142,25 +154,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_payment'])) {
     redirect(base_url('/superadmin/payments.php'));
 }
 
-// Bulk purge all pending / failed orders older than 2 days
+// Mark abandoned Cashfree checkouts older than 2 days (non-destructive; manual requests untouched)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['purge_old_pending'])) {
     Auth::verifyCsrf();
-    $cutoff = date('Y-m-d H:i:s', strtotime('-2 days'));
-    DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed', 'rejected') AND created_at < ?", [$cutoff]);
-    Auth::auditLog('PURGE_OLD_PENDING_PAYMENTS', "Purged abandoned SaaS orders older than 2 days");
-    set_flash('success', "All pending / unpaid orders older than 2 days have been purged.");
-    redirect(base_url('/superadmin/payments.php'));
-}
-
-// Bulk purge all test and orphaned records (Keep Demo Gym only)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cleanup_keep_demo_only'])) {
-    Auth::verifyCsrf();
-    // Delete all payments where tenant_id is 0 or tenant is not Demo Gym
-    DB::query("DELETE FROM saas_payments WHERE tenant_id <= 0 OR tenant_id NOT IN (SELECT id FROM tenants WHERE gym_name LIKE '%demo%' OR owner_name LIKE '%demo%')");
-    // Delete non-demo orphaned test tenants
-    DB::query("DELETE FROM tenants WHERE gym_name NOT LIKE '%demo%' AND owner_name NOT LIKE '%demo%' AND email NOT LIKE '%akhtar%' AND id NOT IN (SELECT tenant_id FROM saas_payments WHERE tenant_id > 0)");
-    Auth::auditLog('CLEANUP_SAAS_PAYMENTS', "Purged all test and orphaned orders, keeping only Demo Gym");
-    set_flash('success', "All test and inactive onboarding orders removed. Only Demo Gym is retained.");
+    $marked = mark_abandoned_gateway_orders();
+    Auth::auditLog('MARK_ABANDONED_SAAS_ORDERS', "Marked {$marked} unpaid Cashfree SaaS orders older than 2 days as abandoned");
+    set_flash('success', "Unpaid Cashfree checkouts older than 2 days are marked as abandoned ({$marked} updated now). Manual renewal requests are not affected.");
     redirect(base_url('/superadmin/payments.php'));
 }
 
@@ -253,17 +252,10 @@ include __DIR__ . '/../includes/topbar.php';
             <?php endif; ?>
         </form>
 
-        <form method="POST" action="" style="margin: 0; display: flex; gap: 8px;" onsubmit="return confirm('Delete all test & orphaned checkouts and keep only Demo Gym?');">
+        <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Mark unpaid Cashfree checkouts older than 2 days as abandoned? Nothing is deleted.');">
             <?php echo Auth::csrfField(); ?>
-            <button type="submit" name="cleanup_keep_demo_only" value="1" class="btn btn-sm btn-danger" title="Delete all test/orphaned checkouts and keep only Demo Gym">
-                <i class="fas fa-trash"></i> Clean Test Orders (Keep Demo Only)
-            </button>
-        </form>
-
-        <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Delete all abandoned pending / unpaid orders older than 2 days?');">
-            <?php echo Auth::csrfField(); ?>
-            <button type="submit" name="purge_old_pending" value="1" class="btn btn-sm btn-outline-danger" title="Purge abandoned orders older than 48 hours">
-                <i class="fas fa-broom"></i> Clean Pending (>2 Days)
+            <button type="submit" name="purge_old_pending" value="1" class="btn btn-sm btn-outline-danger" title="Mark unpaid Cashfree checkouts older than 48 hours as abandoned (manual renewal requests are not affected)">
+                <i class="fas fa-broom"></i> Mark Abandoned (>2 Days)
             </button>
         </form>
     </div>

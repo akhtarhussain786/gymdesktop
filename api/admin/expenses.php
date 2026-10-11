@@ -13,7 +13,10 @@ $tenantId = (int)$auth['tenant_id'];
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    $month = !empty($_GET['month']) ? trim($_GET['month']) : date('Y-m');
+    $month = !empty($_GET['month']) ? trim((string)$_GET['month']) : date('Y-m');
+    if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+        $month = date('Y-m');
+    }
 
     $expenses = DB::fetchAll(
         "SELECT id, title, category, amount, expense_date, vendor, payment_mode, notes, created_at
@@ -39,6 +42,7 @@ if ($method === 'GET') {
     ApiResponse::success([
         'month' => $month,
         'total_expense' => $totalExpense,
+        'total_amount' => $totalExpense, // name the app reads
         'expenses' => $expenses,
         'categories' => $categoryStats
     ], 'Expenses retrieved successfully');
@@ -62,7 +66,10 @@ if ($method === 'POST') {
     $title = trim($input['title'] ?? '');
     $category = trim($input['category'] ?? 'General');
     $amount = (float)($input['amount'] ?? 0.0);
-    $expenseDate = !empty($input['expense_date']) ? trim($input['expense_date']) : date('Y-m-d');
+    $expenseDate = !empty($input['expense_date']) ? trim((string)$input['expense_date']) : date('Y-m-d');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $expenseDate) || strtotime($expenseDate) === false) {
+        ApiResponse::error('Invalid expense date. Use YYYY-MM-DD.', 422);
+    }
     $vendor = trim($input['vendor'] ?? '');
     $paymentMode = trim($input['payment_mode'] ?? 'Cash');
     $notes = trim($input['notes'] ?? '');
@@ -86,6 +93,10 @@ if ($method === 'POST') {
         'notes' => $notes ?: null,
         'created_by' => $auth['user_id'] ?? null
     ]);
+
+    if (!$id) {
+        ApiResponse::error('Could not save the expense. Please check the details and try again.', 500);
+    }
 
     ApiResponse::success(['id' => $id], 'Expense recorded successfully!', 201);
 }

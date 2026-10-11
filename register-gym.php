@@ -1,7 +1,7 @@
 <?php
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags (HttpOnly, SameSite=Lax, Secure on HTTPS)
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/tenant.php';
 require_once __DIR__ . '/core/auth.php';
@@ -11,6 +11,34 @@ require_once __DIR__ . '/core/cashfree.php';
 require_once __DIR__ . '/core/account_provisioner.php';
 require_once __DIR__ . '/core/subscription_engine.php';
 require_once __DIR__ . '/core/seo.php';
+
+// Abuse protection: at most this many new gym registrations (trial or paid checkout) per IP per hour.
+// Configurable with REGISTER_MAX_PER_IP_PER_HOUR in .env (0 disables it) — raise it if the site sits behind
+// a proxy / CDN that makes many visitors share one IP. Uses the login_attempts table (own scope);
+// no throttling if that table is unavailable.
+function register_gym_max_per_hour() {
+    $raw = trim((string)env('REGISTER_MAX_PER_IP_PER_HOUR', '10'));
+    return is_numeric($raw) ? max(0, (int)$raw) : 10;
+}
+
+function register_gym_rate_limited($ip) {
+    $max = register_gym_max_per_hour();
+    if ($max === 0 || DB::tableColumns('login_attempts') === null) {
+        return false;
+    }
+    $recent = (int)DB::fetchValue(
+        "SELECT COUNT(*) FROM login_attempts WHERE scope = 'register_gym' AND identifier = ? AND attempted_at > (NOW() - INTERVAL 1 HOUR)",
+        [hash('sha256', $ip)]
+    );
+    return $recent >= $max;
+}
+
+function register_gym_record_attempt($ip) {
+    if (DB::tableColumns('login_attempts') === null) {
+        return;
+    }
+    DB::query("INSERT INTO login_attempts (scope, identifier, ip_address) VALUES ('register_gym', ?, ?)", [hash('sha256', $ip), substr($ip, 0, 64)]);
+}
 
 // Fetch active plans directly from DB
 $plans = DB::fetchAll("SELECT * FROM subscription_plans WHERE is_active = 1 ORDER BY price_monthly ASC");
@@ -49,6 +77,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register_gym'])) {
     $formData['plan_id']    = (int)($_POST['plan_id'] ?? 2);
 
     $cleanPhone = preg_replace('/[^0-9]/', '', $formData['phone']);
+    $clientIp = (string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+    // Honeypot: the hidden "hp_extra_info" field is invisible to people; bots fill every input
+    $honeypotHit = trim((string)($_POST['hp_extra_info'] ?? '')) !== '';
 
     // Whitelist values that drive money formatting, payment availability (INR only) and date maths
     $validSymbols = array_column(get_supported_currencies(), 'symbol');
@@ -62,7 +93,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register_gym'])) {
     }
 
     // 1. Validation
-    if (empty($formData['gym_name']) || empty($formData['owner_name']) || empty($formData['email']) || empty($formData['phone'])) {
+    if ($honeypotHit) {
+        error_log("register-gym: honeypot field filled (ip={$clientIp}); registration ignored");
+        $error = "We could not process this registration. Please try again or contact support.";
+    } elseif (register_gym_rate_limited($clientIp)) {
+        error_log("register-gym: per-IP registration limit reached (ip={$clientIp})");
+        $error = "Too many registrations from your network in the last hour. Please try again later or contact support.";
+    } elseif (empty($formData['gym_name']) || empty($formData['owner_name']) || empty($formData['email']) || empty($formData['phone'])) {
         $error = "Please fill in all required fields (Gym Name, Owner Name, Email, and Phone).";
     } elseif (!filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
         $error = "Please provide a valid email address.";
@@ -107,6 +144,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register_gym'])) {
                 // -------------------------------------------------------------
                 // CASE A: FREE TRIAL PLAN (₹0) -> No Cashfree, Instant Activation
                 // -------------------------------------------------------------
+                if ($planError === '') {
+                    register_gym_record_attempt($clientIp);
+                }
+
                 if ($planError !== '') {
                     $error = $planError;
                 } elseif ($isFreeTrial) {
@@ -261,6 +302,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register_gym'])) {
             <div class="onboarding-card-box">
                 <form method="POST" action="" id="onboarding-form">
                     <?php echo Auth::csrfField(); ?>
+                    <div style="position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;" aria-hidden="true">
+                        <label>Leave this field empty <input type="text" name="hp_extra_info" value="" tabindex="-1" autocomplete="off" /></label>
+                    </div>
 
                     <!-- Step 1: Gym & Owner Details -->
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--border-subtle);">

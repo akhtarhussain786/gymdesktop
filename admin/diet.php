@@ -69,18 +69,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
 $dietPlans = DB::fetchAll("SELECT * FROM diet_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
 $members = DB::fetchAll("SELECT user_id, fullname, contact FROM members WHERE tenant_id = ? AND status = 'Active' ORDER BY fullname ASC", [$tenantId]);
 
-// Pre-populate sample diet templates if empty
-if (empty($dietPlans)) {
-    DB::insert('diet_plans', [
-        'tenant_id' => $tenantId,
-        'name' => 'High-Protein Muscle Gain Plan',
-        'target' => 'Lean Muscle Bulking',
-        'calories' => 2600,
-        'description' => 'Clean macro breakdown with 180g protein, 300g carbs, and 65g healthy fats.',
-        'meals_json' => "Breakfast (8:00 AM): 4 Whole Eggs + 2 Egg Whites, 100g Oats with Banana & Honey\nMid-Morning Snack (11:00 AM): 1 Scoop Whey Protein + 30g Almonds\nLunch (1:30 PM): 200g Grilled Chicken Breast, 150g Brown Rice, Steamed Broccoli\nPre-Workout (4:30 PM): 2 Slices Whole Grain Toast with Peanut Butter & 1 Apple\nPost-Workout Dinner (7:30 PM): 200g Fish or Paneer, Sweet Potato, Mixed Green Salad",
-        'created_by' => $_SESSION['user_id']
-    ]);
-    $dietPlans = DB::fetchAll("SELECT * FROM diet_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
+// Pre-populate a sample diet template once per gym (seeding whenever the list was empty made the last plan undeletable)
+$dietSeedKey = 'seeded_diet_' . (int)$tenantId;
+if (get_platform_setting($dietSeedKey, '') === '') {
+    if (empty($dietPlans)) {
+        DB::insert('diet_plans', [
+            'tenant_id' => $tenantId,
+            'name' => 'High-Protein Muscle Gain Plan',
+            'target' => 'Lean Muscle Bulking',
+            'calories' => 2600,
+            'description' => 'Clean macro breakdown with 180g protein, 300g carbs, and 65g healthy fats.',
+            'meals_json' => "Breakfast (8:00 AM): 4 Whole Eggs + 2 Egg Whites, 100g Oats with Banana & Honey\nMid-Morning Snack (11:00 AM): 1 Scoop Whey Protein + 30g Almonds\nLunch (1:30 PM): 200g Grilled Chicken Breast, 150g Brown Rice, Steamed Broccoli\nPre-Workout (4:30 PM): 2 Slices Whole Grain Toast with Peanut Butter & 1 Apple\nPost-Workout Dinner (7:30 PM): 200g Fish or Paneer, Sweet Potato, Mixed Green Salad",
+            'created_by' => $_SESSION['user_id']
+        ]);
+        $dietPlans = DB::fetchAll("SELECT * FROM diet_plans WHERE tenant_id = ? ORDER BY id DESC", [$tenantId]);
+    }
+    set_platform_setting($dietSeedKey, '1');
 }
 
 include __DIR__ . '/../includes/header.php';

@@ -8,8 +8,13 @@ $pageSubtitle = 'Configure membership packages, recurring monthly fees, and serv
 $tenantId = Tenant::getTenantId();
 $tenant = Tenant::getCurrent();
 
-// Ensure standard defaults exist
-Tenant::ensureDefaultRates($tenantId);
+// Seed the standard packages only once per gym (re-seeding whenever the list was empty made the
+// last package impossible to delete)
+$ratesSeedKey = 'seeded_rates_' . (int)$tenantId;
+if (get_platform_setting($ratesSeedKey, '') === '') {
+    Tenant::ensureDefaultRates($tenantId);
+    set_platform_setting($ratesSeedKey, '1');
+}
 
 // Handle Add Rate / Package
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_rate'])) {
@@ -233,7 +238,7 @@ include __DIR__ . '/../includes/topbar.php';
                                         <button type="button" class="btn btn-secondary btn-sm" onclick="editRate(<?php echo htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8'); ?>)">
                                             <i class="fas fa-edit"></i> Edit
                                         </button>
-                                        <form method="POST" action="" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete package \'<?php echo addslashes($r['name']); ?>\'?');">
+                                        <form method="POST" action="" style="display: inline;" onsubmit="return confirm(<?php echo e(js_value("Are you sure you want to delete package '" . $r['name'] . "'?")); ?>);">
                                             <?php echo Auth::csrfField(); ?>
                                             <input type="hidden" name="delete_rate" value="<?php echo $r['id']; ?>" />
                                             <button type="submit" class="btn btn-danger btn-sm" <?php echo $r['member_count'] > 0 ? 'disabled title="Reassign enrolled members first"' : ''; ?>>
@@ -271,7 +276,7 @@ include __DIR__ . '/../includes/topbar.php';
                     <input type="text" name="name" class="form-control" placeholder="e.g. Strength & Conditioning, Yoga & Cardio" required />
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Monthly Rate (<?php echo $tenant['currency']; ?>) *</label>
+                    <label class="form-label">Monthly Rate (<?php echo e($tenant['currency']); ?>) *</label>
                     <input type="number" step="0.01" min="1" name="charge" class="form-control" placeholder="e.g. 500.00" required />
                     <small style="color: var(--text-muted); font-size: 0.78rem;">Multi-month packages (3, 6, 12 months) automatically compute discounted totals from this rate.</small>
                 </div>
@@ -305,7 +310,7 @@ include __DIR__ . '/../includes/topbar.php';
                     <input type="text" name="name" id="edit-rate-name" class="form-control" required />
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Monthly Rate (<?php echo $tenant['currency']; ?>) *</label>
+                    <label class="form-label">Monthly Rate (<?php echo e($tenant['currency']); ?>) *</label>
                     <input type="number" step="0.01" min="1" name="charge" id="edit-rate-charge" class="form-control" required />
                 </div>
             </div>

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/subscription_engine.php';
 Auth::requireAuth(['gym_admin', 'staff']);
 
 $page = 'members-entry';
@@ -20,8 +21,8 @@ $rates = Tenant::getRates($tenantId);
 // Fetch Trainers
 $trainers = DB::fetchAll("SELECT * FROM staffs WHERE tenant_id = ? AND designation = 'Trainer'", [$tenantId]);
 
-// Gym UPI Configuration
-$gymUpiId = !empty($tenant['upi_id']) ? $tenant['upi_id'] : 'fitisify@upi';
+// Gym UPI Configuration (no fallback: members must only ever be asked to pay the gym itself)
+$gymUpiId = trim((string)($tenant['upi_id'] ?? ''));
 $gymNameClean = preg_replace('/[^a-zA-Z0-9 ]/', '', $tenant['gym_name'] ?? 'Gym');
 
 // Form Processing
@@ -41,6 +42,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
     $contact = trim($_POST['contact'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $trainer_id = !empty($_POST['trainer_id']) ? (int)$_POST['trainer_id'] : null;
+    // Trainer must be a staff member of THIS gym
+    if ($trainer_id !== null && !DB::fetchValue("SELECT user_id FROM staffs WHERE user_id = ? AND tenant_id = ?", [$trainer_id, $tenantId])) {
+        $trainer_id = null;
+    }
     $paymentMethod = $_POST['payment_method'] ?? 'Cash';
     $transactionRef = trim($_POST['transaction_ref'] ?? '');
 
@@ -56,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
             if (!is_dir($uploadDir)) {
                 @mkdir($uploadDir, 0777, true);
             }
-            $avatarFileName = 'avatar_' . $tenantId . '_' . time() . '_' . substr(md5(uniqid()), 0, 6) . '.' . $ext;
+            $avatarFileName = 'avatar_' . $tenantId . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
             if (!@move_uploaded_file($_FILES['avatar']['tmp_name'], $uploadDir . '/' . $avatarFileName)) {
                 $avatarFileName = null;
             }
@@ -73,30 +78,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
         if ($existing) {
             $error = "Username '$username' is already taken. Please choose a different username.";
         } else {
-            $memberId = DB::insert('members', [
-                'tenant_id' => $tenantId,
-                'branch_id' => 101,
-                'fullname' => $fullname,
-                'username' => $username,
-                'password' => $passwordHash,
-                'avatar' => $avatarFileName,
-                'photo' => $avatarFileName,
-                'gender' => $gender,
-                'dor' => $dor,
-                'services' => $services,
-                'amount' => $totalAmount,
-                'paid_date' => date('Y-m-d'),
-                'p_year' => (int)date('Y'),
-                'plan' => $plan,
-                'address' => $address,
-                'contact' => $contact,
-                'email' => $email,
-                'trainer_id' => $trainer_id,
-                'status' => 'Active',
-                'attendance_count' => 0
-            ]);
+            if (empty($transactionRef)) {
+                $prefix = ($paymentMethod === 'UPI') ? 'UPI-' : 'PAY-';
+                $transactionRef = $prefix . strtoupper(substr(md5(uniqid()), 0, 8));
+            }
+            $today = date('Y-m-d');
+            $invoiceNumber = null;
 
-            if ($memberId) {
+            // Member, login, invoice and subscription are saved together or not at all
+            DB::beginTransaction();
+            try {
+                $memberId = DB::insert('members', [
+                    'tenant_id' => $tenantId,
+                    'branch_id' => 101,
+                    'fullname' => $fullname,
+                    'username' => $username,
+                    'password' => $passwordHash,
+                    'avatar' => $avatarFileName,
+                    'photo' => $avatarFileName,
+                    'gender' => $gender,
+                    'dor' => $dor,
+                    'services' => $services,
+                    'amount' => $totalAmount,
+                    'paid_date' => $today,
+                    'p_year' => (int)date('Y'),
+                    'plan' => $plan,
+                    'address' => $address,
+                    'contact' => $contact,
+                    'email' => $email,
+                    'trainer_id' => $trainer_id,
+                    'status' => 'Active',
+                    'attendance_count' => 0
+                ]);
+                if (!$memberId) {
+                    throw new RuntimeException('member insert failed: ' . DB::$lastError);
+                }
+
                 // Sync user account for Mobile App Login
                 DB::insert('users', [
                     'tenant_id' => $tenantId,
@@ -112,22 +129,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
                     'status' => 'active'
                 ]);
 
-                // Generate unique tenant-aware invoice number
-                $invCount = (int)DB::fetchValue("SELECT COUNT(*) FROM invoices WHERE tenant_id = ?", [$tenantId]);
-                $tenantSlug = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $tenant['slug'] ?? $tenant['gym_name'] ?? 'GYM'), 0, 4));
-                $invoiceNumber = 'INV-' . $tenantSlug . '-' . date('Ym') . '-' . str_pad($invCount + 1, 4, '0', STR_PAD_LEFT);
-
-                if (empty($transactionRef)) {
-                    $prefix = ($paymentMethod === 'UPI') ? 'UPI-' : 'PAY-';
-                    $transactionRef = $prefix . strtoupper(substr(md5(uniqid()), 0, 8));
-                }
-
-                // Create initial invoice
+                // Create initial invoice (collision-free number is assigned from the inserted id)
                 $invId = DB::insert('invoices', [
                     'tenant_id' => $tenantId,
                     'branch_id' => 101,
                     'member_id' => $memberId,
-                    'invoice_number' => $invoiceNumber,
+                    'invoice_number' => SubscriptionEngine::tempInvoiceNumber(),
                     'service_name' => $services,
                     'plan_months' => $plan,
                     'amount' => $totalAmount,
@@ -135,22 +142,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
                     'discount' => 0.00,
                     'status' => 'Paid',
                     'payment_method' => $paymentMethod,
-                    'payment_date' => date('Y-m-d'),
+                    'payment_date' => $today,
                     'transaction_ref' => $transactionRef,
                     'notes' => "Initial membership registration for {$services} ({$plan} Mo) via {$paymentMethod}",
                     'created_by' => $_SESSION['user_id'] ?? null,
                     'created_at' => date('Y-m-d H:i:s')
                 ]);
+                if (!$invId) {
+                    throw new RuntimeException('invoice insert failed: ' . DB::$lastError);
+                }
+                $invoiceNumber = SubscriptionEngine::assignInvoiceNumber($invId, $tenant, $today);
 
                 // Create initial active subscription record
-                $expiryDate = date('Y-m-d', strtotime("+{$plan} months"));
+                $expiryDate = SubscriptionEngine::calculateExpiryDate($today, $plan);
                 DB::insert('member_subscriptions', [
                     'tenant_id' => $tenantId,
                     'member_id' => $memberId,
                     'plan_name_snapshot' => $services,
                     'plan_price_snapshot' => $totalAmount,
                     'plan_duration_snapshot' => $plan,
-                    'start_date' => date('Y-m-d'),
+                    'start_date' => $today,
                     'expiry_date' => $expiryDate,
                     'status' => 'active',
                     'payment_id' => $invId,
@@ -159,6 +170,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_member'])) {
                     'created_at' => date('Y-m-d H:i:s')
                 ]);
 
+                DB::commit();
+            } catch (Throwable $ex) {
+                DB::rollback();
+                error_log('Add member failed: ' . $ex->getMessage());
+                $memberId = 0;
+            }
+
+            if ($memberId) {
                 Auth::auditLog('ADD_MEMBER', "Added new member $fullname (#$memberId) via {$paymentMethod} with Invoice #$invoiceNumber");
                 redirect('members.php', 'success', "Member $fullname successfully registered via {$paymentMethod}! App login & Invoice #$invoiceNumber activated.");
             } else {
@@ -281,7 +300,7 @@ include __DIR__ . '/../includes/topbar.php';
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Monthly Rate (<?php echo $tenant['currency']; ?>) *</label>
+                    <label class="form-label">Monthly Rate (<?php echo e($tenant['currency']); ?>) *</label>
                     <input type="number" step="0.01" name="amount" id="rate-input" class="form-control" value="<?php echo $rates[0]['charge'] ?? 1000; ?>" oninput="updateAmount()" required />
                 </div>
             </div>
@@ -314,7 +333,7 @@ include __DIR__ . '/../includes/topbar.php';
                     <label class="form-label">Select Payment Method *</label>
                     <select name="payment_method" id="payment-method-select" class="form-select" onchange="togglePaymentMethodView()" style="font-weight: 700; font-size: 0.95rem;">
                         <option value="Cash">💵 Cash at Desk</option>
-                        <option value="UPI" selected>📱 UPI / Dynamic QR Code (Scan & Pay)</option>
+                        <option value="UPI" <?php echo $gymUpiId !== '' ? 'selected' : ''; ?>>📱 UPI / Dynamic QR Code (Scan & Pay)</option>
                         <option value="Card">💳 Credit / Debit Card</option>
                         <option value="Online">🏦 Online Bank Transfer</option>
                     </select>
@@ -328,6 +347,7 @@ include __DIR__ . '/../includes/topbar.php';
 
             <!-- Dynamic UPI QR Card Box (Shown when UPI is selected) -->
             <div id="upi-qr-box" style="background: linear-gradient(135deg, rgba(204, 255, 0, 0.05), rgba(0, 242, 254, 0.03)); border: 1.5px solid var(--lime-border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 24px;">
+                <?php if ($gymUpiId !== ''): ?>
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <span style="background: var(--lime); color: #000; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 0.8rem; text-transform: uppercase;">
@@ -368,6 +388,16 @@ include __DIR__ . '/../includes/topbar.php';
                         </div>
                     </div>
                 </div>
+                <?php else: ?>
+                <div style="text-align: center;">
+                    <div style="font-weight: 700; color: #f59e0b; margin-bottom: 4px;">
+                        <i class="fas fa-exclamation-circle"></i> UPI ID is not configured
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">
+                        The gym owner can add the gym's UPI ID in Settings &rarr; Branding & System Settings to show a payment QR code here.
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- Address Field -->
@@ -387,23 +417,29 @@ include __DIR__ . '/../includes/topbar.php';
 </div>
 
 <script>
-const gymUpiId = "<?php echo addslashes($gymUpiId); ?>";
-const gymName = "<?php echo addslashes($gymNameClean); ?>";
+const gymUpiId = <?php echo js_value($gymUpiId); ?>;
+const gymName = <?php echo js_value($gymNameClean); ?>;
 
 function updateAmount() {
     const serviceSel = document.getElementById('service-select');
     const rate = parseFloat(document.getElementById('rate-input').value) || 0;
     const plan = parseInt(document.getElementById('plan-select').value) || 1;
     const total = rate * plan;
-    const currency = "<?php echo $tenant['currency']; ?>";
+    const currency = <?php echo js_value((string)($tenant['currency'] ?? '')); ?>;
     
     document.getElementById('total-display').innerText = currency + total.toFixed(2);
-    document.getElementById('upi-amount-text').innerText = currency + total.toFixed(2);
+    const upiAmountEl = document.getElementById('upi-amount-text');
+    if (upiAmountEl) {
+        upiAmountEl.innerText = currency + total.toFixed(2);
+    }
 
     updateQrCode(total);
 }
 
 function updateQrCode(amount) {
+    if (!gymUpiId) {
+        return;
+    }
     const memberName = document.getElementById('fullname-input').value.trim() || 'Member';
     const upiString = `upi://pay?pa=${encodeURIComponent(gymUpiId)}&pn=${encodeURIComponent(gymName)}&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Gym Fee - ' + memberName)}`;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiString)}`;

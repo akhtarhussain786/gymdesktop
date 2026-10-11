@@ -261,7 +261,8 @@ class SubscriptionEngine {
         $customerName = $member['fullname'] ?: 'Member';
         $customerPhone = $member['contact'] ?: $tenant['phone'] ?: '9876543210';
         $customerEmail = $member['email'] ?: $tenant['email'] ?: 'member@fitisify.com';
-        $returnUrl = self::appBaseUrl() . "/api/member/check_payment_status.php";
+        // Public "return to the app" page (the status API itself needs the app's login token)
+        $returnUrl = self::appBaseUrl() . "/payment-return.php";
 
         // Insert pending payment record BEFORE creating the gateway order so a webhook can never
         // arrive for an order we have no record of. Months are persisted on the order itself.
@@ -290,7 +291,8 @@ class SubscriptionEngine {
             $customerName,
             $customerPhone,
             $customerEmail,
-            $returnUrl
+            $returnUrl,
+            CashfreeGateway::notifyUrl()
         );
 
         if (!$cfResponse['success']) {
@@ -305,14 +307,35 @@ class SubscriptionEngine {
             'gateway_response' => json_encode(['months' => $months, 'discount_percent' => $discountPercent, 'cashfree' => $cfResponse])
         ], 'id = ?', [$paymentRecordId]);
 
-        // Generate dynamic UPI QR URI for scanning
+        // Preferred: Cashfree's own UPI link for THIS order. The amount is locked, any UPI app can pay it,
+        // and the payment is credited automatically (check_payment_status / webhook).
+        $cfUpiLinks = [];
+        try {
+            $cfUpiLinks = CashfreeGateway::extractUpiDeepLinks(CashfreeGateway::createUpiPayment($cfResponse['payment_session_id'], 'link'));
+        } catch (Throwable $e) {
+            error_log('Cashfree UPI link error for ' . $orderId . ': ' . $e->getMessage());
+        }
+
         $cleanUpiId = trim($tenant['upi_id'] ?? '');
-        $cleanGymName = urlencode(substr($tenant['gym_name'] ?: 'Gym Owner', 0, 50));
-        $cleanNote = urlencode("Renewal-{$planName}-{$months}mo-{$orderId}");
-        $formattedAmountStr = number_format($payableAmount, 2, '.', '');
-        
-        $upiUri = !empty($cleanUpiId) ? "upi://pay?pa={$cleanUpiId}&pn={$cleanGymName}&am={$formattedAmountStr}&cu=INR&tn={$cleanNote}" : '';
-        $qrCodeUrl = !empty($upiUri) ? "https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=" . urlencode($upiUri) . "&margin=10" : '';
+        if (!empty($cfUpiLinks)) {
+            $paymentMode = 'cashfree_upi';
+            $upiUri = $cfUpiLinks['default'] ?? reset($cfUpiLinks);
+            $displayUpiId = '';
+            $qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=" . urlencode($upiUri) . "&margin=10";
+        } else {
+            // Fallback (Cashfree UPI intent not enabled on the account): the member pays the gym's own UPI ID
+            // directly. Cashfree never sees that money, so it must be confirmed with the UPI reference (UTR)
+            // through submit_renewal_payment.php and approved by gym staff.
+            $paymentMode = 'gym_upi_direct';
+            $cleanGymName = urlencode(substr($tenant['gym_name'] ?: 'Gym Owner', 0, 50));
+            $cleanNote = urlencode("Renewal-{$planName}-{$months}mo-{$orderId}");
+            $formattedAmountStr = number_format($payableAmount, 2, '.', '');
+            $upiUri = !empty($cleanUpiId) ? "upi://pay?pa={$cleanUpiId}&pn={$cleanGymName}&am={$formattedAmountStr}&cu=INR&tn={$cleanNote}" : '';
+            $displayUpiId = $cleanUpiId;
+            $qrCodeUrl = !empty($tenant['upi_qr'])
+                ? base_url("/uploads/qr/" . $tenant['upi_qr'])
+                : (!empty($upiUri) ? "https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=" . urlencode($upiUri) . "&margin=10" : '');
+        }
 
         return [
             'success' => true,
@@ -326,10 +349,14 @@ class SubscriptionEngine {
             'plan_name' => $planName,
             'months' => $months,
             'discount_percent' => $discountPercent,
-            'upi_id' => $cleanUpiId,
+            'upi_id' => $displayUpiId,
             'gym_name' => $tenant['gym_name'] ?: 'Gym Owner',
             'upi_url' => $upiUri,
-            'qr_code_url' => !empty($tenant['upi_qr']) ? base_url("/uploads/qr/" . $tenant['upi_qr']) : $qrCodeUrl,
+            'qr_code_url' => $qrCodeUrl,
+            'upi_links' => (object)$cfUpiLinks,
+            // 'cashfree_upi': credited automatically. 'gym_upi_direct': member must submit the UTR for staff approval.
+            'payment_mode' => $paymentMode,
+            'requires_utr' => ($paymentMode === 'gym_upi_direct'),
             'cashfree_checkout_url' => "https://payments.cashfree.com/order/#" . $cfResponse['payment_session_id'],
             'expires_in_seconds' => 600
         ];
@@ -435,6 +462,10 @@ class SubscriptionEngine {
             $planId = (int)$payment['plan_id'];
             $amount = (float)$payment['amount'];
 
+            // Lock this member's subscription rows BEFORE any plain read, so the queue below is computed
+            // from the latest committed data (a renewal committed concurrently is never missed)
+            DB::fetchAll("SELECT id FROM member_subscriptions WHERE tenant_id = ? AND member_id = ? FOR UPDATE", [$tenantId, $memberId]);
+
             if (!$isManual) {
                 if ($verifiedAmount === null || abs((float)$verifiedAmount - $amount) > 0.01) {
                     DB::rollback();
@@ -454,9 +485,6 @@ class SubscriptionEngine {
             $planName = $rate ? $rate['name'] : ($member['services'] ?: 'General Fitness');
             // Months come from the order record, not from amount / rate (which breaks with discounts)
             $months = self::resolvePaymentMonths($payment, $rate);
-
-            // Lock this member's subscription rows so concurrent renewals compute the queue serially
-            DB::fetchAll("SELECT id FROM member_subscriptions WHERE tenant_id = ? AND member_id = ? FOR UPDATE", [$tenantId, $memberId]);
 
             // Calculate seamless dates
             $startDate = self::calculateNextStartDate($tenantId, $memberId);
@@ -503,13 +531,17 @@ class SubscriptionEngine {
             if (is_array($storedResponse)) {
                 $storedResponse['months'] = $months;
             }
-            DB::update('membership_payments', [
+            $paidMarked = DB::update('membership_payments', [
                 'subscription_id' => $subscriptionId,
                 'cashfree_payment_id' => $transactionRef ?: ($payment['cashfree_payment_id'] ?: $cashfreeOrderId),
                 'payment_status' => 'PAID',
                 'gateway_response' => json_encode($storedResponse),
                 'paid_at' => date('Y-m-d H:i:s')
             ], 'id = ?', [$payment['id']]);
+            // Without this marker the next webhook / poll would credit the same payment again
+            if ((int)$paidMarked !== 1) {
+                throw new RuntimeException('Could not mark membership payment #' . (int)$payment['id'] . ' as paid: ' . DB::$lastError);
+            }
 
             $paymentMethodLabel = $isManual ? ($payment['payment_method'] ?: 'Manual') : 'Cashfree Online';
             $serviceLabel = $planName . ($status === 'upcoming' ? ' (Upcoming)' : '');
@@ -596,6 +628,20 @@ class SubscriptionEngine {
      */
     public static function markPaymentNotPaid($cashfreeOrderId, $newStatus = 'FAILED', $gatewayResponse = null) {
         $newStatus = in_array($newStatus, ['FAILED', 'CANCELLED'], true) ? $newStatus : 'FAILED';
+        // Keep the order's own plan metadata (months / discount) when storing the failure payload:
+        // the customer may still complete the same order later, and the months must not be guessed then.
+        if ($gatewayResponse !== null) {
+            $existing = DB::fetchValue("SELECT gateway_response FROM membership_payments WHERE cashfree_order_id = ? AND payment_status = 'PENDING'", [$cashfreeOrderId]);
+            $meta = json_decode((string)$existing, true);
+            if (is_array($meta)) {
+                $gatewayResponse = is_array($gatewayResponse) ? $gatewayResponse : ['payload' => $gatewayResponse];
+                foreach (['months', 'discount_percent'] as $k) {
+                    if (isset($meta[$k]) && !isset($gatewayResponse[$k])) {
+                        $gatewayResponse[$k] = $meta[$k];
+                    }
+                }
+            }
+        }
         $res = DB::query(
             "UPDATE membership_payments SET payment_status = ?" . ($gatewayResponse !== null ? ", gateway_response = ?" : "") . " WHERE cashfree_order_id = ? AND payment_status = 'PENDING'",
             $gatewayResponse !== null ? [$newStatus, json_encode($gatewayResponse), $cashfreeOrderId] : [$newStatus, $cashfreeOrderId]
@@ -629,8 +675,15 @@ class SubscriptionEngine {
                 'expired_at' => date('Y-m-d H:i:s')
             ], 'id = ?', [$sub['id']]);
 
-            // Update main members status
-            DB::update('members', ['status' => 'Expired'], 'user_id = ? AND tenant_id = ?', [$sub['member_id'], $sub['tenant_id']]);
+            // Update main members status — unless another plan of this member is still running
+            // (e.g. a renewal that was activated before this old plan had been expired)
+            $stillActive = (int)DB::fetchValue(
+                "SELECT COUNT(*) FROM member_subscriptions WHERE tenant_id = ? AND member_id = ? AND id <> ? AND status = 'active' AND expiry_date >= ?",
+                [$sub['tenant_id'], $sub['member_id'], $sub['id'], $today]
+            );
+            if ($stillActive === 0) {
+                DB::update('members', ['status' => 'Expired'], 'user_id = ? AND tenant_id = ?', [$sub['member_id'], $sub['tenant_id']]);
+            }
         }
 
         // 2. Find members who need activation of their upcoming plan
@@ -770,6 +823,9 @@ class SubscriptionEngine {
         }
         if ($plan['billing_cycle'] === 'trial') {
             $cycle = 'trial';
+        } elseif ($cycle === 'trial' && ((float)($plan['price_monthly'] ?? 0) > 0 || (float)($plan['price_yearly'] ?? 0) > 0)) {
+            // A paid plan can never be bought as a ₹0 "trial"
+            return ['success' => false, 'error' => 'The selected plan is not available as a free trial.'];
         }
         $basePrice = self::saasCyclePrice($plan, $cycle);
         if ($basePrice === null) {
@@ -838,6 +894,15 @@ class SubscriptionEngine {
                 return ['success' => false, 'error' => 'Gym not found.'];
             }
 
+            // The paid period starts the day after the current expiry when the gym renews early
+            // (so no paid days are lost), otherwise today.
+            $today = date('Y-m-d');
+            $startDate = $today;
+            $currentExpiry = substr((string)($tenant['subscription_expiry'] ?? ''), 0, 10);
+            if ($currentExpiry !== '' && strpos($currentExpiry, '0000-00-00') !== 0 && strtotime($currentExpiry) !== false && $currentExpiry >= $today) {
+                $startDate = date('Y-m-d', strtotime('+1 day', strtotime($currentExpiry)));
+            }
+
             if ($p['billing_cycle'] === 'trial') {
                 $plan = DB::fetchOne("SELECT trial_days FROM subscription_plans WHERE id = ?", [(int)$p['plan_id']]);
                 $tDays = max(1, (int)($plan['trial_days'] ?? 4));
@@ -858,7 +923,12 @@ class SubscriptionEngine {
             if (!empty($options['transaction_id'])) {
                 $update['cf_payment_id'] = $options['transaction_id'];
             }
-            DB::update('saas_payments', $update, 'id = ?', [$p['id']]);
+            // If the payment row cannot be marked approved, roll everything back: otherwise the same
+            // payment would be applied again (and the gym extended again) on the next verification.
+            $marked = DB::update('saas_payments', $update, "id = ? AND status <> 'approved'", [$p['id']]);
+            if ((int)$marked !== 1) {
+                throw new RuntimeException('Could not mark SaaS payment #' . (int)$p['id'] . ' as approved: ' . DB::$lastError);
+            }
 
             // Suspensions / cancellations are administrative decisions and are not lifted by a payment
             $tenantStatus = in_array($tenant['status'], ['suspended', 'cancelled'], true) ? $tenant['status'] : 'active';

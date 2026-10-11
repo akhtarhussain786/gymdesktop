@@ -45,7 +45,7 @@ class _NoticesScreenState extends State<NoticesScreen> {
       ),
       body: Builder(
         builder: (context) {
-          if (provider.loading && data == null) {
+          if (provider.isLoading(MemberModule.notices) && data == null) {
             return const Center(
               child: CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.lime),
@@ -53,9 +53,9 @@ class _NoticesScreenState extends State<NoticesScreen> {
             );
           }
 
-          if (provider.error != null && data == null) {
+          if (provider.errorFor(MemberModule.notices) != null && data == null) {
             return ErrorRetryView(
-              message: provider.error!,
+              message: provider.errorFor(MemberModule.notices)!,
               onRetry: () => provider.fetchNotices(refresh: true),
             );
           }

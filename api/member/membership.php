@@ -16,14 +16,15 @@ $memberId = $auth['member_id'];
 SubscriptionEngine::activateUpcomingSubscriptions($tenantId);
 
 // Refresh member record after potential auto-activation
-$member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId]);
+$member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId]) ?: $auth['member'];
 
-$paidDate = $member['paid_date'];
-$planMonths = (int)($member['plan'] ?: 1);
-// paid_date is the start of the current period; month-end safe expiry
-$expiryDate = SubscriptionEngine::addMonths($paidDate, $planMonths);
-$today = date('Y-m-d');
-$daysLeft = (int)(new DateTime($today))->diff(new DateTime($expiryDate))->format('%r%a');
+// Same window as the dashboard / check-in gate (renewal engine first, then paid_date + plan months;
+// no payment on record = not active)
+$window = api_membership_window($tenantId, $member);
+$paidDate = $window['start_date'];
+$planMonths = $window['plan_months'];
+$expiryDate = $window['expiry_date'];
+$daysLeft = $window['days_left'];
 
 // Fetch Upcoming Plans Queue from member_subscriptions
 $upcomingRows = DB::fetchAll(

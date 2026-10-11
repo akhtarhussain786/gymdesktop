@@ -9,6 +9,7 @@
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant.php';
+require_once __DIR__ . '/helpers.php';
 
 class DemoSeeder {
 
@@ -50,9 +51,17 @@ class DemoSeeder {
         $report = [];
         $totalDeleted = 0;
 
-        // Get list of existing tenant IDs
-        $existingTenants = DB::fetchAll("SELECT id FROM tenants");
-        $tenantIds = array_map(function($t) { return (int)$t['id']; }, $existingTenants);
+        // Get list of existing tenant IDs. A failed or empty read must never be taken as "no gyms
+        // exist" — that would delete every gym's data — so the purge stops instead.
+        $tenantIds = self::existingTenantIds();
+        if ($tenantIds === null) {
+            return [
+                'success' => false,
+                'error' => 'Could not read the gym list (or no gyms exist); nothing was deleted.',
+                'total_deleted' => 0,
+                'breakdown' => []
+            ];
+        }
 
         DB::beginTransaction();
         try {
@@ -63,13 +72,8 @@ class DemoSeeder {
                     continue;
                 }
 
-                if (empty($tenantIds)) {
-                    // No tenants exist: delete all records from tenant-specific tables
-                    $result = DB::query("DELETE FROM `{$tbl}`");
-                } else {
-                    $inClause = implode(',', $tenantIds);
-                    $result = DB::query("DELETE FROM `{$tbl}` WHERE tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL");
-                }
+                $inClause = implode(',', $tenantIds);
+                $result = DB::query("DELETE FROM `{$tbl}` WHERE tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL");
 
                 $deleted = (int)($result['affected'] ?? 0);
                 if ($deleted > 0) {
@@ -79,14 +83,9 @@ class DemoSeeder {
             }
 
             // Clean users (keep super_admin)
-            if (empty($tenantIds)) {
-                $userResult = DB::query("DELETE FROM users WHERE role NOT IN ('super_admin', 'superadmin')");
-                DB::query("DELETE FROM saas_payments WHERE tenant_id > 0");
-            } else {
-                $inClause = implode(',', $tenantIds);
-                $userResult = DB::query("DELETE FROM users WHERE role NOT IN ('super_admin', 'superadmin') AND (tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL)");
-                DB::query("DELETE FROM saas_payments WHERE tenant_id > 0 AND tenant_id NOT IN ({$inClause})");
-            }
+            $inClause = implode(',', $tenantIds);
+            $userResult = DB::query("DELETE FROM users WHERE role NOT IN ('super_admin', 'superadmin') AND (tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL)");
+            DB::query("DELETE FROM saas_payments WHERE tenant_id > 0 AND tenant_id NOT IN ({$inClause})");
             $userDeleted = (int)($userResult['affected'] ?? 0);
             if ($userDeleted > 0) {
                 $report['users'] = $userDeleted;
@@ -118,8 +117,10 @@ class DemoSeeder {
      * Get count of orphaned rows in the database
      */
     public static function countOrphans() {
-        $existingTenants = DB::fetchAll("SELECT id FROM tenants");
-        $tenantIds = array_map(function($t) { return (int)$t['id']; }, $existingTenants);
+        $tenantIds = self::existingTenantIds();
+        if ($tenantIds === null) {
+            return 0; // purgeOrphans() refuses to run without a gym list, so report nothing to purge
+        }
         $totalOrphans = 0;
 
         foreach (self::$tenantTables as $tbl) {
@@ -128,16 +129,29 @@ class DemoSeeder {
                 continue;
             }
 
-            if (empty($tenantIds)) {
-                $count = (int)DB::fetchValue("SELECT COUNT(*) FROM `{$tbl}`");
-            } else {
-                $inClause = implode(',', $tenantIds);
-                $count = (int)DB::fetchValue("SELECT COUNT(*) FROM `{$tbl}` WHERE tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL");
-            }
+            $inClause = implode(',', $tenantIds);
+            $count = (int)DB::fetchValue("SELECT COUNT(*) FROM `{$tbl}` WHERE tenant_id NOT IN ({$inClause}) OR tenant_id IS NULL");
             $totalOrphans += $count;
         }
 
         return $totalOrphans;
+    }
+
+    /**
+     * IDs of all existing tenants, or null when the list could not be read or is empty.
+     */
+    private static function existingTenantIds() {
+        $res = DB::query("SELECT id FROM tenants");
+        if (!is_object($res)) {
+            return null;
+        }
+        $ids = [];
+        while ($row = mysqli_fetch_assoc($res)) {
+            if ((int)$row['id'] > 0) {
+                $ids[] = (int)$row['id'];
+            }
+        }
+        return empty($ids) ? null : $ids;
     }
 
     /**
@@ -150,8 +164,9 @@ class DemoSeeder {
         $demoSlug = 'demo-fitness-gym';
         $demoGymCode = 'DEMO-GYM';
 
-        // Check if demo gym already exists
-        $existing = DB::fetchOne("SELECT * FROM tenants WHERE slug = ? OR gym_code = ? LIMIT 1", [$demoSlug, $demoGymCode]);
+        // The demo gym is identified ONLY by its reserved gym code: a real gym registered as
+        // "Demo Fitness Gym" gets the slug demo-fitness-gym and must never be wiped by a reset.
+        $existing = DB::fetchOne("SELECT * FROM tenants WHERE gym_code = ? LIMIT 1", [$demoGymCode]);
 
         if ($existing && !$forceReset) {
             return [
@@ -183,7 +198,7 @@ class DemoSeeder {
             }
 
             // Get default Pro SaaS plan id
-            $planId = (int)DB::fetchValue("SELECT id FROM subscription_plans WHERE billing_cycle = 'yearly' OR price > 0 ORDER BY id ASC LIMIT 1");
+            $planId = (int)DB::fetchValue("SELECT id FROM subscription_plans WHERE billing_cycle = 'yearly' OR price_monthly > 0 ORDER BY id ASC LIMIT 1");
             if ($planId <= 0) {
                 $planId = (int)DB::fetchValue("SELECT id FROM subscription_plans ORDER BY id ASC LIMIT 1");
             }
@@ -202,6 +217,12 @@ class DemoSeeder {
             }
 
             $expiryDate = date('Y-m-d 23:59:59', strtotime('+1 year'));
+
+            // A real gym may already own the demo slug: pick a free one instead of failing on the unique key
+            $slugBase = $demoSlug;
+            while (DB::fetchOne("SELECT id FROM tenants WHERE slug = ?", [$demoSlug])) {
+                $demoSlug = $slugBase . '-' . random_int(1000, 9999);
+            }
 
             // 1. Create Tenant
             $tenantId = DB::insert('tenants', [

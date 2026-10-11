@@ -97,16 +97,19 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen> wit
 
     setState(() => _isSending = true);
     try {
+      // The server's message is in the response envelope, not inside its data block
       final res = await ApiService.post(
         ApiConfig.adminNotifications,
         body: {'action': 'quick_due_reminder'},
         isAdmin: true,
+        returnEnvelope: true,
       );
       if (mounted) {
         setState(() => _isSending = false);
+        final message = (res is Map && res['message'] != null) ? res['message'].toString() : 'Fee Due Reminders dispatched successfully!';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(res['message'] ?? 'Fee Due Reminders dispatched successfully!'),
+            content: Text(message),
             backgroundColor: const Color(0xFF10B981),
           ),
         );

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 
 class AdminAttendanceScreen extends StatefulWidget {
@@ -18,7 +17,8 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAttendance();
-      context.read<AdminProvider>().fetchMembers();
+      // Pickers offer every member (all pages), not just the first page of the members list
+      context.read<AdminProvider>().fetchAllMembers();
     });
   }
 
@@ -53,7 +53,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
 
   void _showMarkAttendanceModal() {
     final provider = context.read<AdminProvider>();
-    int? selectedMemberId = provider.members.isNotEmpty ? provider.members.first.memberId : null;
+    int? selectedMemberId = provider.allMembers.isNotEmpty ? provider.allMembers.first.memberId : null;
     String action = 'checkin';
 
     showModalBottomSheet(
@@ -104,7 +104,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                     fillColor: Colors.white.withOpacity(0.05),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  items: provider.members.map((m) {
+                  items: provider.allMembers.map((m) {
                     return DropdownMenuItem<int>(
                       value: m.memberId,
                       child: Text('${m.fullname} (${m.phone})', overflow: TextOverflow.ellipsis),

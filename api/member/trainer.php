@@ -17,28 +17,29 @@ $assignedPlan = DB::fetchOne(
     [$memberId, $tenantId]
 );
 
-$trainerId = $assignedPlan['trainer_id'] ?? $member['trainer_id'] ?? null;
-
 $trainer = null;
-if ($trainerId) {
+$staffCols = 'user_id, fullname, email, designation, gender, contact';
+// A plan's trainer_id may be a users.id or a staffs.user_id (see api_find_plan_trainer);
+// members.trainer_id is always a staffs.user_id (the gym panel validates it against staffs).
+$staff = !empty($assignedPlan['trainer_id']) ? api_find_plan_trainer($tenantId, $assignedPlan['trainer_id'], $staffCols) : null;
+if (!$staff && !empty($member['trainer_id'])) {
     $staff = DB::fetchOne(
-        "SELECT user_id, fullname, email, designation, gender, contact FROM staffs WHERE user_id = ? AND tenant_id = ? AND status = 'active'",
-        [(int)$trainerId, $tenantId]
+        "SELECT {$staffCols} FROM staffs WHERE user_id = ? AND tenant_id = ? AND status = 'active'",
+        [(int)$member['trainer_id'], $tenantId]
     );
-
-    if ($staff) {
-        $trainer = [
-            'id' => (int)$staff['user_id'],
-            'fullname' => $staff['fullname'],
-            'designation' => $staff['designation'] ?: 'Certified Personal Trainer',
-            'phone' => (string)$staff['contact'],
-            'email' => $staff['email'],
-            'gender' => $staff['gender'],
-            'specializations' => ['Strength & Hypertrophy', 'Fat Loss & Conditioning', 'Functional Mobility'],
-            'available_timings' => 'Monday - Saturday: 06:00 AM - 12:00 PM & 04:00 PM - 09:00 PM',
-            'notes' => $assignedPlan['notes'] ?? 'Always perform warm-ups before lifting heavy weights.'
-        ];
-    }
+}
+if ($staff) {
+    $trainer = [
+        'id' => (int)$staff['user_id'],
+        'fullname' => $staff['fullname'],
+        'designation' => $staff['designation'] ?: 'Certified Personal Trainer',
+        'phone' => (string)$staff['contact'],
+        'email' => $staff['email'],
+        'gender' => $staff['gender'],
+        'specializations' => ['Strength & Hypertrophy', 'Fat Loss & Conditioning', 'Functional Mobility'],
+        'available_timings' => 'Monday - Saturday: 06:00 AM - 12:00 PM & 04:00 PM - 09:00 PM',
+        'notes' => $assignedPlan['notes'] ?? 'Always perform warm-ups before lifting heavy weights.'
+    ];
 }
 
 // If no specific trainer, return gym general trainer desk

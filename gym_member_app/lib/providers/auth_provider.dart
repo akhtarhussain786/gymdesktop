@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../core/config/api_config.dart';
 import '../core/network/api_service.dart';
 import '../core/services/push_notification_service.dart';
@@ -15,6 +16,8 @@ enum AuthStatus {
   error,
 }
 
+enum _RestoreOutcome { valid, invalid, offline }
+
 class AuthProvider extends ChangeNotifier {
   AuthStatus _status = AuthStatus.initial;
   GymTenant? _currentTenant;
@@ -25,6 +28,15 @@ class AuthProvider extends ChangeNotifier {
   String? _errorMessage;
   bool _isLoading = false;
   List<Map<String, dynamic>> _availableGyms = [];
+
+  bool _isRestoring = false;
+  bool _restoreFailedOffline = false;
+  Future<void>? _restoreFuture;
+  bool _loggingOut = false;
+
+  /// Invoked whenever the signed-in account or gym changes, so app-wide caches
+  /// (dashboard, member data, admin data) never leak into the next account.
+  VoidCallback? onSessionCleared;
 
   AuthStatus get status => _status;
   GymTenant? get currentTenant => _currentTenant;
@@ -37,6 +49,16 @@ class AuthProvider extends ChangeNotifier {
   bool get isAdmin => ['gym_admin', 'staff', 'super_admin', 'trainer'].contains(_userRole.toLowerCase());
   bool get isAuthenticated => _status == AuthStatus.authenticated && (_currentMember != null || isAdmin);
   List<Map<String, dynamic>> get availableGyms => _availableGyms;
+
+  /// True while the stored session is being verified at app start.
+  bool get isRestoring => _isRestoring;
+
+  /// True when a stored session could not be verified because the server was unreachable.
+  /// The session is kept; the user can retry.
+  bool get restoreFailedOffline => _restoreFailedOffline;
+
+  /// Completes when the current session restore attempt has finished.
+  Future<void> get sessionRestore => _restoreFuture ?? Future.value();
 
   Future<List<Map<String, dynamic>>> fetchAvailableGyms({String? query}) async {
     try {
@@ -60,8 +82,16 @@ class AuthProvider extends ChangeNotifier {
     logout(silent: true);
   }
 
-  // Check stored session on startup
-  Future<void> checkExistingSession() async {
+  // Check stored session on startup (or when the user taps Retry after an offline start)
+  Future<void> checkExistingSession() {
+    if (_isRestoring && _restoreFuture != null) return _restoreFuture!;
+    _restoreFuture = _restoreSession();
+    return _restoreFuture!;
+  }
+
+  Future<void> _restoreSession() async {
+    _isRestoring = true;
+    _restoreFailedOffline = false;
     _isLoading = true;
     notifyListeners();
 
@@ -71,60 +101,151 @@ class AuthProvider extends ChangeNotifier {
       final savedRole = await SecureStorageService.getUserRole();
       final savedUserData = await SecureStorageService.getUserData();
 
-      if (token != null && token.isNotEmpty && gymCode != null && gymCode.isNotEmpty) {
+      if (gymCode != null && gymCode.isNotEmpty) {
+        await _refreshTenant(gymCode);
+      }
+
+      if (token != null && token.isNotEmpty && gymCode != null && gymCode.isNotEmpty && _currentTenant != null) {
         _authToken = token;
-        ApiService.activeToken = _authToken;
+        ApiService.activeToken = token;
+        ApiService.resetSessionExpiryGuard();
         _userRole = savedRole ?? 'member';
         _adminUser = savedUserData;
 
-        // Verify gym
-        final gymData = await ApiService.get(ApiConfig.gymLookup, queryParams: {'code': gymCode});
-        if (gymData != null) {
-          _currentTenant = GymTenant.fromJson(gymData);
-
-          if (isAdmin) {
-            // Restore Admin Session
-            final adminDash = await ApiService.get(ApiConfig.adminDashboard, isAdmin: true);
-            if (adminDash != null) {
-              _status = AuthStatus.authenticated;
-              _isLoading = false;
-              notifyListeners();
-              PushNotificationService.syncDeviceToken();
-              return;
-            }
-          } else {
-            // Restore Member Session
-            final dashboardData = await ApiService.get(ApiConfig.dashboard);
-            if (dashboardData != null) {
-              _currentMember = MemberUser.fromJson(dashboardData['member'] ?? {});
-              _status = AuthStatus.authenticated;
-              _isLoading = false;
-              notifyListeners();
-              PushNotificationService.syncDeviceToken();
-              return;
-            }
-          }
-        }
-      }
-
-      // If no active auth, check if gym is remembered
-      if (gymCode != null && gymCode.isNotEmpty) {
-        final gymData = await ApiService.get(ApiConfig.gymLookup, queryParams: {'code': gymCode});
-        if (gymData != null) {
-          _currentTenant = GymTenant.fromJson(gymData);
-          _status = AuthStatus.gymIdentified;
-          _isLoading = false;
-          notifyListeners();
+        final outcome = await _verifySession();
+        if (outcome == _RestoreOutcome.valid) {
+          _status = AuthStatus.authenticated;
+          _errorMessage = null;
+          PushNotificationService.syncDeviceToken();
           return;
         }
+        if (outcome == _RestoreOutcome.offline) {
+          // Network / server trouble is not a logout: keep the stored session and let the user retry.
+          _restoreFailedOffline = true;
+          _status = AuthStatus.error;
+          _errorMessage = 'Unable to reach the gym server. Please check your connection and try again.';
+          return;
+        }
+
+        // The server rejected the stored token (401/403): this session is over.
+        await SecureStorageService.clearSession();
+        _authToken = null;
+        ApiService.activeToken = null;
+        _currentMember = null;
+        _adminUser = null;
+        _userRole = 'member';
       }
+
+      _status = (_currentTenant != null) ? AuthStatus.gymIdentified : AuthStatus.unauthenticated;
     } catch (_) {
-      // Fallback to gym lookup screen
+      _status = (_currentTenant != null) ? AuthStatus.gymIdentified : AuthStatus.unauthenticated;
+    } finally {
+      _isRestoring = false;
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // Refresh the remembered gym; when offline fall back to the last saved copy of it.
+  Future<void> _refreshTenant(String gymCode) async {
+    try {
+      final gymData = await ApiService.get(
+        ApiConfig.gymLookup,
+        queryParams: {'code': gymCode},
+        timeout: const Duration(seconds: 12),
+      );
+      if (gymData is Map) {
+        _currentTenant = GymTenant.fromJson(Map<String, dynamic>.from(gymData));
+      }
+    } catch (e) {
+      final offline = e is! ApiException || e.isNetworkOrServerError;
+      if (!offline) return;
+      try {
+        final saved = await SecureStorageService.getSavedGymTenants();
+        for (final g in saved) {
+          if ((g['gym_code'] ?? '').toString().toUpperCase() == gymCode.toUpperCase()) {
+            _currentTenant = GymTenant.fromJson(g);
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Only 401/403 mean the stored session is invalid; anything else is retried and then kept.
+  Future<_RestoreOutcome> _verifySession() async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await Future.delayed(const Duration(seconds: 2));
+      }
+      try {
+        if (isAdmin) {
+          final adminDash = await ApiService.get(
+            ApiConfig.adminDashboard,
+            isAdmin: true,
+            handleUnauthorized: false,
+            timeout: const Duration(seconds: 15),
+          );
+          if (adminDash != null) return _RestoreOutcome.valid;
+        } else {
+          final dashboardData = await ApiService.get(
+            ApiConfig.dashboard,
+            handleUnauthorized: false,
+            timeout: const Duration(seconds: 15),
+          );
+          if (dashboardData is Map) {
+            _currentMember = await _buildRestoredMember(Map<String, dynamic>.from(dashboardData));
+            return _RestoreOutcome.valid;
+          }
+        }
+      } on ApiException catch (e) {
+        if (e.statusCode == 401 || e.statusCode == 403) return _RestoreOutcome.invalid;
+      } catch (_) {}
+    }
+    return _RestoreOutcome.offline;
+  }
+
+  // The dashboard's member block lacks gender/address/weights, so merge in the full profile.
+  Future<MemberUser> _buildRestoredMember(Map<String, dynamic> dashboard) async {
+    final merged = <String, dynamic>{};
+    if (dashboard['member'] is Map) {
+      merged.addAll(Map<String, dynamic>.from(dashboard['member']));
+    }
+    if (merged['member_id'] == null && merged['id'] != null) {
+      merged['member_id'] = merged['id'];
+    }
+    final membership = dashboard['membership'];
+    if (membership is Map) {
+      merged['membership_status'] = membership['status'];
+      merged['start_date'] = membership['start_date'];
+      merged['expiry_date'] = membership['expiry_date'];
+      merged['days_remaining'] = membership['days_remaining'];
+      merged['plan_months'] = membership['plan_duration_months'];
+    }
+    final attendance = dashboard['attendance'];
+    if (attendance is Map && attendance['total_lifetime_sessions'] != null) {
+      merged['attendance_count'] = attendance['total_lifetime_sessions'];
     }
 
-    _status = AuthStatus.unauthenticated;
-    _isLoading = false;
-    notifyListeners();
+    try {
+      final profile = await ApiService.get(
+        ApiConfig.profile,
+        handleUnauthorized: false,
+        timeout: const Duration(seconds: 10),
+      );
+      if (profile is Map) {
+        const keys = [
+          'member_id', 'fullname', 'username', 'email', 'phone', 'gender', 'address', 'avatar',
+          'services', 'plan_months', 'current_weight', 'initial_weight', 'body_type',
+        ];
+        for (final key in keys) {
+          if (profile[key] != null) merged[key] = profile[key];
+        }
+      }
+    } catch (_) {}
+
+    merged.removeWhere((key, value) => value == null);
+    return MemberUser.fromJson(merged);
   }
 
   // 1. Gym Identification Flow: Validate Gym Code
@@ -166,16 +287,28 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Reset to "Find Your Gym"
-  void changeGym() {
+  // Reset to "Find Your Gym" (also ends any signed-in session for the old gym)
+  Future<void> changeGym() async {
+    final oldToken = _authToken ?? ApiService.activeToken;
+    final oldRole = _userRole;
+    final oldGymCode = _currentTenant?.gymCode;
+
     _currentTenant = null;
     _currentMember = null;
     _adminUser = null;
     _userRole = 'member';
     _authToken = null;
+    ApiService.activeToken = null;
+    _restoreFailedOffline = false;
     _status = AuthStatus.unauthenticated;
     _errorMessage = null;
+    onSessionCleared?.call();
     notifyListeners();
+
+    if (oldToken != null && oldToken.isNotEmpty) {
+      await SecureStorageService.clearSession();
+      unawaited(_revokeToken(oldToken, oldRole, oldGymCode));
+    }
   }
 
   // 2. Dual Login: Member OR Gym Admin/Staff
@@ -196,24 +329,40 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // A stable per-install id: the server replaces older sessions of the same device only,
+      // so signing in on a second phone no longer signs the first one out.
+      final resolvedDeviceId = (deviceId != null && deviceId.isNotEmpty)
+          ? deviceId
+          : await PushNotificationService.getDeviceId();
+
       final body = {
         'gym_code': _currentTenant!.gymCode,
         'login_id': loginId.trim(),
         'password': password,
-        'device_id': deviceId ?? 'flutter_device',
+        'device_id': resolvedDeviceId,
         'device_name': deviceName ?? 'Mobile App',
-        'platform': 'flutter',
+        'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
       };
 
-      final data = await ApiService.post(ApiConfig.login, body: body, gymCode: _currentTenant!.gymCode);
+      // A wrong password answers 401: that is a login error, not an expired session.
+      final data = await ApiService.post(
+        ApiConfig.login,
+        body: body,
+        gymCode: _currentTenant!.gymCode,
+        handleUnauthorized: false,
+      );
       _authToken = data['token'];
       ApiService.activeToken = _authToken;
+      ApiService.resetSessionExpiryGuard();
       await SecureStorageService.saveToken(_authToken!);
       await SecureStorageService.saveActiveTenantId(_currentTenant!.id);
 
       final returnedRole = (data['role'] ?? 'member').toString().toLowerCase();
       _userRole = returnedRole;
       await SecureStorageService.saveUserRole(_userRole);
+
+      // Never show the previous account's cached data to this one
+      onSessionCleared?.call();
 
       if (isAdmin) {
         // Admin / Staff Login
@@ -236,6 +385,7 @@ class AuthProvider extends ChangeNotifier {
         }
       }
 
+      _restoreFailedOffline = false;
       _status = AuthStatus.authenticated;
       _isLoading = false;
       notifyListeners();
@@ -262,13 +412,23 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // Clear previous tenant's session & tokens
-    await PushNotificationService.unregisterDeviceToken();
+    final oldToken = _authToken ?? ApiService.activeToken;
+    final oldRole = _userRole;
+    final oldGymCode = _currentTenant?.gymCode;
+
+    // Clear previous tenant's session & tokens locally first, then revoke the old token in the background
     await SecureStorageService.clearSession();
     _authToken = null;
+    ApiService.activeToken = null;
     _currentMember = null;
     _adminUser = null;
     _userRole = 'member';
+    _restoreFailedOffline = false;
+    onSessionCleared?.call();
+
+    if (oldToken != null && oldToken.isNotEmpty) {
+      unawaited(_revokeToken(oldToken, oldRole, oldGymCode));
+    }
 
     final success = await lookupGym(targetGymCode);
     return success;
@@ -276,22 +436,46 @@ class AuthProvider extends ChangeNotifier {
 
   // 4. Logout
   Future<void> logout({bool silent = false}) async {
-    await PushNotificationService.unregisterDeviceToken();
+    // Re-entry guard: a 401 from a request made during logout must not start another logout
+    if (_loggingOut) return;
+    _loggingOut = true;
+    try {
+      final oldToken = _authToken ?? ApiService.activeToken ?? await SecureStorageService.getToken();
+      final oldRole = _userRole;
+      final oldGymCode = _currentTenant?.gymCode;
 
-    if (!silent) {
-      try {
-        await ApiService.post(ApiConfig.logout);
-      } catch (_) {}
+      await SecureStorageService.clearSession();
+      _authToken = null;
+      ApiService.activeToken = null;
+      _currentMember = null;
+      _adminUser = null;
+      _userRole = 'member';
+      _restoreFailedOffline = false;
+      _status = (_currentTenant != null) ? AuthStatus.gymIdentified : AuthStatus.unauthenticated;
+      onSessionCleared?.call();
+      notifyListeners();
+
+      // After a 401 (silent) the token is already dead on the server
+      if (!silent && oldToken != null && oldToken.isNotEmpty) {
+        unawaited(_revokeToken(oldToken, oldRole, oldGymCode));
+      }
+    } finally {
+      _loggingOut = false;
     }
+  }
 
-    await SecureStorageService.clearSession();
-    _authToken = null;
-    ApiService.activeToken = null;
-    _currentMember = null;
-    _adminUser = null;
-    _userRole = 'member';
-    _status = (_currentTenant != null) ? AuthStatus.gymIdentified : AuthStatus.unauthenticated;
-    notifyListeners();
+  // Best effort: unlink this device's push token and delete the session on the server.
+  Future<void> _revokeToken(String token, String role, String? gymCode) async {
+    await PushNotificationService.unregisterDeviceToken(authToken: token, role: role, gymCode: gymCode);
+    try {
+      await ApiService.post(
+        ApiConfig.logout,
+        gymCode: gymCode,
+        bearerToken: token,
+        handleUnauthorized: false,
+        timeout: const Duration(seconds: 15),
+      );
+    } catch (_) {}
   }
 
   void updateCurrentTenant({

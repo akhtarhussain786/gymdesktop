@@ -187,7 +187,7 @@ include __DIR__ . '/../includes/topbar.php';
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Amount (<?php echo $tenant['currency']; ?>) *</label>
+                        <label class="form-label">Amount (<?php echo e($tenant['currency']); ?>) *</label>
                         <input type="number" step="0.01" name="amount" class="form-control" placeholder="0.00" required />
                     </div>
                 </div>

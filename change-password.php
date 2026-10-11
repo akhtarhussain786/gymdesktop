@@ -73,12 +73,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
         }
         DB::update($source['table'], $updateData, "`{$source['pk']}` = ?", [$accountId]);
 
+        // The same person may also have a linked login row (members <-> users, staffs <-> users):
+        // keep every copy on the new password so the old one stops working everywhere
+        if (in_array($source['table'], ['users', 'members', 'staffs'], true)) {
+            Auth::syncLinkedPasswords($source['table'], $accountId, (int)($user['tenant_id'] ?? 0), $newHash);
+        }
+
         // Invalidate any outstanding password reset links for this account
         if ($source['table'] === 'users') {
             DB::query("UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL AND token_hash IS NOT NULL", [$accountId]);
         }
 
+        // Sign this account out of the mobile app on every device (the app will ask for the new password)
+        if ($source['table'] === 'users') {
+            Auth::revokeApiTokens((int)($user['tenant_id'] ?? 0), $accountId, ($user['role'] ?? '') === 'member' ? (int)$user['id'] : null);
+        } elseif ($source['table'] === 'members') {
+            Auth::revokeApiTokens((int)($user['tenant_id'] ?? 0), null, $accountId);
+        }
+
         $_SESSION['must_change_password'] = 0;
+        // Keep this session signed in; other sessions of the account are signed out on their next request
+        Auth::refreshPasswordFingerprint();
         @session_regenerate_id(true);
         Auth::auditLog('PASSWORD_CHANGED', "User {$user['username']} updated their initial temporary password.");
 

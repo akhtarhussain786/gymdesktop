@@ -23,7 +23,7 @@ if ($memberId <= 0) {
 $member = DB::fetchOne(
     "SELECT m.*, u.email as user_email, u.status as account_status 
      FROM members m 
-     LEFT JOIN users u ON (m.user_id = u.id AND u.tenant_id = m.tenant_id)
+     LEFT JOIN users u ON (u.member_id = m.user_id AND u.role = 'member' AND u.tenant_id = m.tenant_id)
      WHERE m.user_id = ? AND m.tenant_id = ?",
     [$memberId, $tenantId]
 );

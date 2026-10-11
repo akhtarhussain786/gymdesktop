@@ -86,6 +86,23 @@ function e($str) {
 }
 
 /**
+ * Encode a PHP value as a JavaScript literal that is safe inside <script> blocks and HTML attributes
+ * (quotes, <, >, & are escaped as \uXXXX). Use instead of addslashes() when printing into JS.
+ * In an attribute, still wrap with e(): onclick="fn(<?php echo e(js_value($v)); ?>)"
+ */
+function js_value($value) {
+    $json = json_encode($value, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    return $json === false ? 'null' : $json;
+}
+
+/**
+ * Validate a UPI VPA (e.g. gymname@okhdfcbank). Empty string is allowed by callers that treat UPI as optional.
+ */
+function is_valid_upi_id($vpa) {
+    return (bool)preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,255}@[a-zA-Z][a-zA-Z0-9]{1,63}$/', (string)$vpa);
+}
+
+/**
  * Format currency using current gym tenant's currency symbol
  */
 function format_currency($amount) {
@@ -246,7 +263,11 @@ function set_platform_setting($key, $value) {
         if (!class_exists('DB')) {
             require_once __DIR__ . '/db.php';
         }
-        DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+        // Only create the table when it is really missing: DDL silently COMMITs any open transaction
+        // (e.g. gym provisioning), so it must not run on every call
+        if (DB::tableColumns('settings') === null) {
+            DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+        }
         $exists = DB::fetchValue("SELECT COUNT(*) FROM settings WHERE setting_key = ?", [$key]);
         if ($exists) {
             DB::update('settings', ['setting_value' => (string)$value], "setting_key = ?", [$key]);

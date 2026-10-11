@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 
 class AdminAnnouncementsScreen extends StatefulWidget {

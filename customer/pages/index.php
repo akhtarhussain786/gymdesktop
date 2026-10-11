@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../core/auth.php';
+require_once __DIR__ . '/../../core/subscription_engine.php';
 Auth::requireAuth('member');
 
 $page = 'member_dashboard';
@@ -26,17 +27,29 @@ $pageSubtitle = 'Your personal fitness portal, workouts, attendance, and members
 // Expiry Countdown
 $paidDate = $member['paid_date'];
 $planMonths = max(1, (int)$member['plan']);
-$expiryDate = !empty($paidDate) ? date('Y-m-d', strtotime("+$planMonths months", strtotime($paidDate))) : date('Y-m-d', strtotime('-1 day'));
+$expiryDate = !empty($paidDate) ? SubscriptionEngine::addMonths($paidDate, $planMonths) : date('Y-m-d', strtotime('-1 day'));
 // Whole calendar days (time()-based division truncated toward zero and mis-reported the expiry day)
 $daysLeft = (int)round((strtotime($expiryDate) - strtotime(date('Y-m-d'))) / 86400);
 
-// Assigned Workout & Diet
-$assignedPlan = DB::fetchOne("SELECT ap.*, wp.name as workout_name, wp.schedule_json, dp.name as diet_name, dp.meals_json 
+// Assigned Workout & Diet: each assignment row usually carries only one of the two, so take the latest
+// workout and the latest diet separately (assigning a diet must not hide the workout, and vice versa)
+$assignedWorkout = DB::fetchOne("SELECT ap.*, wp.name as workout_name, wp.schedule_json 
                               FROM member_assigned_plans ap 
                               LEFT JOIN workout_plans wp ON ap.workout_plan_id = wp.id AND wp.tenant_id = ap.tenant_id 
-                              LEFT JOIN diet_plans dp ON ap.diet_plan_id = dp.id AND dp.tenant_id = ap.tenant_id 
-                              WHERE ap.member_id = ? AND ap.tenant_id = ? AND ap.status = 'active' 
+                              WHERE ap.member_id = ? AND ap.tenant_id = ? AND ap.status = 'active' AND ap.workout_plan_id > 0 
                               ORDER BY ap.id DESC LIMIT 1", [$memberId, $tenantId]);
+$assignedDiet = DB::fetchOne("SELECT ap.*, dp.name as diet_name, dp.meals_json 
+                              FROM member_assigned_plans ap 
+                              LEFT JOIN diet_plans dp ON ap.diet_plan_id = dp.id AND dp.tenant_id = ap.tenant_id 
+                              WHERE ap.member_id = ? AND ap.tenant_id = ? AND ap.status = 'active' AND ap.diet_plan_id > 0 
+                              ORDER BY ap.id DESC LIMIT 1", [$memberId, $tenantId]);
+$assignedPlan = ($assignedWorkout || $assignedDiet) ? [
+    'has_workout' => (bool)$assignedWorkout,
+    'workout_name' => $assignedWorkout['workout_name'] ?? null,
+    'schedule_json' => $assignedWorkout['schedule_json'] ?? null,
+    'diet_name' => $assignedDiet['diet_name'] ?? null,
+    'meals_json' => $assignedDiet['meals_json'] ?? null,
+] : null;
 
 // Recent Announcements
 $announcements = DB::fetchAll("SELECT * FROM announcements WHERE tenant_id = ? ORDER BY date DESC, id DESC LIMIT 3", [$tenantId]);
@@ -109,6 +122,7 @@ include __DIR__ . '/../../includes/topbar.php';
             </div>
             <div class="card-body">
                 <?php if ($assignedPlan): ?>
+                    <?php if ($assignedPlan['has_workout']): ?>
                     <div style="margin-bottom: 18px;">
                         <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--primary); margin-bottom: 6px;">
                             <i class="fas fa-running"></i> <?php echo e($assignedPlan['workout_name'] ?: 'Workout Plan'); ?>
@@ -117,6 +131,7 @@ include __DIR__ . '/../../includes/topbar.php';
                             <?php echo e($assignedPlan['schedule_json'] ?: 'Workout instructions not available.'); ?>
                         </div>
                     </div>
+                    <?php endif; ?>
 
                     <?php if (!empty($assignedPlan['diet_name'])): ?>
                         <div>

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
@@ -81,7 +80,8 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
     final admin = context.watch<AdminProvider>();
     final currency = context.watch<AuthProvider>().currentTenant?.currency ?? '₹';
 
-    final totalMembers = admin.members.length;
+    // Server total for the active filter/search (the list itself is loaded page by page)
+    final totalMembers = _activeFilter == 'all' && admin.totalMembers > 0 ? admin.totalMembers : admin.members.length;
     final activeCount = admin.members.where((m) => m.membershipStatus.toLowerCase() == 'active' && m.daysRemaining >= 0).length;
     final expiringCount = admin.members.where((m) => m.daysRemaining >= 0 && m.daysRemaining <= 7 && m.membershipStatus.toLowerCase() != 'expired').length;
     final expiredCount = admin.members.where((m) => m.membershipStatus.toLowerCase() == 'expired' || m.daysRemaining < 0).length;
@@ -227,19 +227,49 @@ class _AdminMembersScreenState extends State<AdminMembersScreen> {
                     : RefreshIndicator(
                         onRefresh: () => _loadMembers(refresh: true),
                         color: AppColors.lime,
-                        child: ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                          itemCount: admin.members.length,
-                          separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-                          itemBuilder: (ctx, i) {
-                            final member = admin.members[i];
-                            return _buildMemberCard(member, currency);
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (n) {
+                            // Fetch the next page as the end of the list comes into view
+                            if (n.metrics.extentAfter < 400 && admin.hasMoreMembers && !admin.isMembersLoadingMore) {
+                              admin.loadMoreMembers();
+                            }
+                            return false;
                           },
+                          child: ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                            itemCount: admin.members.length + (admin.hasMoreMembers ? 1 : 0),
+                            separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                            itemBuilder: (ctx, i) {
+                              if (i >= admin.members.length) {
+                                return _buildLoadMoreRow(admin);
+                              }
+                              final member = admin.members[i];
+                              return _buildMemberCard(member, currency);
+                            },
+                          ),
                         ),
                       ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildLoadMoreRow(AdminProvider admin) {
+    return Center(
+      child: admin.isMembersLoadingMore
+          ? const Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: AppColors.lime, strokeWidth: 2)),
+            )
+          : TextButton.icon(
+              onPressed: admin.loadMoreMembers,
+              icon: const Icon(Icons.expand_more_rounded, color: AppColors.lime),
+              label: Text(
+                'Load more (${admin.members.length} of ${admin.totalMembers})',
+                style: const TextStyle(color: AppColors.lime, fontWeight: FontWeight.w700),
+              ),
+            ),
     );
   }
 

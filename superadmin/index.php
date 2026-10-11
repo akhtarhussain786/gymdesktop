@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($res['success']) {
             Auth::auditLog('SUPER_SEED_DEMO_GYM', "Super Admin initialized DEMO FITNESS & GYM showcase account.");
             $creds = $res['credentials'] ?? [];
-            set_flash('success', "Demo Gym Ready! Gym: <strong>DEMO FITNESS & GYM</strong> (Code: <code>{$creds['gym_code']}</code>) | Admin: <code>{$creds['admin_username']}</code> / <code>{$creds['admin_password']}</code>");
+            set_flash('success', "Demo Gym Ready! Gym: DEMO FITNESS & GYM (Code: {$creds['gym_code']}) | Admin: {$creds['admin_username']} / {$creds['admin_password']}");
         } else {
             set_flash('error', "Failed to seed demo gym: " . ($res['error'] ?? 'Unknown error'));
         }
@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if (!empty($mailResult['success'])) {
                     Auth::auditLog('SAAS_EXPIRY_REMINDER_MANUAL', "Dispatched SaaS renewal reminder to {$t['email']}", $targetTenantId);
-                    set_flash('success', "Renewal reminder email dispatched successfully to <strong>{$t['email']}</strong>.");
+                    set_flash('success', "Renewal reminder email dispatched successfully to {$t['email']}.");
                 } elseif (!empty($mailResult['skipped'])) {
                     set_flash('info', "Reminder email was skipped: " . ($mailResult['reason'] ?? 'Already sent recently'));
                 } else {
@@ -82,20 +82,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $targetTenantId = (int)($_POST['tenant_id'] ?? 0);
         $days = (int)($_POST['days'] ?? 30);
         if ($targetTenantId > 0 && $days > 0) {
-            $t = DB::fetchOne("SELECT subscription_expiry FROM tenants WHERE id = ?", [$targetTenantId]);
+            $t = DB::fetchOne("SELECT subscription_expiry, status FROM tenants WHERE id = ?", [$targetTenantId]);
             if ($t) {
                 $baseTs = strtotime($t['subscription_expiry']);
                 if ($baseTs < time()) {
                     $baseTs = time();
                 }
                 $newExpiry = date('Y-m-d 23:59:59', strtotime("+{$days} days", $baseTs));
+                // Extending the date never lifts a suspension / cancellation (administrative decisions)
+                $keepStatus = in_array($t['status'], ['suspended', 'cancelled', 'inactive'], true);
                 DB::update('tenants', [
                     'subscription_expiry' => $newExpiry,
-                    'status' => 'active'
+                    'status' => $keepStatus ? $t['status'] : 'active'
                 ], 'id = ?', [$targetTenantId]);
 
                 Auth::auditLog('SUPER_EXTEND_SUB', "Extended tenant #{$targetTenantId} subscription by {$days} days until {$newExpiry}", $targetTenantId);
-                set_flash('success', "Subscription extended by {$days} days. New expiry: " . format_date($newExpiry));
+                set_flash('success', "Subscription extended by {$days} days. New expiry: " . format_date($newExpiry) . ($keepStatus ? " (gym remains " . $t['status'] . ")" : ''));
             }
         }
         redirect('index.php');

@@ -41,9 +41,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fieldErrors['curr_weight'] = 'Please enter a valid weight.';
         } else {
             $updateData['curr_weight'] = $w;
+            // Newer installs also carry the SaaS-style column; keep both in step
+            if (api_column_exists('members', 'current_weight')) $updateData['current_weight'] = $w;
         }
     }
-    if (isset($input['curr_bodytype'])) $updateData['curr_bodytype'] = mb_substr(trim((string)$input['curr_bodytype']), 0, 50);
+    if (isset($input['curr_bodytype'])) {
+        $bodyType = mb_substr(trim((string)$input['curr_bodytype']), 0, 50);
+        $updateData['curr_bodytype'] = $bodyType;
+        foreach (['curr_body_type', 'body_type'] as $altCol) {
+            if (api_column_exists('members', $altCol)) $updateData[$altCol] = $bodyType;
+        }
+    }
 
     // Email / phone are login identifiers: they must not collide with another account in this gym
     foreach (['email' => 'email', 'contact' => 'phone'] as $col => $userCol) {
@@ -117,8 +125,9 @@ $profile = [
     'gender' => $member['gender'] ?? 'Not Specified',
     'address' => $member['address'] ?? '',
     'avatar' => api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null),
-    'current_weight' => (float)($member['current_weight'] ?? $member['curr_weight'] ?? 70),
-    'initial_weight' => (float)($member['initial_weight'] ?? $member['ini_weight'] ?? 70),
+    // curr_weight / ini_weight exist on every install and are the columns updated above and by the gym panel
+    'current_weight' => (float)($member['curr_weight'] ?? $member['current_weight'] ?? 70),
+    'initial_weight' => (float)($member['ini_weight'] ?? $member['initial_weight'] ?? 70),
     'body_type' => $member['curr_bodytype'] ?? $member['curr_body_type'] ?? $member['body_type'] ?? 'Athletic',
     'join_date' => $member['dor'] ?? $member['paid_date'] ?? date('Y-m-d'),
     'services' => $member['services'] ?: 'Fitness',

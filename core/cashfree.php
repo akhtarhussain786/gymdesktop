@@ -97,7 +97,7 @@ class CashfreeGateway {
      * @param string $returnUrl    URL to redirect after payment
      * @return array ['success' => bool, 'payment_session_id' => string, 'order_id' => string, 'error' => string]
      */
-    public static function createOrder($orderId, $amount, $currency, $customerName, $customerPhone, $customerEmail, $returnUrl) {
+    public static function createOrder($orderId, $amount, $currency, $customerName, $customerPhone, $customerEmail, $returnUrl, $notifyUrl = null) {
         $url = self::getBaseUrl() . '/orders';
 
         $cleanPhone = preg_replace('/[^0-9]/', '', $customerPhone);
@@ -132,6 +132,10 @@ class CashfreeGateway {
                 'return_url' => $formattedReturnUrl
             ]
         ];
+        // Server-to-server payment notification for this order (Cashfree requires https)
+        if (!empty($notifyUrl) && str_starts_with((string)$notifyUrl, 'https://')) {
+            $payload['order_meta']['notify_url'] = (string)$notifyUrl;
+        }
 
         $response = self::apiRequest('POST', $url, $payload);
 
@@ -188,6 +192,50 @@ class CashfreeGateway {
         ];
 
         return self::apiRequest('POST', $url, $payload);
+    }
+
+    /**
+     * Webhook URL handed to Cashfree per order. The member webhook endpoint handles member renewals,
+     * gym onboarding and gym subscription renewals, so one URL serves every order type.
+     * Returns null when APP_URL is not https (Cashfree rejects non-https notify URLs).
+     */
+    public static function notifyUrl() {
+        $appUrl = rtrim(trim((string)env('APP_URL', '')), '/');
+        if ($appUrl === '' || !str_starts_with($appUrl, 'https://')) {
+            return null;
+        }
+        return $appUrl . '/api/member/cashfree_webhook.php';
+    }
+
+    /**
+     * From a createUpiPayment('link') response, keep only real UPI app deep links
+     * (upi://, tez://, phonepe://, paytmmp://, ...). Anything else — a base64 QR image, a web page,
+     * an error body — is dropped so it is never offered to a phone as "open this payment app".
+     * Returns [appKey => url], e.g. ['default' => 'upi://pay?...', 'gpay' => 'tez://upi/pay?...'].
+     */
+    public static function extractUpiDeepLinks($response) {
+        $links = [];
+        if (!is_array($response)) {
+            return $links;
+        }
+        $data = $response['data'] ?? [];
+        $candidates = [];
+        if (is_array($data['payload'] ?? null)) {
+            $candidates = $data['payload'];
+        } elseif (is_string($data['payload'] ?? null)) {
+            $candidates['default'] = $data['payload'];
+        }
+        if (!empty($data['url']) && is_string($data['url'])) {
+            $candidates['default'] = $candidates['default'] ?? $data['url'];
+        }
+        foreach ($candidates as $key => $url) {
+            if (!is_string($url)) continue;
+            $url = trim($url);
+            if (preg_match('#^(upi|tez|phonepe|paytmmp|paytm|bhim|credpay|whatsapp|amazonpay|mobikwik|freecharge)://#i', $url)) {
+                $links[(string)$key] = $url;
+            }
+        }
+        return $links;
     }
 
     /**

@@ -24,8 +24,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $billing_cycle = 'monthly';
         }
 
-        // Auto-detect trial/free/demo plans if price is 0 or cycle is trial or name indicates trial/demo
-        if ($price <= 0 || $billing_cycle === 'trial' || stripos($name, 'trial') !== false || stripos($name, 'demo') !== false) {
+        // A plan is free / trial only by its billing cycle or price — never by its name
+        if ($price <= 0 || $billing_cycle === 'trial') {
             $billing_cycle = 'trial';
             $price = 0.0;
             $price_monthly = 0.0;
@@ -115,7 +115,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_id'])) {
     redirect(base_url('/superadmin/plans.php'));
 }
 
-$plans = DB::fetchAll("SELECT p.*, COALESCE(NULLIF(p.price_monthly, 0), NULLIF(p.price, 0), 0) as display_price, (SELECT COUNT(*) FROM tenants t WHERE t.subscription_plan_id = p.id) as gym_count FROM subscription_plans p ORDER BY display_price ASC, p.id ASC");
+// Older installs have no subscription_plans.price column (only price_monthly / price_yearly)
+$planHasPrice = in_array('price', DB::tableColumns('subscription_plans') ?? [], true);
+$displayPriceSql = $planHasPrice ? "COALESCE(NULLIF(p.price_monthly, 0), NULLIF(p.price, 0), 0)" : "COALESCE(NULLIF(p.price_monthly, 0), 0)";
+$plans = DB::fetchAll("SELECT p.*, {$displayPriceSql} as display_price, (SELECT COUNT(*) FROM tenants t WHERE t.subscription_plan_id = p.id) as gym_count FROM subscription_plans p ORDER BY display_price ASC, p.id ASC");
 
 include __DIR__ . '/../includes/header.php';
 include __DIR__ . '/../includes/sidebar.php';

@@ -58,39 +58,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete'])) {
     redirect('classes.php', 'success', 'Class removed from schedule.');
 }
 
-$classes = DB::fetchAll("SELECT c.*, s.fullname as instructor_name 
+$classesSql = "SELECT c.*, s.fullname as instructor_name 
                          FROM classes c 
-                         LEFT JOIN staffs s ON c.trainer_id = s.user_id 
+                         LEFT JOIN staffs s ON c.trainer_id = s.user_id AND s.tenant_id = c.tenant_id 
                          WHERE c.tenant_id = ? 
-                         ORDER BY FIELD(c.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Daily'), c.start_time ASC", [$tenantId]);
+                         ORDER BY FIELD(c.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Daily'), c.start_time ASC";
+$classes = DB::fetchAll($classesSql, [$tenantId]);
 
 $trainers = DB::fetchAll("SELECT * FROM staffs WHERE tenant_id = ? AND designation = 'Trainer'", [$tenantId]);
 
-// Populate sample schedules if empty
-if (empty($classes)) {
-    DB::insert('classes', [
-        'tenant_id' => $tenantId,
-        'title' => 'Morning HIIT & Cardio Blast',
-        'trainer_id' => !empty($trainers[0]['user_id']) ? $trainers[0]['user_id'] : null,
-        'day_of_week' => 'Monday',
-        'start_time' => '06:30:00',
-        'end_time' => '07:30:00',
-        'capacity' => 25,
-        'room' => 'Studio A',
-        'status' => 'active'
-    ]);
-    DB::insert('classes', [
-        'tenant_id' => $tenantId,
-        'title' => 'Power Yoga & Flexibility',
-        'trainer_id' => !empty($trainers[0]['user_id']) ? $trainers[0]['user_id'] : null,
-        'day_of_week' => 'Wednesday',
-        'start_time' => '07:00:00',
-        'end_time' => '08:00:00',
-        'capacity' => 20,
-        'room' => 'Zen Studio',
-        'status' => 'active'
-    ]);
-    $classes = DB::fetchAll("SELECT c.*, s.fullname as instructor_name FROM classes c LEFT JOIN staffs s ON c.trainer_id = s.user_id WHERE c.tenant_id = ?", [$tenantId]);
+// Populate sample schedules once per gym (seeding whenever the list was empty made the last class undeletable)
+$classesSeedKey = 'seeded_classes_' . (int)$tenantId;
+if (get_platform_setting($classesSeedKey, '') === '') {
+    if (empty($classes)) {
+        DB::insert('classes', [
+            'tenant_id' => $tenantId,
+            'title' => 'Morning HIIT & Cardio Blast',
+            'trainer_id' => !empty($trainers[0]['user_id']) ? $trainers[0]['user_id'] : null,
+            'day_of_week' => 'Monday',
+            'start_time' => '06:30:00',
+            'end_time' => '07:30:00',
+            'capacity' => 25,
+            'room' => 'Studio A',
+            'status' => 'active'
+        ]);
+        DB::insert('classes', [
+            'tenant_id' => $tenantId,
+            'title' => 'Power Yoga & Flexibility',
+            'trainer_id' => !empty($trainers[0]['user_id']) ? $trainers[0]['user_id'] : null,
+            'day_of_week' => 'Wednesday',
+            'start_time' => '07:00:00',
+            'end_time' => '08:00:00',
+            'capacity' => 20,
+            'room' => 'Zen Studio',
+            'status' => 'active'
+        ]);
+        $classes = DB::fetchAll($classesSql, [$tenantId]);
+    }
+    set_platform_setting($classesSeedKey, '1');
 }
 
 include __DIR__ . '/../includes/header.php';

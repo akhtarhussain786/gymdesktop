@@ -1,19 +1,21 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
 import '../../core/services/upi_payment_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/admin_provider.dart';
 import '../../widgets/upi_app_brand_logo.dart';
 
+/// SaaS subscription checkout for the gym admin: pay with any installed UPI app (Cashfree UPI intent,
+/// amount locked to the order), or card / net banking. Success is decided only by the server's
+/// verify_order answer; this screen pops with `true` once the subscription is active.
 class InAppPaymentCheckoutScreen extends StatefulWidget {
   final String orderId;
   final String checkoutUrl;
   final String planName;
-  final double amount;
+  final double? amount;
   final String currency;
   final String? paymentSessionId;
   final String? upiIntentUrl;
@@ -26,7 +28,7 @@ class InAppPaymentCheckoutScreen extends StatefulWidget {
     required this.orderId,
     required this.checkoutUrl,
     required this.planName,
-    required this.amount,
+    this.amount,
     this.currency = '₹',
     this.paymentSessionId,
     this.upiIntentUrl,
@@ -40,23 +42,34 @@ class InAppPaymentCheckoutScreen extends StatefulWidget {
 }
 
 class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen> with WidgetsBindingObserver {
+  static const int _maxPollAttempts = 10;
+
   List<InstalledUpiApp> _installedUpiApps = [];
   bool _isLoadingApps = true;
   bool _isLaunchingApp = false;
-  String _launchingAppName = '';
+  String _launchingAppId = '';
+
+  // Last payment method, so "Retry" reuses the same order with the same choice
+  InstalledUpiApp? _lastApp;
+  bool _lastWasCards = false;
+
+  // Set once Cashfree's SDK reports installer_package_not_approved (app not installed from the
+  // Play Store); later taps go straight to the deep link / browser.
+  bool _sdkUnavailable = false;
 
   // Payment Verification State
   bool _isVerifying = false;
   bool _isPaymentSuccess = false;
-  String? _verificationError;
+  bool _notCompleted = false;
+  String? _statusDetail;
   int _pollAttempts = 0;
-  Timer? _autoPollTimer;
-  bool _hasAttemptedPayment = false;
+  int _pollGeneration = 0;
+  bool _awaitingReturn = false; // the admin was sent to a UPI app / the browser
+  bool _closed = false;
 
-  // Optional WebView for Cards / Netbanking fallback
+  // Visible WebView checkout for Cards / Net Banking
   bool _showWebCheckout = false;
-  String _webCheckoutTitle = 'Card & Net Banking Payment';
-  late final WebViewController _webController;
+  WebViewController? _webController;
   bool _isWebLoading = true;
 
   @override
@@ -64,39 +77,231 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _detectInstalledUpiApps();
-    _initWebFallback();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _autoPollTimer?.cancel();
+    _pollGeneration++;
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _hasAttemptedPayment && !_isVerifying && !_isPaymentSuccess && mounted) {
-      debugPrint('App resumed after UPI payment attempt. Starting backend verification for order: ${widget.orderId}');
-      _startVerificationPolling();
+    if (state == AppLifecycleState.resumed && _awaitingReturn && !_isVerifying && !_isPaymentSuccess && mounted) {
+      _awaitingReturn = false;
+      _startVerification();
     }
   }
 
   Future<void> _detectInstalledUpiApps() async {
-    setState(() => _isLoadingApps = true);
     final apps = await UpiPaymentService.getInstalledUpiApps();
-    if (mounted) {
-      setState(() {
-        _installedUpiApps = apps;
-        _isLoadingApps = false;
+    if (!mounted) return;
+    setState(() {
+      _installedUpiApps = apps;
+      _isLoadingApps = false;
+    });
+  }
+
+  // ---------------------------------------------------------------- UPI
+
+  Future<void> _handleUpiAppSelection(InstalledUpiApp app) async {
+    if (_isLaunchingApp || _isVerifying || _isPaymentSuccess) return;
+
+    setState(() {
+      _isLaunchingApp = true;
+      _launchingAppId = app.id;
+      _notCompleted = false;
+      _statusDetail = null;
+      _lastApp = app;
+      _lastWasCards = false;
+    });
+
+    final sessionId = widget.paymentSessionId ?? '';
+    var started = false;
+    if (!_sdkUnavailable && sessionId.isNotEmpty) {
+      started = UpiPaymentService.startSdkUpiPayment(
+        app: app,
+        orderId: widget.orderId,
+        paymentSessionId: sessionId,
+        cashfreeMode: widget.cashfreeMode,
+        onVerify: _onSdkVerify,
+        onError: _onSdkError,
+      );
+    }
+
+    if (started) {
+      _awaitingReturn = true;
+      // The SDK answers through the callbacks; don't leave the spinner up if no UPI app opens
+      Future.delayed(const Duration(seconds: 8), () {
+        if (mounted && _isLaunchingApp && _launchingAppId == app.id) {
+          setState(() => _isLaunchingApp = false);
+        }
       });
+      return;
+    }
+
+    await _launchFallback(app);
+  }
+
+  bool _isForThisOrder(String orderId) =>
+      orderId.isEmpty || orderId == 'order_id_not_found' || orderId == widget.orderId;
+
+  // The UPI app returned. Only the server can say whether the money arrived.
+  void _onSdkVerify(String orderId) {
+    if (!mounted || orderId != widget.orderId) return;
+    _awaitingReturn = false;
+    if (_isLaunchingApp) setState(() => _isLaunchingApp = false);
+    _startVerification();
+  }
+
+  Future<void> _onSdkError(CFErrorResponse error, String orderId) async {
+    if (!mounted || !_isForThisOrder(orderId)) return;
+    debugPrint('Cashfree SDK error: ${error.getCode()} ${error.getMessage()}');
+    setState(() => _isLaunchingApp = false);
+
+    if (UpiPaymentService.isPaymentAttemptFailure(error)) {
+      // Back from the UPI app without a successful payment. It may still have gone through, so ask once.
+      _awaitingReturn = false;
+      _stopPolling();
+      final admin = context.read<AdminProvider>();
+      setState(() => _isVerifying = true);
+      final paid = await admin.verifySaasOrder(widget.orderId);
+      if (!mounted) return;
+      if (paid) {
+        await _onPaid();
+      } else {
+        _showNotCompleted(error.getMessage());
+      }
+      return;
+    }
+
+    // The SDK could not start the payment: open the order's UPI link / checkout instead. When the cause is
+    // the install source (not from the Play Store) every later attempt would fail the same way.
+    if (UpiPaymentService.isInstallerNotApproved(error)) {
+      _sdkUnavailable = true;
+    }
+    await _launchFallback(_lastApp ?? UpiPaymentService.genericUpiApp);
+  }
+
+  Future<void> _launchFallback(InstalledUpiApp app) async {
+    if (!mounted) return;
+    if (!_isLaunchingApp) {
+      setState(() {
+        _isLaunchingApp = true;
+        _launchingAppId = app.id;
+      });
+    }
+
+    var opened = false;
+    var openedBrowser = false;
+    final link = UpiPaymentService.deepLinkFor(app, upiLinks: widget.upiLinks, upiIntentUrl: widget.upiIntentUrl);
+    if (link != null) {
+      opened = await UpiPaymentService.launchDeepLink(link);
+    }
+    if (!opened && widget.checkoutUrl.isNotEmpty) {
+      opened = await UpiPaymentService.openCheckoutInBrowser(widget.checkoutUrl);
+      openedBrowser = opened;
+    }
+    if (!mounted) return;
+
+    setState(() => _isLaunchingApp = false);
+    if (opened) {
+      _awaitingReturn = true;
+      if (openedBrowser) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Complete the payment on the secure page in your browser, then come back here.')),
+        );
+      }
+    } else {
+      _showNotCompleted('No UPI app or browser could be opened on this phone. Please try Card / Net Banking.');
     }
   }
 
-  void _initWebFallback() {
-    _webController = WebViewController()
+  // ---------------------------------------------------------------- Verification
+
+  Future<void> _startVerification() async {
+    if (_isVerifying || _isPaymentSuccess || !mounted) return;
+
+    final generation = ++_pollGeneration;
+    final admin = context.read<AdminProvider>();
+    setState(() {
+      _isVerifying = true;
+      _isLaunchingApp = false;
+      _pollAttempts = 0;
+      _notCompleted = false;
+      _statusDetail = null;
+    });
+
+    // One request at a time: the next check is scheduled only after the previous one answered
+    while (mounted && generation == _pollGeneration) {
+      setState(() => _pollAttempts++);
+      final paid = await admin.verifySaasOrder(widget.orderId);
+      if (!mounted || generation != _pollGeneration) return;
+      if (paid) {
+        await _onPaid();
+        return;
+      }
+      if (_pollAttempts >= _maxPollAttempts) break;
+      await Future.delayed(const Duration(seconds: 3));
+    }
+
+    if (!mounted || generation != _pollGeneration) return;
+    _showNotCompleted(null);
+  }
+
+  void _stopPolling() {
+    _pollGeneration++;
+  }
+
+  void _showNotCompleted(String? detail) {
+    if (!mounted) return;
+    setState(() {
+      _isVerifying = false;
+      _notCompleted = true;
+      _statusDetail = detail;
+    });
+  }
+
+  Future<void> _onPaid() async {
+    _stopPolling();
+    if (!mounted) return;
+    setState(() {
+      _isVerifying = false;
+      _notCompleted = false;
+      _isPaymentSuccess = true;
+    });
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    _closeCheckout(true);
+  }
+
+  // Pops only this checkout route (and anything shown on top of it, e.g. the exit dialog)
+  void _closeCheckout(bool result) {
+    if (_closed || !mounted) return;
+    _closed = true;
+    _stopPolling();
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      navigator.popUntil((r) => r == route);
+    }
+    navigator.pop(result);
+  }
+
+  void _retry() {
+    if (_lastWasCards) {
+      _handleCardsNetBanking();
+    } else {
+      _handleUpiAppSelection(_lastApp ?? UpiPaymentService.genericUpiApp);
+    }
+  }
+
+  // ---------------------------------------------------------------- Cards / Net Banking
+
+  WebViewController _ensureWebController() {
+    return _webController ??= WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
       ..setBackgroundColor(const Color(0xFF0F1015))
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -105,177 +310,104 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
           },
           onPageFinished: (url) {
             if (mounted) setState(() => _isWebLoading = false);
-            if (url.contains('callback') || url.contains('status=approved') || url.contains('order_status=PAID')) {
-              _startVerificationPolling();
+            if (url.contains('saas-renew-callback.php')) {
+              _onWebCheckoutReturned();
             }
           },
           onNavigationRequest: (request) async {
             final url = request.url;
             final uri = Uri.tryParse(url);
+            final scheme = uri?.scheme.toLowerCase() ?? '';
 
-            debugPrint('Checkout WebView Navigation: $url');
-
-            // 1. Intercept native UPI deep links (tez://, phonepe://, paytmmp://, upi://, bhim://, credpay://, whatsapp://, amazonpay://)
-            if (uri != null && (
-                uri.scheme == 'upi' ||
-                uri.scheme == 'tez' ||
-                uri.scheme == 'phonepe' ||
-                uri.scheme == 'paytmmp' ||
-                uri.scheme == 'bhim' ||
-                uri.scheme == 'credpay' ||
-                uri.scheme == 'whatsapp' ||
-                uri.scheme == 'amazonpay'
-            )) {
-              try {
-                _hasAttemptedPayment = true;
-                if (mounted) {
-                  setState(() => _isLaunchingApp = false);
-                }
-                final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-                if (!launched && uri.scheme != 'upi' && uri.query.isNotEmpty) {
-                  await launchUrl(Uri.parse('upi://pay?${uri.query}'), mode: LaunchMode.externalApplication);
-                }
-              } catch (e) {
-                debugPrint('Could not launch external UPI app from webview: $e');
+            // A UPI app button on the checkout page: hand the deep link to the phone
+            if (UpiPaymentService.upiSchemes.contains(scheme)) {
+              if (await UpiPaymentService.launchDeepLink(url)) {
+                _awaitingReturn = true;
               }
               return NavigationDecision.prevent;
             }
 
-            // 2. Intercept Android intent:// scheme
+            // Android intent:// links -> the equivalent UPI deep link
             if (url.startsWith('intent://')) {
-              try {
-                _hasAttemptedPayment = true;
-                if (mounted) {
-                  setState(() => _isLaunchingApp = false);
-                }
-                String parsedUrl = url;
-                final schemeMatch = RegExp(r'scheme=([^;]+)').firstMatch(url);
-                final fallbackScheme = schemeMatch != null ? schemeMatch.group(1) : 'upi';
-                final bodyMatch = RegExp(r'intent://([^#]+)').firstMatch(url);
-                if (bodyMatch != null) {
-                  parsedUrl = '$fallbackScheme://${bodyMatch.group(1)}';
-                }
-                await launchUrl(Uri.parse(parsedUrl), mode: LaunchMode.externalApplication);
-              } catch (e) {
-                debugPrint('Could not launch intent url: $e');
+              final schemeMatch = RegExp(r'scheme=([^;]+)').firstMatch(url);
+              final bodyMatch = RegExp(r'intent://([^#]+)').firstMatch(url);
+              final target = (schemeMatch != null && bodyMatch != null) ? '${schemeMatch.group(1)}://${bodyMatch.group(1)}' : '';
+              if (await UpiPaymentService.launchDeepLink(target)) {
+                _awaitingReturn = true;
               }
               return NavigationDecision.prevent;
             }
 
-            // 3. Intercept callback or success redirects
-            if (url.contains('saas-renew-callback.php') || url.contains('callback') || url.contains('status=approved') || url.contains('order_status=PAID')) {
-              _startVerificationPolling();
-              return NavigationDecision.navigate;
+            // Never navigate to inline data (e.g. QR images) or unknown app schemes
+            if (scheme != 'http' && scheme != 'https' && scheme != 'about') {
+              return NavigationDecision.prevent;
             }
-
             return NavigationDecision.navigate;
           },
         ),
       );
   }
 
-  Future<void> _handleUpiAppSelection(InstalledUpiApp app) async {
-    if (_isLaunchingApp || _isVerifying) return;
-
-    setState(() {
-      _isLaunchingApp = true;
-      _launchingAppName = app.name;
-      _verificationError = null;
-      _hasAttemptedPayment = true;
-    });
-
-    // 1. If direct UPI links are available, try direct launch
-    if ((widget.upiLinks != null && widget.upiLinks!.isNotEmpty) || (widget.upiIntentUrl != null && widget.upiIntentUrl!.isNotEmpty)) {
-      final directSuccess = await UpiPaymentService.launchDirectUpiLink(
-        app: app,
-        upiIntentUrl: widget.upiIntentUrl,
-        upiLinks: widget.upiLinks,
-      );
-      if (directSuccess) {
-        if (mounted) setState(() => _isLaunchingApp = false);
-        return;
-      }
-    }
-
-    // 2. Trigger Cashfree JS UPI Intent Bridge in background WebView
-    try {
-      final upiBridgeUrl = '${widget.checkoutUrl}&mode=upi&app=${app.id}';
-      debugPrint('Triggering Cashfree UPI bridge for ${app.name}: $upiBridgeUrl');
-      await _webController.loadRequest(Uri.parse(upiBridgeUrl));
-    } catch (e) {
-      debugPrint('Error loading UPI bridge request: $e');
-    }
-
-    // Safety timeout: reset launching indicator after 6 seconds if app switch occurred
-    Future.delayed(const Duration(seconds: 6), () {
-      if (mounted && _isLaunchingApp && _launchingAppName == app.name) {
-        setState(() => _isLaunchingApp = false);
-      }
-    });
-  }
-
   Future<void> _handleCardsNetBanking() async {
+    if (_isVerifying || _isPaymentSuccess) return;
+    if (widget.checkoutUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Card / Net Banking checkout is not available for this order. Please use UPI.')),
+      );
+      return;
+    }
+    final controller = _ensureWebController();
     setState(() {
       _showWebCheckout = true;
-      _webCheckoutTitle = 'Card & Net Banking Payment';
+      _isWebLoading = true;
+      _notCompleted = false;
+      _statusDetail = null;
+      _lastWasCards = true;
     });
-    _webController.loadRequest(Uri.parse('${widget.checkoutUrl}&mode=cards'));
+    final separator = widget.checkoutUrl.contains('?') ? '&' : '?';
+    await controller.loadRequest(Uri.parse('${widget.checkoutUrl}${separator}mode=cards'));
   }
 
-  void _startVerificationPolling() {
-    if (_isVerifying || _isPaymentSuccess) return;
-
-    setState(() {
-      _isVerifying = true;
-      _pollAttempts = 0;
-      _verificationError = null;
-    });
-
-    _autoPollTimer?.cancel();
-    _autoPollTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      _pollAttempts++;
-
-      final isPaid = await _verifyWithBackend();
-      if (isPaid) {
-        timer.cancel();
-        if (mounted) {
-          setState(() {
-            _isVerifying = false;
-            _isPaymentSuccess = true;
-          });
-          await Future.delayed(const Duration(milliseconds: 1200));
-          if (mounted) {
-            Navigator.of(context).pop(true); // Return success to caller
-          }
-        }
-      } else if (_pollAttempts >= 10) {
-        timer.cancel();
-        if (mounted) {
-          setState(() {
-            _isVerifying = false;
-            _verificationError = 'Payment verification is taking longer than usual. If amount was deducted, tap "Check Status" below.';
-          });
-        }
-      }
-    });
-  }
-
-  Future<bool> _verifyWithBackend() async {
-    try {
-      final admin = context.read<AdminProvider>();
-      final isVerified = await admin.verifySaasOrder(widget.orderId);
-      return isVerified;
-    } catch (_) {
-      return false;
+  Future<void> _openWebCheckoutInBrowser() async {
+    final opened = await UpiPaymentService.openCheckoutInBrowser(widget.checkoutUrl);
+    if (!mounted) return;
+    if (opened) {
+      _awaitingReturn = true;
+      setState(() => _showWebCheckout = false);
     }
   }
+
+  void _onWebCheckoutReturned() {
+    if (!mounted) return;
+    setState(() => _showWebCheckout = false);
+    _startVerification();
+  }
+
+  // Closing the card page: one quiet check in case the payment was completed there
+  Future<void> _closeWebCheckout() async {
+    setState(() => _showWebCheckout = false);
+    if (_isVerifying || _isPaymentSuccess) return;
+    final admin = context.read<AdminProvider>();
+    final paid = await admin.verifySaasOrder(widget.orderId);
+    if (!mounted) return;
+    if (paid) await _onPaid();
+  }
+
+  // ---------------------------------------------------------------- UI
 
   @override
   Widget build(BuildContext context) {
-    if (_showWebCheckout) {
-      return _buildWebCheckoutView();
-    }
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPress();
+      },
+      child: _showWebCheckout ? _buildWebCheckoutView() : _buildMainView(),
+    );
+  }
 
+  Widget _buildMainView() {
     return Scaffold(
       backgroundColor: const Color(0xFF0F1015),
       appBar: AppBar(
@@ -287,135 +419,123 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: () => _handleBackPress(),
+          onPressed: _handleBackPress,
         ),
       ),
       body: SafeArea(
-        child: Stack(
-          children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 1. Order Summary Card
+              _buildOrderSummaryCard(),
+              const SizedBox(height: 18),
+
+              // 2. Active Verification State Banner
+              if (_isVerifying || _isPaymentSuccess || _notCompleted) ...[
+                _buildVerificationStatusCard(),
+                const SizedBox(height: 18),
+              ],
+
+              // 3. UPI Apps Section Header
+              Row(
                 children: [
-                  // 1. Order Summary Card
-                  _buildOrderSummaryCard(),
-                  const SizedBox(height: 18),
-
-                  // 2. Active Verification State Banner
-                  if (_isVerifying || _isPaymentSuccess || _verificationError != null)
-                    _buildVerificationStatusCard(),
-
-                  if (_isVerifying || _isPaymentSuccess || _verificationError != null)
-                    const SizedBox(height: 18),
-
-                  // 3. UPI Apps Section Header
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: AppColors.lime.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AppColors.lime.withValues(alpha: 0.3)),
-                        ),
-                        child: Text(
-                          'FASTEST',
-                          style: GoogleFonts.plusJakartaSans(
-                            color: AppColors.lime,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.lime.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.lime.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'FASTEST',
+                      style: GoogleFonts.plusJakartaSans(
+                        color: AppColors.lime,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'PAY VIA INSTALLED UPI APPS',
-                        style: GoogleFonts.plusJakartaSans(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  // 4. Installed UPI Apps Grid / List
-                  if (_isLoadingApps)
-                    const Padding(
-                      padding: EdgeInsets.all(24.0),
-                      child: Center(
-                        child: CircularProgressIndicator(color: AppColors.lime, strokeWidth: 2.5),
-                      ),
-                    )
-                  else
-                    ..._installedUpiApps.map((app) => _buildUpiAppTile(app)),
-
-                  const SizedBox(height: 20),
-
-                  // 5. Divider
-                  Row(
-                    children: [
-                      const Expanded(child: Divider(color: Colors.white12)),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          'OR OTHER PAYMENT MODES',
-                          style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      const Expanded(child: Divider(color: Colors.white12)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 6. Cards & Net Banking Tiles
-                  _buildOtherPaymentTile(
-                    icon: Icons.credit_card_rounded,
-                    title: 'Debit / Credit Card',
-                    subtitle: 'Visa, MasterCard, RuPay, Maestro',
-                    onTap: _handleCardsNetBanking,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildOtherPaymentTile(
-                    icon: Icons.account_balance_rounded,
-                    title: 'Net Banking',
-                    subtitle: 'SBI, HDFC, ICICI, Axis, Kotak & 50+ Banks',
-                    onTap: _handleCardsNetBanking,
-                  ),
-
-                  const SizedBox(height: 28),
-
-                  // 7. Security Trust Badge
-                  Center(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.lock_rounded, color: Color(0xFF10B981), size: 14),
-                        const SizedBox(width: 6),
-                        Text(
-                          '256-Bit SSL Encrypted • PCI-DSS Level 1 Gateway',
-                          style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 11),
-                        ),
-                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    'PAY VIA INSTALLED UPI APPS',
+                    style: GoogleFonts.plusJakartaSans(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
                 ],
               ),
-            ),
-            // Background WebView bridge to trigger Cashfree JS UPI deep links
-            Offstage(
-              offstage: true,
-              child: SizedBox(
-                width: 1,
-                height: 1,
-                child: WebViewWidget(controller: _webController),
+              const SizedBox(height: 10),
+
+              // 4. Installed UPI Apps
+              if (_isLoadingApps)
+                const Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: Center(
+                    child: CircularProgressIndicator(color: AppColors.lime, strokeWidth: 2.5),
+                  ),
+                )
+              else
+                ..._installedUpiApps.map((app) => _buildUpiAppTile(app)),
+
+              const SizedBox(height: 20),
+
+              // 5. Divider
+              Row(
+                children: [
+                  const Expanded(child: Divider(color: Colors.white12)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'OR OTHER PAYMENT MODES',
+                      style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const Expanded(child: Divider(color: Colors.white12)),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+
+              // 6. Cards & Net Banking Tiles
+              _buildOtherPaymentTile(
+                icon: Icons.credit_card_rounded,
+                title: 'Debit / Credit Card',
+                subtitle: 'Visa, MasterCard, RuPay, Maestro',
+                onTap: _handleCardsNetBanking,
+              ),
+              const SizedBox(height: 10),
+              _buildOtherPaymentTile(
+                icon: Icons.account_balance_rounded,
+                title: 'Net Banking',
+                subtitle: 'SBI, HDFC, ICICI, Axis, Kotak & 50+ Banks',
+                onTap: _handleCardsNetBanking,
+              ),
+
+              const SizedBox(height: 28),
+
+              // 7. Security Trust Badge
+              Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.lock_rounded, color: Color(0xFF10B981), size: 14),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '256-Bit SSL Encrypted • PCI-DSS Level 1 Gateway',
+                        style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -434,7 +554,8 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
+              Expanded(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -451,9 +572,12 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
                     style: GoogleFonts.plusJakartaSans(color: Colors.white38, fontSize: 11),
                   ),
                 ],
+                ),
               ),
+              const SizedBox(width: 10),
               Text(
-                '${widget.currency}${widget.amount.toStringAsFixed(2)}',
+                // Always the server's total_payable; the app never computes the amount
+                widget.amount != null ? '${widget.currency}${widget.amount!.toStringAsFixed(2)}' : '—',
                 style: GoogleFonts.outfit(
                   color: AppColors.lime,
                   fontSize: 22,
@@ -487,7 +611,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: (_isLaunchingApp || _isVerifying) ? null : () => _handleUpiAppSelection(app),
+          onTap: (_isLaunchingApp || _isVerifying || _isPaymentSuccess) ? null : () => _handleUpiAppSelection(app),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
@@ -536,7 +660,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
                       const SizedBox(height: 2),
                       Text(
                         isGeneric
-                            ? 'Open system chooser (PhonePe, GPay, Paytm, BHIM...)'
+                            ? 'Choose from every UPI app on this phone'
                             : 'Instant payment with UPI PIN',
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.white54,
@@ -546,7 +670,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
                     ],
                   ),
                 ),
-                if (_isLaunchingApp && _launchingAppName == app.name)
+                if (_isLaunchingApp && _launchingAppId == app.id)
                   const SizedBox(
                     width: 20,
                     height: 20,
@@ -582,7 +706,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: (_isLaunchingApp || _isVerifying) ? null : onTap,
+          onTap: (_isLaunchingApp || _isVerifying || _isPaymentSuccess) ? null : onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
@@ -648,7 +772,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
                     style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'SaaS subscription activated. Returning to dashboard...',
+                    'SaaS subscription activated. Returning...',
                     style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 12),
                   ),
                 ],
@@ -684,7 +808,7 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
                     style: GoogleFonts.outfit(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'Please wait while we confirm your transaction (Attempt $_pollAttempts/10)',
+                    'Please wait while we confirm your transaction (Check ${_pollAttempts.clamp(1, _maxPollAttempts)}/$_maxPollAttempts)',
                     style: GoogleFonts.plusJakartaSans(color: Colors.white60, fontSize: 11.5),
                   ),
                 ],
@@ -695,49 +819,63 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
       );
     }
 
-    if (_verificationError != null) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF7F1D1D).withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.5)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.info_outline_rounded, color: Color(0xFFF87171), size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _verificationError!,
-                    style: GoogleFonts.plusJakartaSans(color: const Color(0xFFFCA5A5), fontSize: 12),
-                  ),
+    // Payment not completed (cancelled, failed, or not confirmed yet)
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF7F1D1D).withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.info_outline_rounded, color: Color(0xFFF87171), size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Payment not completed',
+                  style: GoogleFonts.outfit(color: const Color(0xFFFCA5A5), fontSize: 14.5, fontWeight: FontWeight.bold),
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: _startVerificationPolling,
-                  icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.lime),
-                  label: Text(
-                    'Check Status Again',
-                    style: GoogleFonts.plusJakartaSans(color: AppColors.lime, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            (_statusDetail != null && _statusDetail!.trim().isNotEmpty)
+                ? _statusDetail!
+                : 'We could not confirm this payment yet. If money was deducted, tap "Check Status" — '
+                    'it can take a minute to reach us. Otherwise tap "Retry" to pay this same order again.',
+            style: GoogleFonts.plusJakartaSans(color: const Color(0xFFFCA5A5), fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                onPressed: _startVerification,
+                icon: const Icon(Icons.published_with_changes_rounded, size: 14, color: Colors.white70),
+                label: Text(
+                  'Check Status',
+                  style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
                 ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
+              ),
+              const SizedBox(width: 6),
+              TextButton.icon(
+                onPressed: _isLaunchingApp ? null : _retry,
+                icon: const Icon(Icons.refresh_rounded, size: 14, color: AppColors.lime),
+                label: Text(
+                  'Retry',
+                  style: GoogleFonts.plusJakartaSans(color: AppColors.lime, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildWebCheckoutView() {
@@ -746,17 +884,24 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
       appBar: AppBar(
         backgroundColor: const Color(0xFF13141C),
         title: Text(
-          _webCheckoutTitle,
+          'Card & Net Banking Payment',
           style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
         ),
         leading: IconButton(
           icon: const Icon(Icons.close_rounded, color: Colors.white),
-          onPressed: () => setState(() => _showWebCheckout = false),
+          onPressed: _closeWebCheckout,
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Open in browser',
+            icon: const Icon(Icons.open_in_browser_rounded, color: Colors.white70),
+            onPressed: _openWebCheckoutInBrowser,
+          ),
+        ],
       ),
       body: Stack(
         children: [
-          WebViewWidget(controller: _webController),
+          if (_webController != null) WebViewWidget(controller: _webController!),
           if (_isWebLoading)
             const Center(
               child: CircularProgressIndicator(color: AppColors.lime),
@@ -767,6 +912,10 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
   }
 
   void _handleBackPress() {
+    if (_showWebCheckout) {
+      _closeWebCheckout();
+      return;
+    }
     if (_isVerifying) {
       showDialog(
         context: context,
@@ -783,17 +932,14 @@ class _InAppPaymentCheckoutScreenState extends State<InAppPaymentCheckoutScreen>
               child: const Text('Wait'),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.pop(context, false);
-              },
+              onPressed: () => _closeCheckout(false),
               child: const Text('Exit Anyway', style: TextStyle(color: Colors.redAccent)),
             ),
           ],
         ),
       );
     } else {
-      Navigator.of(context).pop(false);
+      _closeCheckout(false);
     }
   }
 }

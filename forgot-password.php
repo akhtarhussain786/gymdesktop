@@ -10,6 +10,9 @@ $type = "info";
 // Rate limits (per rolling hour)
 const RESET_MAX_PER_IDENTIFIER = 3;
 const RESET_MAX_PER_IP = 10;
+// Per matched account, whatever username / email spelling was typed: stops email-bombing a user and
+// keeping their newest link permanently invalidated (each new link replaces the previous one)
+const RESET_MAX_PER_ACCOUNT = 3;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     Auth::verifyCsrf();
@@ -34,6 +37,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($accounts as $acct) {
                 $email = trim((string)($acct['email'] ?? ''));
                 if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    continue;
+                }
+                $recentForAccount = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE user_id = ? AND token_hash IS NOT NULL AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)", [(int)$acct['id']]);
+                if ($recentForAccount >= RESET_MAX_PER_ACCOUNT) {
+                    // Keep the outstanding link valid and send nothing; the response stays generic
+                    error_log('Password reset per-account limit hit for user #' . (int)$acct['id'] . " (ip={$ip})");
                     continue;
                 }
                 // Invalidate older unused links for this account

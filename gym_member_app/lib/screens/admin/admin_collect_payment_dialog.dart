@@ -43,6 +43,8 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
   int _planMonths = 1;
   DateTime? _newDueDate;
   bool _isSubmitting = false;
+  // True while the plan fee is the value we filled in from the gym's rate card (not typed by the admin)
+  bool _feeAutoFilled = false;
 
   @override
   void initState() {
@@ -51,11 +53,10 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
 
     if (widget.currentDue > 0) {
       _paymentType = 'due_clearance';
-      _amountController.text = widget.currentDue.toStringAsFixed(0);
+      _amountController.text = widget.currentDue.toStringAsFixed(2);
     } else {
+      // Pre-filled from the member's plan rate once the rate card is loaded; empty if unknown
       _paymentType = 'renewal';
-      _totalPlanFeeController.text = '1000';
-      _amountController.text = '1000';
     }
 
     if (widget.currentDueDate != null) {
@@ -63,6 +64,37 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
         _newDueDate = DateTime.parse(widget.currentDueDate!);
       } catch (_) {}
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final admin = context.read<AdminProvider>();
+      if (admin.rates.isEmpty) {
+        await admin.fetchRates();
+      }
+      if (!mounted) return;
+      _prefillRenewalFee();
+    });
+  }
+
+  // Monthly charge of the member's own plan from the gym's rate card (null when not found)
+  double? _memberMonthlyRate() {
+    final service = widget.currentService.trim().toLowerCase();
+    for (final rate in context.read<AdminProvider>().rates) {
+      if (rate.name.trim().toLowerCase() == service && rate.charge > 0) return rate.charge;
+    }
+    return null;
+  }
+
+  void _prefillRenewalFee() {
+    if (_paymentType != 'renewal') return;
+    if (_totalPlanFeeController.text.trim().isNotEmpty && !_feeAutoFilled) return;
+    final monthly = _memberMonthlyRate();
+    if (monthly == null) return;
+    final fee = (monthly * _planMonths).toStringAsFixed(2);
+    setState(() {
+      _totalPlanFeeController.text = fee;
+      _amountController.text = fee;
+      _feeAutoFilled = true;
+    });
   }
 
   @override
@@ -74,11 +106,18 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
   }
 
   Future<void> _selectDueDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final firstDate = today;
+    final lastDate = today.add(const Duration(days: 365));
+    // showDatePicker asserts that initialDate lies within [firstDate, lastDate] (an old due date may not)
+    var initialDate = DateUtils.dateOnly(_newDueDate ?? today.add(const Duration(days: 7)));
+    if (initialDate.isBefore(firstDate)) initialDate = firstDate;
+    if (initialDate.isAfter(lastDate)) initialDate = lastDate;
     final picked = await showDatePicker(
       context: context,
-      initialDate: _newDueDate ?? DateTime.now().add(const Duration(days: 7)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -342,284 +381,85 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
   Widget build(BuildContext context) {
     final currency = context.watch<AuthProvider>().currentTenant?.currency ?? '₹';
 
-    return Dialog(
-      backgroundColor: AppColors.card(context),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: BorderSide(color: AppColors.border(context)),
-      ),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 440,
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
+    // Not dismissible (back button / tap outside) while the payment is being recorded
+    return PopScope(
+      canPop: !_isSubmitting,
+      child: Dialog(
+        backgroundColor: AppColors.card(context),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(color: AppColors.border(context)),
         ),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 16, 12),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppColors.lime.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.limeBorder),
-                      ),
-                      child: const Icon(Icons.payments_rounded, color: AppColors.lime, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Collect Payment',
-                            style: GoogleFonts.outfit(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                              color: AppColors.textPrimary(context),
-                            ),
-                          ),
-                          Text(
-                            widget.memberName,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textMuted(context),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-
-              // Body Content
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 440,
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 16, 12),
+                  child: Row(
                     children: [
-                      // Mode Selector (Clear Dues vs Renewal)
                       Container(
-                        padding: const EdgeInsets.all(4),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: AppColors.cardElevated(context),
+                          color: AppColors.lime.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.border(context)),
+                          border: Border.all(color: AppColors.limeBorder),
                         ),
-                        child: Row(
+                        child: const Icon(Icons.payments_rounded, color: AppColors.lime, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _paymentType = 'due_clearance';
-                                    _amountController.text = widget.currentDue > 0
-                                        ? widget.currentDue.toStringAsFixed(0)
-                                        : '500';
-                                  });
-                                },
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: _paymentType == 'due_clearance'
-                                        ? AppColors.lime
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    'Clear Due ($currency${widget.currentDue.toStringAsFixed(0)})',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                      color: _paymentType == 'due_clearance'
-                                          ? Colors.black
-                                          : AppColors.textMuted(context),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
+                            Text(
+                              'Collect Payment',
+                              style: GoogleFonts.outfit(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.textPrimary(context),
                               ),
                             ),
-                            Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _paymentType = 'renewal';
-                                    if (_totalPlanFeeController.text.isEmpty) {
-                                      _totalPlanFeeController.text = '1000';
-                                    }
-                                    _amountController.text = _totalPlanFeeController.text;
-                                  });
-                                },
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: _paymentType == 'renewal'
-                                        ? AppColors.lime
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    'Renew Membership',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                      color: _paymentType == 'renewal'
-                                          ? Colors.black
-                                          : AppColors.textMuted(context),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
+                            Text(
+                              widget.memberName,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textMuted(context),
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 18),
-
-                      if (_paymentType == 'renewal') ...[
-                        // Renewal Months & Total Plan Fee
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<int>(
-                                initialValue: const [1, 3, 6, 12].contains(_planMonths) ? _planMonths : 1,
-                                decoration: const InputDecoration(labelText: 'Plan Duration'),
-                                dropdownColor: AppColors.card(context),
-                                items: const [
-                                  DropdownMenuItem(value: 1, child: Text('1 Month')),
-                                  DropdownMenuItem(value: 3, child: Text('3 Months')),
-                                  DropdownMenuItem(value: 6, child: Text('6 Months')),
-                                  DropdownMenuItem(value: 12, child: Text('1 Year (12 Mo)')),
-                                ],
-                                onChanged: (v) {
-                                  if (v != null) setState(() => _planMonths = v);
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextFormField(
-                                controller: _totalPlanFeeController,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: 'Total Plan Fee',
-                                  prefixText: '$currency ',
-                                ),
-                                onChanged: (v) {
-                                  setState(() {
-                                    _amountController.text = v;
-                                  });
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // Amount Being Collected
-                      TextFormField(
-                        controller: _amountController,
-                        keyboardType: TextInputType.number,
-                        style: GoogleFonts.outfit(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.lime,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: 'Amount Being Collected Now',
-                          prefixText: '$currency ',
-                          prefixStyle: GoogleFonts.outfit(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            color: AppColors.lime,
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) return 'Enter amount';
-                          final num = double.tryParse(value.trim());
-                          if (num == null || num <= 0) return 'Must be greater than 0';
-                          return null;
-                        },
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
                       ),
-                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
 
-                      // Payment Method Selector Chips
-                      Text(
-                        'PAYMENT METHOD',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textMuted(context),
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: ['Cash', 'UPI', 'Card', 'Online'].map((method) {
-                          final isSelected = _paymentMethod == method;
-                          return Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 3),
-                              child: ChoiceChip(
-                                label: Text(method),
-                                selected: isSelected,
-                                onSelected: (s) {
-                                  if (s) {
-                                    setState(() => _paymentMethod = method);
-                                    if (method == 'UPI') {
-                                      // Suggest open QR
-                                      showDialog(
-                                        context: context,
-                                        builder: (_) => AdminGymQrScreen(
-                                          isModal: true,
-                                          initialAmount: double.tryParse(_amountController.text),
-                                          initialNote: 'Payment from ${widget.memberName}',
-                                        ),
-                                      );
-                                    }
-                                  }
-                                },
-                                selectedColor: AppColors.lime,
-                                labelStyle: GoogleFonts.plusJakartaSans(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 11.5,
-                                  color: isSelected ? Colors.black : AppColors.textPrimary(context),
-                                ),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Next Due Date (if partial payment)
-                      InkWell(
-                        onTap: _selectDueDate,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                // Body Content
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Mode Selector (Clear Dues vs Renewal)
+                        Container(
+                          padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
                             color: AppColors.cardElevated(context),
                             borderRadius: BorderRadius.circular(12),
@@ -627,114 +467,319 @@ class _AdminCollectPaymentDialogState extends State<AdminCollectPaymentDialog> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.event_note_rounded, size: 18, color: AppColors.cyan),
-                              const SizedBox(width: 10),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Promise Due Date (If Partial)',
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.textMuted(context),
-                                      ),
+                                child: InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _paymentType = 'due_clearance';
+                                      _amountController.text = widget.currentDue > 0
+                                          ? widget.currentDue.toStringAsFixed(2)
+                                          : '';
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: _paymentType == 'due_clearance'
+                                          ? AppColors.lime
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(10),
                                     ),
-                                    Text(
-                                      _newDueDate != null
-                                          ? DateFormat('dd MMM yyyy').format(_newDueDate!)
-                                          : 'Not set (Full Settlement)',
+                                    child: Text(
+                                      'Clear Due ($currency${widget.currentDue.toStringAsFixed(0)})',
                                       style: GoogleFonts.plusJakartaSans(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.textPrimary(context),
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12,
+                                        color: _paymentType == 'due_clearance'
+                                            ? Colors.black
+                                            : AppColors.textMuted(context),
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _paymentType = 'renewal';
+                                      _amountController.text = _totalPlanFeeController.text;
+                                    });
+                                    _prefillRenewalFee();
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: _paymentType == 'renewal'
+                                          ? AppColors.lime
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      'Renew Membership',
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12,
+                                        color: _paymentType == 'renewal'
+                                            ? Colors.black
+                                            : AppColors.textMuted(context),
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+
+                        if (_paymentType == 'renewal') ...[
+                          // Renewal Months & Total Plan Fee
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<int>(
+                                  initialValue: const [1, 3, 6, 12].contains(_planMonths) ? _planMonths : 1,
+                                  decoration: const InputDecoration(labelText: 'Plan Duration'),
+                                  dropdownColor: AppColors.card(context),
+                                  items: const [
+                                    DropdownMenuItem(value: 1, child: Text('1 Month')),
+                                    DropdownMenuItem(value: 3, child: Text('3 Months')),
+                                    DropdownMenuItem(value: 6, child: Text('6 Months')),
+                                    DropdownMenuItem(value: 12, child: Text('1 Year (12 Mo)')),
+                                  ],
+                                  onChanged: (v) {
+                                    if (v != null) {
+                                      setState(() => _planMonths = v);
+                                      _prefillRenewalFee();
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _totalPlanFeeController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: 'Total Plan Fee',
+                                    prefixText: '$currency ',
+                                  ),
+                                  onChanged: (v) {
+                                    setState(() {
+                                      _feeAutoFilled = false;
+                                      _amountController.text = v;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // Amount Being Collected
+                        TextFormField(
+                          controller: _amountController,
+                          keyboardType: TextInputType.number,
+                          style: GoogleFonts.outfit(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.lime,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Amount Being Collected Now',
+                            prefixText: '$currency ',
+                            prefixStyle: GoogleFonts.outfit(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.lime,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) return 'Enter amount';
+                            final num = double.tryParse(value.trim());
+                            if (num == null || num <= 0) return 'Must be greater than 0';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Payment Method Selector Chips
+                        Text(
+                          'PAYMENT METHOD',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textMuted(context),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: ['Cash', 'UPI', 'Card', 'Online'].map((method) {
+                            final isSelected = _paymentMethod == method;
+                            return Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 3),
+                                child: ChoiceChip(
+                                  label: Text(method),
+                                  selected: isSelected,
+                                  onSelected: (s) {
+                                    if (s) {
+                                      setState(() => _paymentMethod = method);
+                                      if (method == 'UPI') {
+                                        // Suggest open QR
+                                        showDialog(
+                                          context: context,
+                                          builder: (_) => AdminGymQrScreen(
+                                            isModal: true,
+                                            initialAmount: double.tryParse(_amountController.text),
+                                            initialNote: 'Payment from ${widget.memberName}',
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  selectedColor: AppColors.lime,
+                                  labelStyle: GoogleFonts.plusJakartaSans(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 11.5,
+                                    color: isSelected ? Colors.black : AppColors.textPrimary(context),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Next Due Date (if partial payment)
+                        InkWell(
+                          onTap: _selectDueDate,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardElevated(context),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.border(context)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.event_note_rounded, size: 18, color: AppColors.cyan),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Promise Due Date (If Partial)',
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.textMuted(context),
+                                        ),
+                                      ),
+                                      Text(
+                                        _newDueDate != null
+                                            ? DateFormat('dd MMM yyyy').format(_newDueDate!)
+                                            : 'Not set (Full Settlement)',
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.textPrimary(context),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(Icons.edit_calendar_rounded, size: 16, color: AppColors.textMuted(context)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Optional Remarks
+                        TextFormField(
+                          controller: _notesController,
+                          style: GoogleFonts.plusJakartaSans(fontSize: 13),
+                          decoration: const InputDecoration(
+                            labelText: 'Notes / Remarks (Optional)',
+                            hintText: 'e.g., Cash collected at front desk',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // Action Buttons
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            side: BorderSide(color: AppColors.border(context)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: Text(
+                            'Cancel',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textMuted(context),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          onPressed: _isSubmitting ? null : _handleSubmit,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.lime,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: _isSubmitting
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Confirm Payment',
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
                                       ),
                                     ),
                                   ],
                                 ),
-                              ),
-                              Icon(Icons.edit_calendar_rounded, size: 16, color: AppColors.textMuted(context)),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Optional Remarks
-                      TextFormField(
-                        controller: _notesController,
-                        style: GoogleFonts.plusJakartaSans(fontSize: 13),
-                        decoration: const InputDecoration(
-                          labelText: 'Notes / Remarks (Optional)',
-                          hintText: 'e.g., Cash collected at front desk',
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const Divider(height: 1),
-
-              // Action Buttons
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          side: BorderSide(color: AppColors.border(context)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: Text(
-                          'Cancel',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textMuted(context),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                        onPressed: _isSubmitting ? null : _handleSubmit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.lime,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: _isSubmitting
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.check_circle_rounded, size: 18),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Confirm Payment',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

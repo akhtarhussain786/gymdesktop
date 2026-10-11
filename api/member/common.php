@@ -241,6 +241,57 @@ function api_verify_password($plain, $stored) {
 }
 
 /**
+ * Secret used to sign receipt links. RECEIPT_SIGNING_KEY in .env if set, otherwise derived from the
+ * existing server secrets (never sent to clients).
+ */
+function api_receipt_signing_key() {
+    $key = (string)env('RECEIPT_SIGNING_KEY', '');
+    if ($key === '') {
+        $key = hash('sha256', 'receipt-link|' . env('DB_PASS', '') . '|' . env('CASHFREE_SECRET_KEY', '') . '|' . env('DB_NAME', ''));
+    }
+    return $key;
+}
+
+/**
+ * Time-limited signed link to an invoice receipt for the admin app (opened in a browser, which
+ * cannot send the app's login token). Valid for 7 days, only for that gym's invoice.
+ */
+function api_admin_receipt_url($tenantId, $invoiceId, $ttlSeconds = 604800) {
+    $tenantId = (int)$tenantId;
+    $invoiceId = (int)$invoiceId;
+    if ($tenantId <= 0 || $invoiceId <= 0) return null;
+    $exp = time() + (int)$ttlSeconds;
+    $sig = hash_hmac('sha256', "receipt|{$tenantId}|{$invoiceId}|{$exp}", api_receipt_signing_key());
+    return base_url('/api/admin/receipt_html.php?t=' . $tenantId . '&id=' . $invoiceId . '&exp=' . $exp . '&sig=' . $sig);
+}
+
+/**
+ * Validate a signed receipt link created by api_admin_receipt_url()
+ */
+function api_verify_admin_receipt_signature($tenantId, $invoiceId, $exp, $sig) {
+    $tenantId = (int)$tenantId;
+    $invoiceId = (int)$invoiceId;
+    $exp = (int)$exp;
+    if ($tenantId <= 0 || $invoiceId <= 0 || $exp < time() || !is_string($sig) || $sig === '') return false;
+    $expected = hash_hmac('sha256', "receipt|{$tenantId}|{$invoiceId}|{$exp}", api_receipt_signing_key());
+    return hash_equals($expected, $sig);
+}
+
+/**
+ * Public URL of a gym logo (uploads/logos/ where settings saves them, legacy img/ otherwise)
+ */
+function api_tenant_logo_url($logo) {
+    $logo = trim((string)$logo);
+    if ($logo === '') return null;
+    if (str_starts_with($logo, 'http://') || str_starts_with($logo, 'https://')) return $logo;
+    $file = basename($logo);
+    if (file_exists(__DIR__ . '/../../uploads/logos/' . $file)) {
+        return base_url('/uploads/logos/' . $file);
+    }
+    return base_url('/img/' . $file);
+}
+
+/**
  * Apply the gym's configured timezone so that "today", check-in times and
  * membership day counts follow the gym's local calendar.
  */
@@ -319,7 +370,9 @@ function api_membership_window($tenantId, $member) {
         }
         if ($paid && strtotime($paid) !== false) {
             $start = date('Y-m-d', strtotime($paid));
-            $expiry = date('Y-m-d', strtotime("+{$planMonths} months", strtotime($start)));
+            // Month-end safe, same as the web panel and the renewal engine (Jan 31 + 1 month = Feb 28/29)
+            require_once __DIR__ . '/../../core/subscription_engine.php';
+            $expiry = SubscriptionEngine::addMonths($start, $planMonths);
         } else {
             // No payment on record: treat as not active rather than inventing a fresh period
             $start = $today;

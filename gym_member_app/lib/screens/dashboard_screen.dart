@@ -34,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final dashboardProvider = context.watch<DashboardProvider>();
+    final attendanceBusy = context.select<MemberDataProvider, bool>((p) => p.attendanceActionRunning);
 
     if (dashboardProvider.isLoading && dashboardProvider.dashboardData == null) {
       return const DashboardSkeleton();
@@ -459,21 +460,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       width: double.infinity,
                       height: 44,
                       child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final msg = await context.read<MemberDataProvider>().checkIn();
-                          if (context.mounted) {
-                            await context.read<DashboardProvider>().fetchDashboard(refresh: true);
-                            if (msg != null && context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(msg),
-                                  backgroundColor: AppColors.success,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
+                        onPressed: attendanceBusy
+                            ? null
+                            : () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final dashboardProvider = context.read<DashboardProvider>();
+                                final result = await context.read<MemberDataProvider>().checkIn();
+                                if (result.success) {
+                                  await dashboardProvider.fetchDashboard(refresh: true);
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text(result.message),
+                                    backgroundColor: result.success ? AppColors.success : AppColors.danger,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
                         icon: const Icon(Icons.touch_app_rounded, color: Color(0xFF05080D), size: 18),
                         label: Text(
                           'Self Check-In',
@@ -495,21 +498,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       width: double.infinity,
                       height: 44,
                       child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final msg = await context.read<MemberDataProvider>().checkOut();
-                          if (context.mounted) {
-                            await context.read<DashboardProvider>().fetchDashboard(refresh: true);
-                            if (msg != null && context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(msg),
-                                  backgroundColor: AppColors.warning,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          }
-                        },
+                        onPressed: attendanceBusy
+                            ? null
+                            : () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final dashboardProvider = context.read<DashboardProvider>();
+                                final result = await context.read<MemberDataProvider>().checkOut();
+                                if (result.success) {
+                                  await dashboardProvider.fetchDashboard(refresh: true);
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text(result.message),
+                                    backgroundColor: result.success ? AppColors.warning : AppColors.danger,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
                         icon: const Icon(Icons.exit_to_app_rounded, color: Colors.white, size: 18),
                         label: Text(
                           'Check Out Now',

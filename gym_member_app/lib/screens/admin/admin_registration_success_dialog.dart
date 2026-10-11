@@ -88,6 +88,7 @@ class _AdminRegistrationSuccessDialogState extends State<AdminRegistrationSucces
     setState(() => _isLoadingPdfData = true);
     final provider = Provider.of<AdminProvider>(context, listen: false);
     final data = await provider.fetchMemberRegistrationData(widget.memberId);
+    if (!mounted) return data;
     setState(() {
       _isLoadingPdfData = false;
       _cachedData = data;
@@ -252,7 +253,7 @@ class _AdminRegistrationSuccessDialogState extends State<AdminRegistrationSucces
                     ),
                     onPressed: () async {
                       final docData = await _loadDocumentData();
-                      if (docData != null && mounted) {
+                      if (docData != null && context.mounted) {
                         await PdfService.shareRegistrationPdf(context, docData);
                       }
                     },
@@ -275,7 +276,7 @@ class _AdminRegistrationSuccessDialogState extends State<AdminRegistrationSucces
                         ),
                         onPressed: () async {
                           final docData = await _loadDocumentData();
-                          if (docData != null && mounted) {
+                          if (docData != null && context.mounted) {
                             PdfService.previewRegistrationPdf(context, docData);
                           }
                         },
@@ -294,7 +295,7 @@ class _AdminRegistrationSuccessDialogState extends State<AdminRegistrationSucces
                         ),
                         onPressed: () async {
                           final docData = await _loadDocumentData();
-                          if (docData != null && mounted) {
+                          if (docData != null && context.mounted) {
                             await PdfService.downloadRegistrationPdf(context, docData);
                           }
                         },

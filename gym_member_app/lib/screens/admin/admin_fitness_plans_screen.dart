@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
 
 class AdminFitnessPlansScreen extends StatefulWidget {
@@ -20,7 +19,8 @@ class _AdminFitnessPlansScreenState extends State<AdminFitnessPlansScreen> with 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AdminProvider>().fetchWorkouts();
       context.read<AdminProvider>().fetchDiet();
-      context.read<AdminProvider>().fetchMembers();
+      // Pickers offer every member (all pages), not just the first page of the members list
+      context.read<AdminProvider>().fetchAllMembers();
     });
   }
 
@@ -262,7 +262,7 @@ class _AdminFitnessPlansScreenState extends State<AdminFitnessPlansScreen> with 
 
   void _showAssignModal({required bool isWorkout, required int planId, required String planName}) {
     final provider = context.read<AdminProvider>();
-    int? selectedMemberId = provider.members.isNotEmpty ? provider.members.first.memberId : null;
+    int? selectedMemberId = provider.allMembers.isNotEmpty ? provider.allMembers.first.memberId : null;
     final notesCtrl = TextEditingController();
 
     showModalBottomSheet(
@@ -313,7 +313,7 @@ class _AdminFitnessPlansScreenState extends State<AdminFitnessPlansScreen> with 
                     fillColor: Colors.white.withOpacity(0.05),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  items: provider.members.map((m) {
+                  items: provider.allMembers.map((m) {
                     return DropdownMenuItem<int>(
                       value: m.memberId,
                       child: Text('${m.fullname} (${m.phone})', overflow: TextOverflow.ellipsis),

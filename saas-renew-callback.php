@@ -3,8 +3,8 @@
  * Cashfree Callback for SaaS Subscription Renewal
  */
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags (HttpOnly, SameSite=Lax, Secure on HTTPS)
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/cashfree.php';
 require_once __DIR__ . '/core/helpers.php';
@@ -173,7 +173,7 @@ $currency = !empty($payment['currency']) ? $payment['currency'] : '₹';
             </div>
             <div class="info-row">
                 <span class="label">Amount Paid</span>
-                <span class="val" style="color: var(--lime);"><?php echo $currency . number_format((float)$payment['total_payable'], 2); ?></span>
+                <span class="val" style="color: var(--lime);"><?php echo e($currency) . number_format((float)$payment['total_payable'], 2); ?></span>
             </div>
             <div class="info-row">
                 <span class="label">New Expiry Date</span>

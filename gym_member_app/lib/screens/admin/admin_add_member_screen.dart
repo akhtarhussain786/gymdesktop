@@ -29,7 +29,8 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _addressController = TextEditingController();
-  final _passwordController = TextEditingController(text: '123456');
+  // Empty by default: the server generates a temporary password and returns it (never a shared default)
+  final _passwordController = TextEditingController();
   final _totalAmountController = TextEditingController(text: '1000');
   final _paidAmountController = TextEditingController(text: '1000');
   final _upiRefController = TextEditingController();
@@ -54,11 +55,12 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     super.initState();
     _fullnameController.addListener(_autoSuggestUsername);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await context.read<AdminProvider>().fetchRates();
+      final admin = context.read<AdminProvider>();
+      await admin.fetchRates();
       // Preload gym QR for UPI payment
-      context.read<AdminProvider>().fetchGymQr();
+      admin.fetchGymQr();
       if (mounted) {
-        final rates = context.read<AdminProvider>().rates;
+        final rates = admin.rates;
         if (rates.isNotEmpty) {
           final matched = rates.where((r) => r.name.trim() == _selectedService).firstOrNull ?? rates.first;
           setState(() {
@@ -303,7 +305,8 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
             ? DateFormat('yyyy-MM-dd').format(_dueDate!)
             : null,
         paymentMethod: _paymentMethod,
-        password: _passwordController.text.isNotEmpty ? _passwordController.text : '123456',
+        password: _passwordController.text.isNotEmpty ? _passwordController.text : null,
+        username: _usernameController.text.trim().isNotEmpty ? _usernameController.text.trim() : null,
         dor: DateFormat('yyyy-MM-dd').format(_dor),
         transactionRef: upiRef.isNotEmpty ? upiRef : null,
         notes: upiRef.isNotEmpty ? 'UPI Ref / UTR: $upiRef' : null,
@@ -336,7 +339,7 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
     final memberId = rawMemberId.toString();
     final name = data['fullname'] ?? _fullnameController.text;
     final username = data['username'] ?? _usernameController.text;
-    final password = data['password'] ?? _passwordController.text;
+    final password = (data['password'] ?? (_passwordController.text.isNotEmpty ? _passwordController.text : '—')).toString();
     final phone = data['phone'] ?? _phoneController.text;
     final paid = (data['paid_amount'] is num) ? (data['paid_amount'] as num).toDouble() : _paidAmount;
     final due = (data['due_amount'] is num) ? (data['due_amount'] as num).toDouble() : _dueAmount;
@@ -821,7 +824,9 @@ class _AdminAddMemberScreenState extends State<AdminAddMemberScreen> {
                           obscureText: _obscurePassword,
                           style: const TextStyle(color: Colors.white, fontSize: 13),
                           decoration: InputDecoration(
-                            labelText: 'App Password *',
+                            labelText: 'App Password',
+                            hintText: 'Auto-generate',
+                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                             labelStyle: const TextStyle(color: Colors.white70),
                             filled: true,
                             fillColor: const Color(0xFF1E1E2C),

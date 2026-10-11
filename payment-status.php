@@ -3,14 +3,16 @@
  * Public Payment Result & Account Verification Page
  */
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags (HttpOnly, SameSite=Lax, Secure on HTTPS)
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/helpers.php';
 require_once __DIR__ . '/core/account_provisioner.php';
 
 $regRef  = $_GET['reg_ref'] ?? ($_GET['ref'] ?? '');
 $orderId = $_GET['order_id'] ?? '';
+$regRef  = is_string($regRef) ? $regRef : '';
+$orderId = is_string($orderId) ? $orderId : '';
 $isTrial = isset($_GET['type']) && $_GET['type'] === 'trial';
 
 // Fetch details
@@ -272,8 +274,8 @@ $maskedEmail = !empty($contactEmail) ? AccountProvisioner::maskEmail($contactEma
 <?php if (!$isTrial): ?>
 let pollAttempts = 0;
 const maxAttempts = 15;
-const orderId = "<?php echo urlencode($effectiveOrderId); ?>";
-const regRef = "<?php echo urlencode($regRef); ?>";
+const orderId = <?php echo js_value(urlencode((string)$effectiveOrderId)); ?>;
+const regRef = <?php echo js_value(urlencode((string)$regRef)); ?>;
 
 function checkStatus() {
     pollAttempts++;
@@ -316,7 +318,13 @@ function showSuccess(data) {
 
     if (data.gym_name) document.getElementById('res-gym-name').innerText = data.gym_name;
     if (data.plan_name) document.getElementById('res-plan-name').innerText = data.plan_name;
-    if (data.order_id) document.getElementById('res-order-id').innerHTML = `<code>${data.order_id}</code>`;
+    if (data.order_id) {
+        const codeEl = document.createElement('code');
+        codeEl.textContent = data.order_id;
+        const orderBox = document.getElementById('res-order-id');
+        orderBox.textContent = '';
+        orderBox.appendChild(codeEl);
+    }
     if (data.masked_email) document.getElementById('res-masked-email').innerText = data.masked_email;
 }
 

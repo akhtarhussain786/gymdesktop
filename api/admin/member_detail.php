@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/middleware.php';
+require_once __DIR__ . '/../../core/subscription_engine.php';
 
 $auth = AdminAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
@@ -21,14 +22,18 @@ if (!$member) {
     ApiResponse::notFound('Member not found in this gym.');
 }
 
-// Plan End & Expiry Calculation
-$planEndSql = "DATE_ADD(m.paid_date, INTERVAL GREATEST(1, CAST(m.plan AS UNSIGNED)) MONTH)";
-$effStatus = (empty($member['paid_date']) || strtotime($member['paid_date'] . ' +' . max(1, (int)$member['plan']) . ' months') < time()) && $member['status'] === 'Active'
+// Plan End & Expiry Calculation (same rule as members.php: the expiry day itself is still active)
+$today = date('Y-m-d');
+$planMonths = max(1, (int)$member['plan']);
+$hasPaidDate = !empty($member['paid_date']) && strpos((string)$member['paid_date'], '0000-00-00') !== 0;
+$planEnd = $hasPaidDate ? SubscriptionEngine::addMonths($member['paid_date'], $planMonths) : null;
+$effStatus = ($member['status'] === 'Active' && ($planEnd === null || $planEnd < $today))
     ? 'Expired' 
     : $member['status'];
 
-$computedExpiry = date('Y-m-d', strtotime(($member['paid_date'] ?: $member['dor'] ?: date('Y-m-d')) . ' +' . max(1, (int)$member['plan']) . ' months'));
-$daysRemaining = (int)ceil((strtotime($computedExpiry) - strtotime(date('Y-m-d'))) / 86400);
+$hasDor = !empty($member['dor']) && strpos((string)$member['dor'], '0000-00-00') !== 0;
+$computedExpiry = SubscriptionEngine::addMonths($hasPaidDate ? $member['paid_date'] : ($hasDor ? $member['dor'] : $today), $planMonths);
+$daysRemaining = (int)(new DateTime($today))->diff(new DateTime($computedExpiry))->format('%r%a');
 
 // Avatar
 $avatarUrl = api_member_avatar_url($member['avatar'] ?? null, $member['photo'] ?? null);
@@ -54,14 +59,21 @@ foreach ($invoices as $inv) {
     $invAmount = (float)$inv['amount'];
     $invPaid = (float)$inv['paid_amount'];
     $invDue = max(0.0, $invAmount - $invPaid);
+    $invStatus = strtolower((string)$inv['status']);
 
-    $totalInvoiced += $invAmount;
-    $totalPaid += $invPaid;
-    $totalDue += $invDue;
+    // Pending (awaiting verification) and cancelled invoices are not charges; only partial/unpaid ones are dues.
+    // Legacy 'paid' rows that never stored paid_amount count as fully paid (same rule as revenue reports).
+    if (!in_array($invStatus, ['pending', 'cancelled'], true)) {
+        $totalInvoiced += $invAmount;
+        $totalPaid += ($invStatus === 'paid' && $invPaid <= 0) ? $invAmount : $invPaid;
+    }
+    if (in_array($invStatus, ['partial', 'unpaid'], true)) {
+        $totalDue += $invDue;
 
-    if ($invDue > 0 && !empty($inv['due_date'])) {
-        if ($latestDueDate === null || $inv['due_date'] > $latestDueDate) {
-            $latestDueDate = $inv['due_date'];
+        if ($invDue > 0 && !empty($inv['due_date'])) {
+            if ($latestDueDate === null || $inv['due_date'] > $latestDueDate) {
+                $latestDueDate = $inv['due_date'];
+            }
         }
     }
 
@@ -78,7 +90,8 @@ foreach ($invoices as $inv) {
         'due_date' => $inv['due_date'],
         'status' => $inv['status'],
         'notes' => $inv['notes'] ?? '',
-        'receipt_url' => base_url('/api/member/receipt_html.php?id=' . $inv['id'])
+        // Signed link: the receipt opens in a browser, which cannot send the app's login token
+        'receipt_url' => api_admin_receipt_url($tenantId, (int)$inv['id'])
     ];
 }
 
@@ -133,7 +146,11 @@ ApiResponse::success([
         'paid_amount' => $totalPaid,
         'due_amount' => $totalDue,
         'due_date' => $latestDueDate,
-        'whatsapp_reminder' => $waText
+        'whatsapp_reminder' => $waText,
+        // Used by the app's edit screen so an edit keeps the current trainer / weight
+        'trainer_id' => !empty($member['trainer_id']) ? (int)$member['trainer_id'] : null,
+        'curr_weight' => isset($member['curr_weight']) && $member['curr_weight'] !== '' ? (float)$member['curr_weight'] : (isset($member['current_weight']) && $member['current_weight'] !== '' ? (float)$member['current_weight'] : null),
+        'ini_weight' => isset($member['ini_weight']) && $member['ini_weight'] !== '' ? (float)$member['ini_weight'] : null
     ],
     'invoices' => $formattedInvoices,
     'attendance' => $attendance,

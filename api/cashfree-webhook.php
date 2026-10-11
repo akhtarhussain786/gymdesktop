@@ -93,7 +93,40 @@ if (in_array($paymentStatus, ['SUCCESS', 'PAID']) || strpos($eventType, 'SUCCESS
     if ($saasRenewal) {
         $res = SubscriptionEngine::finalizeSaasGatewayOrder($orderId);
         DB::query("UPDATE webhook_logs SET status = ? WHERE order_id = ? ORDER BY id DESC LIMIT 1", [$res['success'] ? 'processed' : 'failed', $orderId]);
+        // Non-2xx (except a permanent amount mismatch) so Cashfree delivers again later
+        if (!$res['success'] && ($res['status'] ?? '') !== 'MISMATCH') {
+            http_response_code(503);
+        }
         echo json_encode(['status' => $res['success'] ? 'success' : 'error', 'type' => 'saas_renewal', 'message' => $res['error'] ?? 'Subscription renewed']);
+        exit();
+    }
+
+    // Member membership renewal (orders created by the member app / front desk) — same rules as the member webhook
+    $memberPayment = DB::fetchOne("SELECT * FROM membership_payments WHERE cashfree_order_id = ?", [$orderId]);
+    if ($memberPayment) {
+        $verify = CashfreeGateway::verifyOrder($orderId);
+        if (!$verify['success'] || $verify['status'] !== 'PAID') {
+            http_response_code(503); // not confirmed by the gateway yet: ask Cashfree to retry
+            echo json_encode(['status' => 'pending', 'type' => 'member_renewal', 'message' => 'Gateway has not confirmed payment yet']);
+            exit();
+        }
+        if (strtoupper($verify['currency'] ?? 'INR') !== 'INR' || abs((float)$verify['order_amount'] - (float)$memberPayment['amount']) > 0.01) {
+            error_log("Webhook amount mismatch for member order $orderId: expected {$memberPayment['amount']}, got {$verify['order_amount']} {$verify['currency']}");
+            DB::query("UPDATE webhook_logs SET status = 'amount_mismatch' WHERE order_id = ? ORDER BY id DESC LIMIT 1", [$orderId]);
+            echo json_encode(['status' => 'rejected', 'type' => 'member_renewal', 'message' => 'Amount mismatch — not credited']);
+            exit();
+        }
+        $res = SubscriptionEngine::processSuccessfulPayment(
+            $orderId,
+            $verify['transaction_id'] ?: $cfPaymentId,
+            $verify,
+            ['verified_amount' => (float)$verify['order_amount']]
+        );
+        DB::query("UPDATE webhook_logs SET status = ? WHERE order_id = ? ORDER BY id DESC LIMIT 1", [$res['success'] ? 'processed' : 'failed', $orderId]);
+        if (!$res['success']) {
+            http_response_code(500);
+        }
+        echo json_encode(['status' => $res['success'] ? 'success' : 'error', 'type' => 'member_renewal', 'message' => $res['success'] ? 'Member renewal processed' : ($res['error'] ?? 'Processing failed')]);
         exit();
     }
 }
@@ -104,6 +137,7 @@ if (in_array($paymentStatus, ['SUCCESS', 'PAID']) || strpos($eventType, 'SUCCESS
 if (in_array($paymentStatus, ['FAILED', 'USER_DROPPED', 'CANCELLED'])) {
     DB::query("UPDATE pending_onboardings SET status = 'failed' WHERE order_id = ? AND status = 'pending'", [$orderId]);
     DB::query("UPDATE saas_payments SET status = 'failed', failure_reason = ? WHERE transaction_ref = ? AND status = 'pending'", [$paymentStatus, $orderId]);
+    SubscriptionEngine::markPaymentNotPaid($orderId, 'FAILED', $payload);
 }
 
 echo json_encode(['status' => 'received', 'event' => $eventType]);

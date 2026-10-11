@@ -66,95 +66,12 @@ try {
     $invoice = null;
 }
 
-// ─── Step 2: Idempotent persistent backfill from member profile ────────────
-if (!$invoice && !$isMemberViewer) {
-    $member = null;
-
-    if ($memberId > 0) {
-        $member = DB::fetchOne(
-            "SELECT * FROM members WHERE user_id = ? AND tenant_id = ?",
-            [$memberId, $tenantId]
-        );
-    }
-
-    if (!$member && $invoiceId <= 0) {
-        // Fallback to latest member in this gym
-        $member = DB::fetchOne(
-            "SELECT * FROM members WHERE tenant_id = ? ORDER BY user_id DESC LIMIT 1",
-            [$tenantId]
-        );
-    }
-
-    if ($member) {
-        $realMemId = (int)($member['user_id'] ?? $member['id'] ?? 1);
-        $amount = (float)($member['amount'] ?? 0);
-        $planMonths = max(1, (int)($member['plan'] ?? 1));
-        $services = !empty($member['services']) ? $member['services'] : 'Fitness Membership';
-        $paidDate = !empty($member['paid_date']) ? $member['paid_date'] : date('Y-m-d');
-
-        // Check if an invoice was created in the meantime to prevent duplicates
-        $existingInv = DB::fetchOne(
-            "SELECT * FROM invoices WHERE member_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1",
-            [$realMemId, $tenantId]
-        );
-
-        if ($existingInv) {
-            $invoice = $existingInv;
-        } else {
-            // Collision-free invoice number (assigned from the inserted id below)
-            require_once __DIR__ . '/../core/subscription_engine.php';
-            $invoiceNumber = SubscriptionEngine::tempInvoiceNumber();
-
-            // Insert into invoices table
-            $newInvId = DB::insert('invoices', [
-                'tenant_id' => $tenantId,
-                'branch_id' => (int)($member['branch_id'] ?? 1),
-                'member_id' => $realMemId,
-                'invoice_number' => $invoiceNumber,
-                'service_name' => $services,
-                'plan_months' => $planMonths,
-                'amount' => $amount,
-                'paid_amount' => $amount,
-                'discount' => 0.00,
-                'payment_method' => 'Cash',
-                'payment_date' => $paidDate,
-                'status' => 'Paid',
-                'transaction_ref' => 'AUTO-REC-' . str_pad($realMemId, 4, '0', STR_PAD_LEFT),
-                'notes' => 'Official membership payment invoice',
-                'created_by' => $_SESSION['user_id'] ?? null,
-                'created_at' => date('Y-m-d H:i:s')
-            ]);
-
-            if ($newInvId) {
-                SubscriptionEngine::assignInvoiceNumber($newInvId, $tenant, $paidDate);
-                $invoice = DB::fetchOne("SELECT * FROM invoices WHERE id = ?", [$newInvId]);
-            }
-        }
-
-        if (!$invoice) {
-            $invoice = [
-                'id'              => 0,
-                'invoice_number'  => 'INV-' . str_pad($realMemId, 5, '0', STR_PAD_LEFT),
-                'tenant_id'       => $tenantId,
-                'member_id'       => $realMemId,
-                'amount'          => $amount,
-                'paid_amount'     => $amount,
-                'discount'        => 0,
-                'status'          => 'Paid',
-                'service_name'    => $services,
-                'plan_months'     => $planMonths,
-                'payment_date'    => $paidDate,
-                'payment_method'  => 'Cash',
-                'transaction_ref' => 'AUTO-REC-' . str_pad($realMemId, 4, '0', STR_PAD_LEFT),
-                'notes'           => ''
-            ];
-        }
-
-        $invoice['fullname'] = $member['fullname'] ?? 'Gym Member';
-        $invoice['contact']  = $member['contact'] ?? '';
-        $invoice['email']    = $member['email'] ?? '';
-        $invoice['address']  = $member['address'] ?? '';
-    }
+// ─── Step 2: No invoice on record ──────────────────────────────────────────
+// Viewing a receipt must never create one: an invoice is only written when a payment is recorded
+// (user-payment.php / payment approval), so a member without one simply has no receipt yet.
+if (!$invoice && !$isMemberViewer && $memberId > 0
+    && DB::fetchValue("SELECT user_id FROM members WHERE user_id = ? AND tenant_id = ?", [$memberId, $tenantId])) {
+    redirect('payment.php', 'info', 'No invoice recorded yet for this member. Record a payment to generate a receipt.');
 }
 
 if (!$invoice) {

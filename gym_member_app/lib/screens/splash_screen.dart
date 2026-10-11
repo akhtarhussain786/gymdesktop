@@ -1,6 +1,6 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/services/push_notification_service.dart';
 import '../providers/auth_provider.dart';
 import 'admin/admin_navigation_screen.dart';
 import 'gym_lookup_screen.dart';
@@ -20,6 +20,8 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  bool _showOfflineRetry = false;
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -43,8 +45,36 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
 
-    // Hold for 2.5 seconds then navigate smoothly based on Auth state
-    Timer(const Duration(milliseconds: 2500), _navigateToNextScreen);
+    _waitForSessionAndNavigate();
+  }
+
+  // Route only after the stored session has been checked (keeps the logo up for a short minimum)
+  Future<void> _waitForSessionAndNavigate() async {
+    final auth = context.read<AuthProvider>();
+    final minimumSplash = Future.delayed(const Duration(milliseconds: 1200));
+    try {
+      await auth.sessionRestore.timeout(const Duration(seconds: 45));
+    } catch (_) {}
+    await minimumSplash;
+    if (!mounted) return;
+
+    if (auth.isRestoring || auth.restoreFailedOffline) {
+      setState(() => _showOfflineRetry = true);
+      return;
+    }
+    _navigateToNextScreen();
+  }
+
+  Future<void> _retrySessionRestore() async {
+    setState(() => _showOfflineRetry = false);
+    context.read<AuthProvider>().checkExistingSession();
+    await _waitForSessionAndNavigate();
+  }
+
+  Future<void> _signOutFromOfflineSession() async {
+    setState(() => _showOfflineRetry = false);
+    await context.read<AuthProvider>().logout(silent: true);
+    if (mounted) _navigateToNextScreen();
   }
 
   @override
@@ -54,7 +84,8 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   void _navigateToNextScreen() {
-    if (!mounted) return;
+    if (!mounted || _navigated) return;
+    _navigated = true;
     final auth = context.read<AuthProvider>();
 
     Widget targetScreen;
@@ -75,6 +106,9 @@ class _SplashScreenState extends State<SplashScreen>
         transitionDuration: const Duration(milliseconds: 600),
       ),
     );
+
+    // Deliver a notification tap that launched the app once the real screen is in place
+    WidgetsBinding.instance.addPostFrameCallback((_) => PushNotificationService.markAppReady());
   }
 
   @override
@@ -131,15 +165,47 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                     const SizedBox(height: 48),
 
-                    // Sleek Loader
-                    const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(limeAccent),
+                    // Sleek Loader (or Retry when the server could not be reached)
+                    if (_showOfflineRetry)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.wifi_off_rounded, color: Color(0xFF94A3B8), size: 28),
+                            const SizedBox(height: 10),
+                            Text(
+                              context.read<AuthProvider>().errorMessage ??
+                                  'Unable to reach the gym server. Please check your connection and try again.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8), height: 1.4),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _retrySessionRestore,
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Retry', style: TextStyle(fontWeight: FontWeight.w800)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: limeAccent,
+                                foregroundColor: darkBg,
+                                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _signOutFromOfflineSession,
+                              child: const Text('Sign out', style: TextStyle(color: Color(0xFF94A3B8))),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(limeAccent),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

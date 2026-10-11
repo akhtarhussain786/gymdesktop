@@ -3,11 +3,12 @@
  * Cashfree Onboarding Checkout — SaaS Subscription Purchase for New Gym Registrations
  */
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/cashfree.php';
 require_once __DIR__ . '/core/helpers.php';
+require_once __DIR__ . '/core/account_provisioner.php';
 
 $orderId = $_GET['order_id'] ?? ($_SESSION['onboarding_payment']['order_id'] ?? '');
 
@@ -46,8 +47,24 @@ if (empty($paymentSessionId)) {
         $returnUrl
     );
 
-    // If order creation failed on old order_id (e.g. invalid cached Cashfree order), generate fresh Order ID and retry
+    // The order id may already exist at Cashfree (e.g. "Retry Payment" after a failed attempt).
+    // Never replace an order that was paid (provisioning will pick it up) or that can still be paid.
+    $rotate = false;
     if (!$cfResult['success']) {
+        $existingOrder = AccountProvisioner::gatewayOrderState($orderId);
+        if ($existingOrder['state'] === 'paid') {
+            redirect('payment-status.php?order_id=' . urlencode($orderId) . '&reg_ref=' . urlencode($paymentRecord['reg_ref']));
+        } elseif ($existingOrder['state'] === 'active' && !empty($existingOrder['payment_session_id'])) {
+            $cfResult = ['success' => true, 'payment_session_id' => $existingOrder['payment_session_id']];
+        } elseif (in_array($existingOrder['state'], ['closed', 'not_found'], true)) {
+            $rotate = true;
+        } else {
+            $cfResult['error'] = 'We could not reach the payment gateway right now. Please try again in a few minutes.';
+        }
+    }
+
+    // Old order expired / unknown at Cashfree: generate a fresh Order ID and retry
+    if ($rotate) {
         $newOrderId = CashfreeGateway::generateOrderId('SAAS_ONBOARD');
         // Keep pending_onboardings.order_id and saas_payments.transaction_ref in sync
         DB::query("UPDATE pending_onboardings SET order_id = ? WHERE order_id = ? AND status <> 'completed'", [$newOrderId, $orderId]);
@@ -288,10 +305,10 @@ $jsSdkUrl = CashfreeGateway::getJsSdkUrl();
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     <?php if (!empty($paymentSessionId)): ?>
-        const cashfree = Cashfree({ mode: "<?php echo $cashfreeMode; ?>" });
+        const cashfree = Cashfree({ mode: <?php echo js_value($cashfreeMode); ?> });
 
         let checkoutOptions = {
-            paymentSessionId: "<?php echo $paymentSessionId; ?>",
+            paymentSessionId: <?php echo js_value((string)$paymentSessionId); ?>,
             redirectTarget: "_self"
         };
 

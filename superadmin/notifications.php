@@ -39,12 +39,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $totalTokens = $res['token_count'] ?? 0;
 
                 if ($res['status'] === 'no_devices_registered' || $totalTokens === 0) {
-                    set_flash('warning', "ℹ️ Notification recorded in In-App feed, but <strong>0 active mobile push devices</strong> were registered for the selected audience.");
+                    set_flash('warning', "ℹ️ Notification recorded in In-App feed, but 0 active mobile push devices were registered for the selected audience.");
                 } elseif ($accepted > 0 && $rejected === 0) {
                     Auth::auditLog('SUPER_BROADCAST_NOTIFICATION', "Dispatched notification: '$title' to $accepted devices");
-                    set_flash('success', "🚀 Notification dispatched successfully via <strong>Firebase FCM HTTP v1</strong>! Accepted by Firebase for <strong>{$accepted}</strong> active device(s).");
+                    set_flash('success', "🚀 Notification dispatched successfully via Firebase FCM HTTP v1! Accepted by Firebase for {$accepted} active device(s).");
                 } elseif ($accepted > 0 && $rejected > 0) {
-                    set_flash('warning', "⚠️ Partial delivery: Accepted by Firebase for <strong>{$accepted}</strong> device(s), but rejected for <strong>{$rejected}</strong> device(s). Stale tokens have been auto-pruned.");
+                    set_flash('warning', "⚠️ Partial delivery: Accepted by Firebase for {$accepted} device(s), but rejected for {$rejected} device(s). Stale tokens have been auto-pruned.");
                 } else {
                     set_flash('error', "❌ Firebase FCM v1 rejected push delivery for all {$rejected} targeted device(s). Please check device token validity.");
                 }
@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $res = NotificationEngine::saveServiceAccountData($saJson);
         if ($res['success']) {
             Auth::auditLog('SAVE_FIREBASE_SERVICE_ACCOUNT', "Updated Firebase Service Account credentials for project '{$res['project_id']}'");
-            set_flash('success', "✅ Firebase FCM HTTP v1 Service Account saved & verified successfully for project '<strong>{$res['project_id']}</strong>'!");
+            set_flash('success', "✅ Firebase FCM HTTP v1 Service Account saved & verified successfully for project '{$res['project_id']}'!");
         } else {
             set_flash('error', "❌ " . ($res['error'] ?? 'Invalid Firebase Service Account JSON.'));
         }
@@ -79,10 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $testResult = NotificationEngine::sendTestPush($testToken, $testTitle, $testBody);
             if ($testResult['success']) {
-                set_flash('success', "✅ Test push notification <strong>accepted by Firebase FCM HTTP v1</strong> in {$testResult['duration_ms']}ms! Check the target phone screen.");
+                set_flash('success', "✅ Test push notification accepted by Firebase FCM HTTP v1 in {$testResult['duration_ms']}ms! Check the target phone screen.");
             } else {
                 $errDetails = $testResult['fcm_response']['details'][0]['error_message'] ?? ($testResult['error'] ?? 'Delivery failed');
-                set_flash('error', "❌ Test push delivery failed: " . htmlspecialchars($errDetails));
+                set_flash('error', "❌ Test push delivery failed: " . $errDetails);
             }
         }
     }
@@ -102,9 +102,10 @@ $recentDevices = DB::fetchAll("SELECT d.*, t.gym_name, u.fullname as user_name F
 $history = DB::fetchAll(
     "SELECT n.*, u.fullname as sender_name 
      FROM notifications n 
+     JOIN (SELECT MIN(id) AS id FROM notifications
+           WHERE sender_role = 'super_admin'
+           GROUP BY title, created_at) first_row ON first_row.id = n.id
      LEFT JOIN users u ON n.sender_user_id = u.id 
-     WHERE n.sender_role = 'super_admin' 
-     GROUP BY n.title, n.created_at 
      ORDER BY n.id DESC 
      LIMIT 50"
 );
@@ -279,9 +280,9 @@ include __DIR__ . '/../includes/topbar.php';
                             <select class="form-select form-select-sm" onchange="fillTestToken(this.value)">
                                 <option value="">-- Choose from recently active devices --</option>
                                 <?php foreach ($recentDevices as $rd): ?>
-                                    <option value="<?php echo htmlspecialchars($rd['device_token']); ?>">
+                                    <option value="<?php echo e($rd['device_token']); ?>">
                                         <?php echo e($rd['user_name'] ?: ($rd['gym_name'] ?: 'Guest Device')); ?> 
-                                        (<?php echo ucfirst($rd['platform']); ?> - <?php echo e(substr($rd['device_token'], 0, 10)); ?>...)
+                                        (<?php echo e(ucfirst((string)$rd['platform'])); ?> - <?php echo e(substr($rd['device_token'], 0, 10)); ?>...)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -350,7 +351,7 @@ include __DIR__ . '/../includes/topbar.php';
                                     <div style="display: flex; align-items: center; gap: 8px;">
                                         <i class="<?php echo $rd['platform'] === 'ios' ? 'fab fa-apple' : 'fab fa-android'; ?>" style="font-size: 1.2rem; color: <?php echo $rd['platform'] === 'ios' ? '#fff' : '#10b981'; ?>;"></i>
                                         <div>
-                                            <strong><?php echo ucfirst($rd['platform']); ?></strong>
+                                            <strong><?php echo e(ucfirst((string)$rd['platform'])); ?></strong>
                                             <div style="font-size: 0.72rem; color: var(--text-muted); font-family: monospace;">
                                                 <?php echo e(substr($rd['device_id'], 0, 16)); ?>...
                                             </div>
@@ -383,7 +384,7 @@ include __DIR__ . '/../includes/topbar.php';
                                     <?php echo !empty($rd['last_active_at']) ? date('M d • h:i A', strtotime($rd['last_active_at'])) : date('M d • h:i A', strtotime($rd['updated_at'])); ?>
                                 </td>
                                 <td>
-                                    <button type="button" class="btn btn-secondary btn-sm" onclick="fillTestToken('<?php echo htmlspecialchars($rd['device_token'], ENT_QUOTES); ?>'); window.scrollTo({top: 200, behavior: 'smooth'});" style="font-size: 0.75rem; padding: 4px 10px;">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="fillTestToken(<?php echo e(js_value((string)$rd['device_token'])); ?>); window.scrollTo({top: 200, behavior: 'smooth'});" style="font-size: 0.75rem; padding: 4px 10px;">
                                         <i class="fas fa-bolt" style="color: var(--lime);"></i> Test Push
                                     </button>
                                 </td>

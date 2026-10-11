@@ -42,8 +42,11 @@ $monthEnd = date('Y-m-t');
 
 $monthlyRevenue = 0.00;
 if (api_table_exists('invoices') && (int)DB::fetchValue("SELECT COUNT(*) FROM invoices WHERE tenant_id = ?", [$tenantId]) > 0) {
+    // Collected = paid_amount on paid/partial invoices; legacy 'paid' rows without paid_amount count their amount
+    // (same definition as transactions.php and reports.php)
     $monthlyRevenue = (float)DB::fetchValue(
-        "SELECT SUM(COALESCE(paid_amount, amount, 0)) FROM invoices WHERE tenant_id = ? AND status IN ('paid', 'Paid', 'partial', 'Partial') AND payment_date BETWEEN ? AND ?",
+        "SELECT SUM(CASE WHEN LOWER(status) = 'paid' AND COALESCE(paid_amount, 0) <= 0 THEN COALESCE(amount, 0) ELSE COALESCE(paid_amount, 0) END)
+         FROM invoices WHERE tenant_id = ? AND LOWER(status) IN ('paid', 'partial') AND payment_date BETWEEN ? AND ?",
         [$tenantId, $monthStart, $monthEnd]
     );
 } else {

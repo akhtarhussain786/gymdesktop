@@ -5,25 +5,51 @@ import 'providers/admin_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/dashboard_provider.dart';
 import 'providers/member_data_provider.dart';
+import 'screens/admin/admin_notifications_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/splash_screen.dart';
 
 import 'core/services/push_notification_service.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await PushNotificationService.initialize();
+
+  final auth = AuthProvider();
+  final dashboard = DashboardProvider();
+  final memberData = MemberDataProvider();
+  final admin = AdminProvider();
+
+  // Providers live for the whole app, so a logout / gym change must drop every cached module
+  auth.onSessionCleared = () {
+    dashboard.clear();
+    memberData.clearAll();
+    admin.clearAll();
+  };
+
+  PushNotificationService.onNotificationClick = (data) {
+    if (!auth.isAuthenticated) return;
+    PushNotificationService.navigatorKey.currentState?.push(
+      MaterialPageRoute(
+        builder: (_) => auth.isAdmin ? const AdminNotificationsScreen() : const NotificationsScreen(),
+      ),
+    );
+  };
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => DashboardProvider()),
-        ChangeNotifierProvider(create: (_) => MemberDataProvider()),
-        ChangeNotifierProvider(create: (_) => AdminProvider()),
+        ChangeNotifierProvider.value(value: auth),
+        ChangeNotifierProvider.value(value: dashboard),
+        ChangeNotifierProvider.value(value: memberData),
+        ChangeNotifierProvider.value(value: admin),
       ],
       child: const GymMemberApp(),
     ),
   );
+
+  // Firebase + the notification permission prompt must not hold back the first frame
+  PushNotificationService.initialize();
 }
 
 class GymMemberApp extends StatelessWidget {
@@ -37,6 +63,7 @@ class GymMemberApp extends StatelessWidget {
     return MaterialApp(
       title: auth.currentTenant?.gymName ?? 'FITISIFY OS',
       debugShowCheckedModeBanner: false,
+      navigatorKey: PushNotificationService.navigatorKey,
       theme: themeProvider.themeData,
       home: const SplashScreen(),
     );

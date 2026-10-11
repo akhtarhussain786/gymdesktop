@@ -10,10 +10,39 @@ require_once __DIR__ . '/helpers.php';
 
 class VisitorTracker {
 
+    private static $tablesEnsured = false;
+
     /**
-     * Ensure Database Tables Exist
+     * Ensure Database Tables Exist. Called on public page views, so the DDL runs at most once per
+     * install: a marker in logs/ (keyed to the database) skips the check afterwards, and without the
+     * marker the tables are only created when SHOW COLUMNS says they are missing.
      */
     public static function ensureTables() {
+        if (self::$tablesEnsured) {
+            return;
+        }
+        self::$tablesEnsured = true;
+
+        $markerFile = __DIR__ . '/../logs/.visitor_tables_ready';
+        $markerValue = 'v1|' . md5((string)env('DB_HOST', '') . '/' . (string)env('DB_NAME', ''));
+        $marker = @file_get_contents($markerFile);
+        if ($marker !== false && trim($marker) === $markerValue) {
+            return;
+        }
+
+        try {
+            if (DB::tableColumns('website_visitors') === null || DB::tableColumns('website_leads') === null) {
+                self::createTables();
+            }
+            if (DB::tableColumns('website_visitors') !== null && DB::tableColumns('website_leads') !== null) {
+                @file_put_contents($markerFile, $markerValue, LOCK_EX);
+            }
+        } catch (Throwable $e) {
+            // Graceful fallback
+        }
+    }
+
+    private static function createTables() {
         try {
             DB::query("
                 CREATE TABLE IF NOT EXISTS `website_visitors` (

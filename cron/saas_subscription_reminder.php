@@ -18,27 +18,29 @@ require_once __DIR__ . '/../core/env.php';
 require_once __DIR__ . '/../core/mailer.php';
 require_once __DIR__ . '/../core/subscription_engine.php';
 
-// CLI or Auth Key Protection for Web
+// CLI always allowed. Web calls need ?key= matching CRON_SECRET from the environment; there is no
+// built-in default, so web invocation is refused until CRON_SECRET is configured.
 $isCli = (php_sapi_name() === 'cli');
-$cronSecret = env('CRON_SECRET', 'fitisify_cron_secret_2026');
-$reqKey = $_GET['key'] ?? '';
-
-if (!$isCli && !empty($cronSecret) && $reqKey !== $cronSecret) {
-    // Also allow superadmin session if logged in via web
-    session_start();
-    $isSuperAdmin = !empty($_SESSION['super_admin_id']) || !empty($_SESSION['is_super_admin']);
-    if (!$isSuperAdmin) {
+if (!$isCli) {
+    $cronSecret = (string)env('CRON_SECRET', '');
+    $reqKey = isset($_GET['key']) && is_string($_GET['key']) ? $_GET['key'] : '';
+    if ($cronSecret === '' || !hash_equals($cronSecret, $reqKey)) {
         http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
         die(json_encode(['success' => false, 'error' => 'Unauthorized cron invocation']));
     }
 }
 
-// 1. Auto-purge abandoned pending/failed checkouts older than 2 days (48 hours)
+// 1. Mark unpaid Cashfree checkouts older than 2 days as abandoned. Nothing is deleted: manual renewal
+// requests stay pending until a super admin reviews them, and a late-paid gateway order can still be applied.
 $cutoffTime = date('Y-m-d H:i:s', strtotime('-2 days'));
-$purgedCount = DB::query("DELETE FROM saas_payments WHERE status IN ('pending', 'failed') AND created_at < ?", [$cutoffTime]);
+$purgedCount = (int)DB::update('saas_payments', [
+    'status' => 'failed',
+    'failure_reason' => 'abandoned'
+], "status = 'pending' AND payment_method = 'cashfree' AND created_at < ?", [$cutoffTime]);
 
 // 2. Execute automated reminders
-$result = SubscriptionEngine::checkAndSendSaasExpiryReminders($tenantId);
+$result = SubscriptionEngine::checkAndSendSaasExpiryReminders(null);
 
 $response = [
     'success'         => true,
@@ -48,7 +50,7 @@ $response = [
     'reminders_sent'  => $result['reminders_sent'] ?? 0,
     'skipped'         => $result['skipped'] ?? 0,
     'errors'          => $result['errors'] ?? [],
-    'message'         => "Processed {$result['total_checked']} gyms: {$result['reminders_sent']} email reminders sent, {$result['skipped']} skipped. Purged old pending orders."
+    'message'         => "Processed {$result['total_checked']} gyms: {$result['reminders_sent']} email reminders sent, {$result['skipped']} skipped. Marked {$purgedCount} abandoned checkouts."
 ];
 
 if ($isCli) {
@@ -65,6 +67,12 @@ if ($isCli) {
     }
     echo "Done.\n";
 } else {
+    // Web callers get counts only: error details contain gym owner emails / SMTP responses
+    foreach ($response['errors'] as $err) {
+        error_log('SaaS reminder cron: ' . $err);
+    }
+    $response['error_count'] = count($response['errors']);
+    $response['errors'] = [];
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($response, JSON_PRETTY_PRINT);
 }

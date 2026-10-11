@@ -50,11 +50,22 @@ if ($method === 'POST') {
         'date' => $date
     ]);
 
-    Auth::auditLog('ADD_ANNOUNCEMENT', "Posted announcement: $title");
+    if (!$newId) {
+        ApiResponse::error('Could not publish the announcement. Please try again.', 500);
+    }
+
+    Auth::auditLog('ADD_ANNOUNCEMENT', "Posted announcement: $title", $tenantId, (int)$auth['user_id']);
     ApiResponse::success(['id' => $newId], 'Announcement published successfully');
 }
 
 // GET: Retrieve all announcements
 $announcements = DB::fetchAll("SELECT * FROM announcements WHERE tenant_id = ? ORDER BY date DESC, id DESC LIMIT 100", [$tenantId]);
+// Older installs have no title column: give the app a title derived from the message
+foreach ($announcements as &$a) {
+    if (!array_key_exists('title', $a) || $a['title'] === null || $a['title'] === '') {
+        $a['title'] = mb_substr((string)($a['message'] ?? ''), 0, 60);
+    }
+}
+unset($a);
 
 ApiResponse::success(['announcements' => $announcements], 'Announcements retrieved successfully');

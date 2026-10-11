@@ -19,7 +19,7 @@ $assignedDiets = DB::fetchAll(
             s.fullname as nutritionist_name, s.contact as trainer_contact
      FROM member_assigned_plans ap
      JOIN diet_plans dp ON ap.diet_plan_id = dp.id AND dp.tenant_id = ap.tenant_id
-     LEFT JOIN staffs s ON ap.trainer_id = s.user_id AND s.tenant_id = ap.tenant_id
+     " . api_trainer_join_sql('ap', 's') . "
      WHERE ap.member_id = ? AND ap.tenant_id = ?
      ORDER BY ap.id DESC",
     [$memberId, $tenantId]

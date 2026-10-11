@@ -33,6 +33,9 @@ if (!empty($memberService)) {
     }
 }
 $trainers = DB::fetchAll("SELECT * FROM staffs WHERE tenant_id = ? AND designation = 'Trainer'", [$tenantId]);
+// Plan duration drives the membership end date (paid_date + plan months), so changing it without a
+// payment would extend membership for free: only the gym owner may change it here.
+$canEditPlan = (($_SESSION['role'] ?? '') === 'gym_admin');
 
 // Form Processing
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
@@ -50,6 +53,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
     if (!in_array($status, ['Active', 'Expired', 'Pending'], true)) $status = $member['status'];
     if (!in_array($gender, ['Male', 'Female', 'Other'], true)) $gender = $member['gender'];
     $plan = max(1, $plan);
+    if (!$canEditPlan) {
+        $plan = $member['plan'];
+    }
     // Trainer must be a staff member of THIS gym
     if ($trainer_id !== null && !DB::fetchValue("SELECT user_id FROM staffs WHERE user_id = ? AND tenant_id = ?", [$trainer_id, $tenantId])) {
         $trainer_id = null;
@@ -70,10 +76,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
             if (!is_dir($uploadDir)) {
                 @mkdir($uploadDir, 0777, true);
             }
-            $avatarFileName = 'avatar_' . $tenantId . '_' . $memberId . '_' . time() . '.' . $ext;
-            if (@move_uploaded_file($_FILES['avatar']['tmp_name'], $uploadDir . '/' . $avatarFileName)) {
-                $updateMemberData['avatar'] = $avatarFileName;
-                $updateMemberData['photo'] = $avatarFileName;
+            $avatarFileName = 'avatar_' . $tenantId . '_' . $memberId . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+            if (!@move_uploaded_file($_FILES['avatar']['tmp_name'], $uploadDir . '/' . $avatarFileName)) {
+                $avatarFileName = null;
             }
         }
     }
@@ -130,6 +135,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_member'])) {
 
     DB::update('users', $userUpdate, 'tenant_id = ? AND member_id = ?', [$tenantId, $memberId]);
 
+    if ($canEditPlan && (string)$plan !== (string)$member['plan']) {
+        Auth::auditLog('UPDATE_MEMBER_PLAN', "Changed plan duration of member $fullname (#$memberId) from {$member['plan']} to {$plan} month(s) without a payment");
+    }
     Auth::auditLog('UPDATE_MEMBER', "Updated profile of member $fullname (#$memberId)");
     redirect('members.php', 'success', "Member profile for $fullname updated successfully!");
 }
@@ -220,12 +228,15 @@ include __DIR__ . '/../includes/topbar.php';
                 </div>
                 <div class="form-group">
                     <label class="form-label">Plan Duration</label>
-                    <select name="plan" class="form-select">
+                    <select name="plan" class="form-select" <?php echo $canEditPlan ? '' : 'disabled title="Only the gym owner can change the plan duration. Record a payment to renew."'; ?>>
                         <option value="1" <?php echo $member['plan'] == 1 ? 'selected' : ''; ?>>1 Month</option>
                         <option value="3" <?php echo $member['plan'] == 3 ? 'selected' : ''; ?>>3 Months</option>
                         <option value="6" <?php echo $member['plan'] == 6 ? 'selected' : ''; ?>>6 Months</option>
                         <option value="12" <?php echo $member['plan'] == 12 ? 'selected' : ''; ?>>12 Months</option>
                     </select>
+                    <?php if (!$canEditPlan): ?>
+                        <small style="color: var(--text-muted);">Only the gym owner can change this. Use Payments to renew.</small>
+                    <?php endif; ?>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Membership Status</label>

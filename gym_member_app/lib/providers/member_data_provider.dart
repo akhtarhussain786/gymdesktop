@@ -10,6 +10,18 @@ import '../models/trainer_data.dart';
 import '../models/notice_data.dart';
 import '../models/support_data.dart';
 
+/// Member-app data modules. Each one has its own loading/error state so a failure in one tab
+/// (e.g. a 403 because workouts are not in the gym's plan) never shows up on another tab.
+enum MemberModule { membership, attendance, payments, workouts, diet, trainer, notices, support }
+
+/// Outcome of a member action (check-in / check-out) with the message to show.
+class MemberActionResult {
+  final bool success;
+  final String message;
+
+  const MemberActionResult(this.success, this.message);
+}
+
 class MemberDataProvider extends ChangeNotifier {
   MembershipData? _membership;
   AttendanceData? _attendance;
@@ -20,8 +32,12 @@ class MemberDataProvider extends ChangeNotifier {
   NoticeModuleData? _notices;
   SupportModuleData? _support;
 
-  bool _loading = false;
-  String? _error;
+  final Map<MemberModule, bool> _loadingByModule = {};
+  final Map<MemberModule, String?> _errorByModule = {};
+  bool _attendanceActionRunning = false;
+
+  // Bumped by clearAll(): replies that arrive after logout / gym switch are dropped
+  int _generation = 0;
 
   MembershipData? get membership => _membership;
   AttendanceData? get attendance => _attendance;
@@ -32,144 +48,128 @@ class MemberDataProvider extends ChangeNotifier {
   NoticeModuleData? get notices => _notices;
   SupportModuleData? get support => _support;
 
-  bool get loading => _loading;
-  String? get error => _error;
+  bool isLoading(MemberModule module) => _loadingByModule[module] == true;
+  String? errorFor(MemberModule module) => _errorByModule[module];
+
+  /// True while a check-in / check-out request is running.
+  bool get attendanceActionRunning => _attendanceActionRunning;
+
+  /// Any module loading (kept for older call sites).
+  bool get loading => _loadingByModule.values.any((v) => v);
+
+  /// First module error (kept for older call sites; prefer [errorFor]).
+  String? get error {
+    for (final e in _errorByModule.values) {
+      if (e != null) return e;
+    }
+    return null;
+  }
+
+  Future<void> _load<T>(
+    MemberModule module,
+    Future<T> Function() request,
+    void Function(T value) assign,
+    String fallbackError,
+  ) async {
+    final generation = _generation;
+    _loadingByModule[module] = true;
+    _errorByModule[module] = null;
+    notifyListeners();
+    try {
+      final value = await request();
+      if (generation != _generation) return;
+      assign(value);
+    } on ApiException catch (e) {
+      if (generation != _generation) return;
+      _errorByModule[module] = e.message;
+    } catch (_) {
+      if (generation != _generation) return;
+      _errorByModule[module] = fallbackError;
+    } finally {
+      if (generation == _generation) {
+        _loadingByModule[module] = false;
+        notifyListeners();
+      }
+    }
+  }
 
   // 1. Fetch Membership Details
   Future<void> fetchMembership({bool refresh = false}) async {
     if (_membership != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.membership);
-      _membership = MembershipData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load membership details.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<MembershipData>(
+      MemberModule.membership,
+      () async => MembershipData.fromJson(await ApiService.get(ApiConfig.membership)),
+      (v) => _membership = v,
+      'Failed to load membership details.',
+    );
   }
 
   // 2. Fetch Attendance Records
   Future<void> fetchAttendance({String? month, bool refresh = false}) async {
     if (_attendance != null && !refresh && month == null) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final query = month != null ? {'month': month} : null;
-      final data = await ApiService.get(ApiConfig.attendance, queryParams: query);
-      _attendance = AttendanceData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load attendance logs.';
-      _loading = false;
-      notifyListeners();
-    }
+    final query = month != null ? {'month': month} : null;
+    await _load<AttendanceData>(
+      MemberModule.attendance,
+      () async => AttendanceData.fromJson(await ApiService.get(ApiConfig.attendance, queryParams: query)),
+      (v) => _attendance = v,
+      'Failed to load attendance logs.',
+    );
   }
 
   // Perform Check-In Action
-  Future<String?> checkIn() async {
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final res = await ApiService.post(ApiConfig.attendance, body: {'action': 'check_in'});
-      await fetchAttendance(refresh: true);
-      _loading = false;
-      notifyListeners();
-      return res['message'] ?? 'Check-in successful!';
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-      return e.message;
-    } catch (e) {
-      _error = 'Failed to check in.';
-      _loading = false;
-      notifyListeners();
-      return 'Failed to check in.';
-    }
+  Future<MemberActionResult> checkIn() {
+    return _attendanceAction('check_in', 'Check-in successful!', 'Failed to check in.');
   }
 
   // Perform Check-Out Action
-  Future<String?> checkOut() async {
-    _loading = true;
-    _error = null;
+  Future<MemberActionResult> checkOut() {
+    return _attendanceAction('check_out', 'Check-out successful!', 'Failed to check out.');
+  }
+
+  Future<MemberActionResult> _attendanceAction(String action, String successMessage, String failureMessage) async {
+    if (_attendanceActionRunning) {
+      return const MemberActionResult(false, 'Please wait, your previous request is still being processed.');
+    }
+    _attendanceActionRunning = true;
     notifyListeners();
     try {
-      final res = await ApiService.post(ApiConfig.attendance, body: {'action': 'check_out'});
+      // The server's message is in the response envelope, not in its data block
+      final envelope = await ApiService.post(ApiConfig.attendance, body: {'action': action}, returnEnvelope: true);
+      final message = (envelope is Map && envelope['message'] != null && envelope['message'].toString().isNotEmpty)
+          ? envelope['message'].toString()
+          : successMessage;
       await fetchAttendance(refresh: true);
-      _loading = false;
-      notifyListeners();
-      return res['message'] ?? 'Check-out successful!';
+      return MemberActionResult(true, message);
     } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
+      return MemberActionResult(false, e.message);
+    } catch (_) {
+      return MemberActionResult(false, failureMessage);
+    } finally {
+      _attendanceActionRunning = false;
       notifyListeners();
-      return e.message;
-    } catch (e) {
-      _error = 'Failed to check out.';
-      _loading = false;
-      notifyListeners();
-      return 'Failed to check out.';
     }
   }
 
   // 3. Fetch Payments & Invoices
   Future<void> fetchPayments({bool refresh = false}) async {
     if (_payments != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.payments);
-      _payments = PaymentData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load payment history.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<PaymentData>(
+      MemberModule.payments,
+      () async => PaymentData.fromJson(await ApiService.get(ApiConfig.payments)),
+      (v) => _payments = v,
+      'Failed to load payment history.',
+    );
   }
 
   // 4. Fetch Workouts & Routines
   Future<void> fetchWorkouts({bool refresh = false}) async {
     if (_workouts != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.workouts);
-      _workouts = WorkoutModuleData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load workout plans.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<WorkoutModuleData>(
+      MemberModule.workouts,
+      () async => WorkoutModuleData.fromJson(await ApiService.get(ApiConfig.workouts)),
+      (v) => _workouts = v,
+      'Failed to load workout plans.',
+    );
   }
 
   // Toggle Workout Todo Checklist Item
@@ -200,89 +200,45 @@ class MemberDataProvider extends ChangeNotifier {
   // 5. Fetch Diet Plans
   Future<void> fetchDiet({bool refresh = false}) async {
     if (_diet != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.diet);
-      _diet = DietModuleData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load diet routine.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<DietModuleData>(
+      MemberModule.diet,
+      () async => DietModuleData.fromJson(await ApiService.get(ApiConfig.diet)),
+      (v) => _diet = v,
+      'Failed to load diet routine.',
+    );
   }
 
   // 6. Fetch Trainer Details
   Future<void> fetchTrainer({bool refresh = false}) async {
     if (_trainer != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.trainer);
-      _trainer = TrainerModuleData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load trainer details.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<TrainerModuleData>(
+      MemberModule.trainer,
+      () async => TrainerModuleData.fromJson(await ApiService.get(ApiConfig.trainer)),
+      (v) => _trainer = v,
+      'Failed to load trainer details.',
+    );
   }
 
   // 7. Fetch Notices
   Future<void> fetchNotices({bool refresh = false}) async {
     if (_notices != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.notices);
-      _notices = NoticeModuleData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load notices.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<NoticeModuleData>(
+      MemberModule.notices,
+      () async => NoticeModuleData.fromJson(await ApiService.get(ApiConfig.notices)),
+      (v) => _notices = v,
+      'Failed to load notices.',
+    );
   }
 
   // 8. Fetch Support Info & Submit Ticket
   Future<void> fetchSupport({bool refresh = false}) async {
     if (_support != null && !refresh) return;
-    _loading = true;
-    _error = null;
-    notifyListeners();
-    try {
-      final data = await ApiService.get(ApiConfig.support);
-      _support = SupportModuleData.fromJson(data);
-      _loading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
-      _loading = false;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Failed to load support information.';
-      _loading = false;
-      notifyListeners();
-    }
+    await _load<SupportModuleData>(
+      MemberModule.support,
+      () async => SupportModuleData.fromJson(await ApiService.get(ApiConfig.support)),
+      (v) => _support = v,
+      'Failed to load support information.',
+    );
   }
 
   // Submit help inquiry
@@ -349,40 +305,40 @@ class MemberDataProvider extends ChangeNotifier {
     }
   }
 
-  // Submit Renewal Payment UTR Ref
-  Future<Map<String, dynamic>?> submitRenewalPayment({
+  /// Records the UPI reference (UTR) of a payment made directly to the gym's UPI ID.
+  /// The gym verifies it before the membership is extended; the price is computed by the server.
+  /// Throws [ApiException] with the server's message when the submission is rejected.
+  Future<Map<String, dynamic>> submitRenewalPayment({
+    int? planId,
     required String planName,
     required int months,
-    required double amount,
-    required String transactionRef
+    required String transactionRef,
   }) async {
-    try {
-      final res = await ApiService.post(ApiConfig.submitRenewalPayment, body: {
-        'plan_name': planName,
-        'months': months,
-        'amount': amount,
-        'transaction_ref': transactionRef
-      });
-      // Refresh membership & payments
-      fetchMembership(refresh: true);
-      fetchPayments(refresh: true);
-      return res as Map<String, dynamic>;
-    } catch (_) {
-      return null;
-    }
+    final body = <String, dynamic>{
+      'plan_name': planName,
+      'months': months,
+      'transaction_ref': transactionRef,
+    };
+    if (planId != null && planId > 0) body['plan_id'] = planId;
+
+    final res = await ApiService.post(ApiConfig.submitRenewalPayment, body: body);
+    // The pending invoice now shows up in the member's payments
+    fetchMembership(refresh: true);
+    fetchPayments(refresh: true);
+    return (res is Map) ? Map<String, dynamic>.from(res) : <String, dynamic>{};
   }
 
-  // Create Cashfree Payment Order (Backend calculated price)
-  Future<Map<String, dynamic>?> createPaymentOrder({required int planId, required int months}) async {
-    try {
-      final res = await ApiService.post(ApiConfig.createPaymentOrder, body: {
-        'plan_id': planId,
-        'months': months
-      });
-      return res as Map<String, dynamic>;
-    } catch (_) {
-      return null;
+  /// Creates the renewal payment order (price calculated by the server).
+  /// Throws [ApiException] with the server's message on failure.
+  Future<Map<String, dynamic>> createPaymentOrder({required int planId, required int months}) async {
+    final res = await ApiService.post(ApiConfig.createPaymentOrder, body: {
+      'plan_id': planId,
+      'months': months
+    });
+    if (res is! Map) {
+      throw ApiException('Could not create payment order. Please retry.');
     }
+    return Map<String, dynamic>.from(res);
   }
 
   // Check Payment Status with Cashfree & Idempotent Processing
@@ -391,9 +347,14 @@ class MemberDataProvider extends ChangeNotifier {
       final res = await ApiService.post(ApiConfig.checkPaymentStatus, body: {
         'order_id': orderId
       });
-      fetchMembership(refresh: true);
-      fetchPayments(refresh: true);
-      return res as Map<String, dynamic>;
+      if (res is! Map) return null;
+      final map = Map<String, dynamic>.from(res);
+      // Polling runs every few seconds: refresh membership & invoices only once the payment is confirmed
+      if (map['payment_status'] == 'PAID') {
+        fetchMembership(refresh: true);
+        fetchPayments(refresh: true);
+      }
+      return map;
     } catch (_) {
       return null;
     }
@@ -401,6 +362,7 @@ class MemberDataProvider extends ChangeNotifier {
 
   // Clear all cached state on logout / tenant switch
   void clearAll() {
+    _generation++;
     _membership = null;
     _attendance = null;
     _payments = null;
@@ -409,8 +371,9 @@ class MemberDataProvider extends ChangeNotifier {
     _trainer = null;
     _notices = null;
     _support = null;
-    _error = null;
-    _loading = false;
+    _loadingByModule.clear();
+    _errorByModule.clear();
+    _attendanceActionRunning = false;
     notifyListeners();
   }
 }

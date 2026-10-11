@@ -23,7 +23,7 @@ if ($method === 'POST') {
         }
         $deleted = DB::delete('rates', 'id = ? AND tenant_id = ?', [$id, $tenantId]);
         if ($deleted) {
-            Auth::auditLog('DELETE_RATE', "Deleted package ID $id");
+            Auth::auditLog('DELETE_RATE', "Deleted package ID $id", $tenantId, (int)$auth['user_id']);
             ApiResponse::success([], 'Package deleted successfully');
         } else {
             ApiResponse::error('Package not found or could not be deleted', 404);
@@ -51,7 +51,7 @@ if ($method === 'POST') {
             'type' => $type
         ], 'id = ? AND tenant_id = ?', [$id, $tenantId]);
 
-        Auth::auditLog('UPDATE_RATE', "Updated package '$name' with rate $charge");
+        Auth::auditLog('UPDATE_RATE', "Updated package '$name' with rate $charge", $tenantId, (int)$auth['user_id']);
         ApiResponse::success([], "Package '$name' updated successfully");
     }
 
@@ -76,7 +76,7 @@ if ($method === 'POST') {
         'type' => $type
     ]);
 
-    Auth::auditLog('ADD_RATE', "Created package '$name' with rate $charge");
+    Auth::auditLog('ADD_RATE', "Created package '$name' with rate $charge", $tenantId, (int)$auth['user_id']);
     ApiResponse::success(['id' => $newId], "Package '$name' added successfully");
 }
 

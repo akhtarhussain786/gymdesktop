@@ -63,10 +63,20 @@ if ($record && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $type = "error";
             $record = null;
         } else {
+            $newHash = password_hash($newPass, PASSWORD_DEFAULT);
             DB::update('users', [
-                'password' => password_hash($newPass, PASSWORD_DEFAULT),
+                'password' => $newHash,
                 'must_change_password' => 0
             ], 'id = ?', [(int)$user['id']]);
+            // Also replace the copy kept on the linked members / staffs row, so the old password stops working
+            Auth::syncLinkedPasswords('users', (int)$user['id'], (int)($user['tenant_id'] ?? 0), $newHash);
+            // Sign the account out of the mobile app on every device
+            $linked = DB::fetchOne("SELECT role, member_id FROM users WHERE id = ?", [(int)$user['id']]);
+            Auth::revokeApiTokens(
+                (int)($user['tenant_id'] ?? 0),
+                (int)$user['id'],
+                ($linked && ($linked['role'] ?? '') === 'member' && !empty($linked['member_id'])) ? (int)$linked['member_id'] : null
+            );
 
             // Invalidate any other outstanding links for this account
             DB::query("UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL AND token_hash IS NOT NULL", [(int)$user['id']]);

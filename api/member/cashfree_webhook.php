@@ -28,25 +28,6 @@ $paymentStatus = strtoupper($paymentObj['payment_status'] ?? ($orderObj['order_s
 $txRef = $paymentObj['cf_payment_id'] ?? ($paymentObj['referenceId'] ?? $orderId);
 $orderAmount = (float)($orderObj['order_amount'] ?? ($payload['orderAmount'] ?? 0));
 
-// Find tenant ID for audit log if possible
-$tenantId = 1;
-if (!empty($orderId)) {
-    $mp = DB::fetchOne("SELECT tenant_id FROM membership_payments WHERE cashfree_order_id = ?", [$orderId]);
-    if ($mp && !empty($mp['tenant_id'])) {
-        $tenantId = (int)$mp['tenant_id'];
-    }
-}
-
-// Audit log raw webhook request
-DB::insert('audit_logs', [
-    'tenant_id' => $tenantId,
-    'user_id' => 0,
-    'action' => 'WEBHOOK_RECEIVED',
-    'description' => 'Cashfree webhook: ' . substr($rawPayload, 0, 1000),
-    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
-    'created_at' => date('Y-m-d H:i:s')
-]);
-
 if (empty($orderId)) {
     http_response_code(400);
     echo json_encode(['status' => 'error', 'message' => 'Order ID missing from webhook payload']);
@@ -66,6 +47,25 @@ if (!$skipVerify) {
     error_log('Cashfree member webhook: signature verification SKIPPED (CASHFREE_WEBHOOK_SKIP_VERIFY=1)');
 }
 
+// Find tenant ID for audit log if possible
+$tenantId = null;
+if (!empty($orderId)) {
+    $mp = DB::fetchOne("SELECT tenant_id FROM membership_payments WHERE cashfree_order_id = ?", [$orderId]);
+    if ($mp && !empty($mp['tenant_id'])) {
+        $tenantId = (int)$mp['tenant_id'];
+    }
+}
+
+// Audit log raw webhook request (only after the signature checked out)
+DB::insert('audit_logs', [
+    'tenant_id' => $tenantId,
+    'user_id' => 0,
+    'action' => 'WEBHOOK_RECEIVED',
+    'description' => 'Cashfree webhook: ' . substr($rawPayload, 0, 1000),
+    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
+    'created_at' => date('Y-m-d H:i:s')
+]);
+
 // Process SUCCESS or PAID transactions
 if (in_array($paymentStatus, ['SUCCESS', 'PAID']) || strpos($paymentStatus, 'SUCCESS') !== false) {
     
@@ -75,7 +75,7 @@ if (in_array($paymentStatus, ['SUCCESS', 'PAID']) || strpos($paymentStatus, 'SUC
         // Never credit on the webhook body alone: re-confirm with Cashfree and match the stored amount
         $verify = CashfreeGateway::verifyOrder($orderId);
         if (!$verify['success'] || $verify['status'] !== 'PAID') {
-            http_response_code(202);
+            http_response_code(503); // not confirmed by the gateway yet: ask Cashfree to retry later
             echo json_encode(['status' => 'pending', 'type' => 'member_renewal', 'message' => 'Gateway has not confirmed payment yet']);
             exit();
         }
@@ -124,6 +124,9 @@ if (in_array($paymentStatus, ['SUCCESS', 'PAID']) || strpos($paymentStatus, 'SUC
     $saasRenewal = DB::fetchOne("SELECT id FROM saas_payments WHERE transaction_ref = ? AND tenant_id > 0", [$orderId]);
     if ($saasRenewal) {
         $res = SubscriptionEngine::finalizeSaasGatewayOrder($orderId);
+        if (!$res['success'] && ($res['status'] ?? '') !== 'MISMATCH') {
+            http_response_code(503); // let Cashfree deliver again later
+        }
         echo json_encode(['status' => $res['success'] ? 'success' : 'error', 'type' => 'saas_renewal', 'message' => $res['error'] ?? 'Subscription renewed']);
         exit();
     }

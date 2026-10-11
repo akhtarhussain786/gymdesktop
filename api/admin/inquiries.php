@@ -32,7 +32,7 @@ if ($method === 'POST') {
             $data['reply'] = mb_substr($reply, 0, 5000);
         }
         DB::update('member_inquiries', $data, 'id = ? AND tenant_id = ?', [$inquiryId, $tenantId]);
-        Auth::auditLog('REPLY_INQUIRY', "Updated member request #{$inquiryId} to {$status}");
+        Auth::auditLog('REPLY_INQUIRY', "Updated member request #{$inquiryId} to {$status}", $tenantId, (int)$auth['user_id']);
         ApiResponse::success([], 'Inquiry updated successfully');
     }
 

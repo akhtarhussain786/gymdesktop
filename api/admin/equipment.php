@@ -28,11 +28,14 @@ if ($method === 'GET') {
         $totalUnits += (int)$e['quantity'];
     }
 
+    // 'equipment' / 'total_quantity' are the names the app reads; the older keys stay for existing clients
     ApiResponse::success([
         'total_count' => count($equipments),
         'total_units' => $totalUnits,
+        'total_quantity' => $totalUnits,
         'total_valuation' => $totalValuation,
-        'equipments' => $equipments
+        'equipments' => $equipments,
+        'equipment' => $equipments
     ], 'Equipment inventory retrieved successfully');
 }
 
@@ -58,7 +61,10 @@ if ($method === 'POST') {
     $description = trim($input['description'] ?? '');
     $address = trim($input['address'] ?? '');
     $contact = trim($input['contact'] ?? '');
-    $date = !empty($input['date']) ? trim($input['date']) : date('Y-m-d');
+    $date = !empty($input['date']) ? trim((string)$input['date']) : date('Y-m-d');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || strtotime($date) === false) {
+        ApiResponse::error('Invalid purchase date. Use YYYY-MM-DD.', 422);
+    }
 
     if (empty($name)) {
         ApiResponse::error('Equipment name is required.', 422);
@@ -90,6 +96,10 @@ if ($method === 'POST') {
             'contact' => $contact ?: null,
             'date' => $date
         ]);
+
+        if (!$id) {
+            ApiResponse::error('Could not save the equipment. Please check the details and try again.', 500);
+        }
 
         ApiResponse::success(['id' => $id], 'Equipment added successfully!', 201);
     }

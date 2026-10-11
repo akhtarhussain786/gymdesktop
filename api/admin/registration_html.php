@@ -6,7 +6,8 @@
 
 require_once __DIR__ . '/middleware.php';
 
-$auth = AdminAuthMiddleware::authenticate(true);
+// Header token only: the app does not open this page, and a token in the URL leaks into logs/history
+$auth = AdminAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
 $tenantId = (int)$auth['tenant_id'];
 
@@ -19,7 +20,7 @@ if ($memberId <= 0) {
 $member = DB::fetchOne(
     "SELECT m.*, u.email as user_email, u.status as account_status 
      FROM members m 
-     LEFT JOIN users u ON (m.user_id = u.id AND u.tenant_id = m.tenant_id)
+     LEFT JOIN users u ON (u.member_id = m.user_id AND u.role = 'member' AND u.tenant_id = m.tenant_id)
      WHERE m.user_id = ? AND m.tenant_id = ?",
     [$memberId, $tenantId]
 );
@@ -168,7 +169,7 @@ header('Content-Type: text/html; charset=UTF-8');
                     <img src="<?php echo e($avatarUrl); ?>" alt="<?php echo e($member['fullname']); ?>">
                 <?php else: ?>
                     <span style="font-weight:900; font-size:1.3rem; color:#10b981;">
-                        <?php echo strtoupper(substr($member['fullname'] ?: 'M', 0, 1)); ?>
+                        <?php echo e(strtoupper(substr($member['fullname'] ?: 'M', 0, 1))); ?>
                     </span>
                 <?php endif; ?>
             </div>
@@ -253,7 +254,7 @@ header('Content-Type: text/html; charset=UTF-8');
             <div class="pay-row pay-row-bold">
                 <span>Remaining Due Balance:</span>
                 <span style="color: <?php echo $dueBalance > 0 ? '#b91c1c' : '#059669'; ?>;">
-                    <?php echo $dueBalance > 0 ? e($currency) . number_format($dueBalance, 2) . ' (PARTIAL)' : '₹0.00 (CLEAR)'; ?>
+                    <?php echo $dueBalance > 0 ? e($currency) . number_format($dueBalance, 2) . ' (PARTIAL)' : e($currency) . '0.00 (CLEAR)'; ?>
                 </span>
             </div>
         </div>

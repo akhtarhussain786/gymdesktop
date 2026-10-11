@@ -48,34 +48,90 @@ if ($method === 'POST') {
     $rawInput = file_get_contents('php://input');
     $input = json_decode($rawInput, true) ?: $_POST;
 
-    $gym_name = trim($input['gym_name'] ?? '');
-    $email = trim($input['email'] ?? '');
-    $phone = trim($input['phone'] ?? '');
-    $address = trim($input['address'] ?? '');
-    $currency = trim($input['currency'] ?? '₹');
-    $timezone = trim($input['timezone'] ?? 'Asia/Kolkata');
-    $primary_color = trim($input['primary_color'] ?? '#3b82f6');
-    $secondary_color = trim($input['secondary_color'] ?? '#10b981');
-    $upi_id = trim($input['upi_id'] ?? '');
-
-    if ($gym_name === '') {
-        $gym_name = $tenant['gym_name'] ?? $tenant['name'] ?? 'My Gym';
+    if (!is_array($input)) {
+        $input = [];
     }
 
-    $updateData = [
-        'gym_name' => $gym_name,
-        'email' => $email,
-        'phone' => $phone,
-        'address' => $address,
-        'currency' => $currency ?: '₹',
-        'timezone' => $timezone ?: 'Asia/Kolkata',
-        'primary_color' => $primary_color ?: '#3b82f6',
-        'secondary_color' => $secondary_color ?: '#10b981',
-        'upi_id' => $upi_id
-    ];
+    // Only fields present in the request are changed: the app never sends timezone, and a missing field
+    // must not reset the gym's existing value to a default.
+    $updateData = [];
+    $errors = [];
 
-    if (api_column_exists('tenants', 'name')) {
-        $updateData['name'] = $gym_name;
+    if (array_key_exists('gym_name', $input)) {
+        $gym_name = trim((string)$input['gym_name']);
+        if ($gym_name !== '') {
+            $updateData['gym_name'] = $gym_name;
+            if (api_column_exists('tenants', 'name')) {
+                $updateData['name'] = $gym_name;
+            }
+        }
+    }
+
+    if (array_key_exists('email', $input)) {
+        $email = trim((string)$input['email']);
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $updateData['email'] = $email;
+        } elseif ($email !== (string)($tenant['email'] ?? '')) {
+            $errors['email'] = 'Please enter a valid email address.';
+        }
+    }
+
+    foreach (['phone', 'address'] as $field) {
+        if (array_key_exists($field, $input)) {
+            $updateData[$field] = trim((string)$input[$field]);
+        }
+    }
+
+    if (array_key_exists('currency', $input)) {
+        // Whitelist like the web settings page (symbols drive money formatting everywhere)
+        $currency = trim((string)$input['currency']);
+        $validSymbols = array_column(get_supported_currencies(), 'symbol');
+        if (!in_array($currency, $validSymbols, true)) {
+            $match = array_values(array_filter($validSymbols, function ($sym) use ($currency) { return trim($sym) === $currency; }));
+            $currency = $match[0] ?? null;
+        }
+        if ($currency !== null) {
+            $updateData['currency'] = $currency;
+        }
+    }
+
+    if (array_key_exists('timezone', $input)) {
+        $timezone = trim((string)$input['timezone']);
+        if (in_array($timezone, timezone_identifiers_list(), true)) {
+            $updateData['timezone'] = $timezone;
+        } elseif ($timezone !== '') {
+            $errors['timezone'] = 'Unknown timezone.';
+        }
+    }
+
+    // Colours: the app has no colour picker and always sends these two defaults; treat that exact pair as
+    // "not changed" so saving from the app does not wipe colours chosen on the web panel.
+    $appDefaultColours = (($input['primary_color'] ?? null) === '#3b82f6' && ($input['secondary_color'] ?? null) === '#10b981');
+    if (!$appDefaultColours) {
+        foreach (['primary_color', 'secondary_color'] as $field) {
+            if (array_key_exists($field, $input)) {
+                $colour = trim((string)$input[$field]);
+                if (preg_match('/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/', $colour)) {
+                    $updateData[$field] = $colour;
+                } elseif ($colour !== '') {
+                    $errors[$field] = 'Colour must be a hex value like #3b82f6.';
+                }
+            }
+        }
+    }
+
+    if (array_key_exists('upi_id', $input)) {
+        $upi_id = trim((string)$input['upi_id']);
+        // Empty clears it; a stored legacy value sent back unchanged is accepted as-is
+        if ($upi_id === '' || is_valid_upi_id($upi_id) || $upi_id === trim((string)($tenant['upi_id'] ?? ''))) {
+            $updateData['upi_id'] = $upi_id;
+        } else {
+            $errors['upi_id'] = 'Please enter a valid UPI ID (e.g. yourgym@okhdfcbank).';
+        }
+    }
+
+    if (!empty($errors)) {
+        ApiResponse::error(reset($errors), 422, $errors);
     }
 
     // Handle base64 logo upload if provided
@@ -87,7 +143,10 @@ if ($method === 'POST') {
             if (!in_array($type, ['jpg', 'jpeg', 'gif', 'png', 'webp'])) {
                 $type = 'png';
             }
-            $data = base64_decode($data);
+            $data = base64_decode($data, true);
+            if ($data === false || @getimagesizefromstring($data) === false) {
+                ApiResponse::error('The logo must be a valid PNG, JPG, GIF or WEBP image.', 422);
+            }
             if ($data !== false) {
                 $logoDir = __DIR__ . '/../../uploads/logos';
                 if (!is_dir($logoDir)) {
@@ -100,11 +159,14 @@ if ($method === 'POST') {
         }
     }
 
-    DB::update('tenants', $updateData, 'id = ?', [$tenantId]);
+    if (!empty($updateData)) {
+        DB::update('tenants', $updateData, 'id = ?', [$tenantId]);
+    }
 
     if (class_exists('Auth')) {
         try {
-            Auth::auditLog('UPDATE_SETTINGS', "Updated gym settings and UPI ID to '$upi_id' for $gym_name", $tenantId);
+            $gymLabel = $updateData['gym_name'] ?? ($tenant['gym_name'] ?? '');
+            Auth::auditLog('UPDATE_SETTINGS', "Updated gym settings (" . implode(', ', array_keys($updateData)) . ") for $gymLabel", $tenantId, (int)$auth['user_id']);
         } catch (Throwable $e) {
             error_log("Audit log failed: " . $e->getMessage());
         }

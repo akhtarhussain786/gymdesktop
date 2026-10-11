@@ -342,7 +342,7 @@ class _AdminTransactionHistoryScreenState extends State<AdminTransactionHistoryS
                   setState(() => _selectedDateFilter = val);
                   _fetchTransactions(resetPage: true);
                 }),
-                _buildFilterChip('Last 7 Days', '7_days', _selectedDateFilter, (val) {
+                _buildFilterChip('Last 7 Days', 'last_7_days', _selectedDateFilter, (val) {
                   setState(() => _selectedDateFilter = val);
                   _fetchTransactions(resetPage: true);
                 }),

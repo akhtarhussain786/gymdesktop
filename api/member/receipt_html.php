@@ -6,8 +6,9 @@
 
 require_once __DIR__ . '/middleware.php';
 
-// GET document opened in a browser/webview: ?token= is accepted for this endpoint only
-$auth = MemberAuthMiddleware::authenticate(null, true);
+// Header / POST-body token only: a ?token= query string leaks into access logs and browser history
+// (no app version builds such a link; the member app renders receipts itself)
+$auth = MemberAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
 $member = $auth['member'];
 $tenantId = $auth['tenant_id'];
@@ -105,7 +106,7 @@ header('Content-Type: text/html; charset=UTF-8');
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
             <div>
-                <span class="badge <?php echo $invoice['status'] === 'Paid' ? 'badge-paid' : 'badge-due'; ?>"><?php echo e($invoice['status']); ?></span>
+                <span class="badge <?php echo strtolower((string)$invoice['status']) === 'paid' ? 'badge-paid' : 'badge-due'; ?>"><?php echo e($invoice['status']); ?></span>
                 <div style="font-size: 0.78rem; color: #64748b; margin-top: 4px;">#<?php echo e($invoice['invoice_number']); ?></div>
             </div>
             <div style="text-align: right; font-size: 0.85rem; color: #94a3b8;">

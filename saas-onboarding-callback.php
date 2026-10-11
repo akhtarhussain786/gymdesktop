@@ -3,8 +3,8 @@
  * Cashfree Onboarding Callback — Verify Payment & Activate Gym Tenant
  */
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags (HttpOnly, SameSite=Lax, Secure on HTTPS)
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/cashfree.php';
 require_once __DIR__ . '/core/auth.php';

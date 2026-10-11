@@ -3,11 +3,12 @@
  * Cashfree Onboarding Hosted & Drop-in Checkout Page
  */
 ob_start();
-session_start();
 
+// core/db.php starts the session with hardened cookie flags
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/cashfree.php';
 require_once __DIR__ . '/core/helpers.php';
+require_once __DIR__ . '/core/account_provisioner.php';
 
 $regRef = $_GET['reg_ref'] ?? ($_SESSION['onboarding_payment']['reg_ref'] ?? '');
 
@@ -47,8 +48,24 @@ if (empty($paymentSessionId) && !empty($orderId)) {
         $returnUrl
     );
 
-    // If order creation failed on old order_id (e.g. invalid cached Cashfree order), generate fresh Order ID and retry
+    // The order id may already exist at Cashfree (e.g. a new browser session after an earlier attempt).
+    // Never replace an order that was paid (provisioning will pick it up) or that can still be paid.
+    $rotate = false;
     if (!$cfResult['success']) {
+        $existingOrder = AccountProvisioner::gatewayOrderState($orderId);
+        if ($existingOrder['state'] === 'paid') {
+            redirect('payment-status.php?reg_ref=' . urlencode($regRef) . '&order_id=' . urlencode($orderId));
+        } elseif ($existingOrder['state'] === 'active' && !empty($existingOrder['payment_session_id'])) {
+            $cfResult = ['success' => true, 'payment_session_id' => $existingOrder['payment_session_id']];
+        } elseif (in_array($existingOrder['state'], ['closed', 'not_found'], true)) {
+            $rotate = true;
+        } else {
+            $cfResult['error'] = 'We could not reach the payment gateway right now. Please try again in a few minutes.';
+        }
+    }
+
+    // Old order expired / unknown at Cashfree: generate a fresh Order ID and retry
+    if ($rotate) {
         $newOrderId = CashfreeGateway::generateOrderId('SAAS_ONBOARD');
         // Keep pending_onboardings.order_id and saas_payments.transaction_ref in sync
         DB::query("UPDATE pending_onboardings SET order_id = ? WHERE reg_ref = ? AND status <> 'completed'", [$newOrderId, $regRef]);
@@ -230,10 +247,17 @@ $jsSdkUrl = CashfreeGateway::getJsSdkUrl();
 
             <!-- Cashfree Drop-in Container -->
             <div id="cashfree-drop-in">
+                <?php if (empty($paymentSessionId) && !empty($error)): ?>
+                <div style="text-align: center; padding: 24px 0; color: #fca5a5;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 1.6rem; margin-bottom: 10px;"></i>
+                    <div><?php echo e($error); ?></div>
+                </div>
+                <?php else: ?>
                 <div style="text-align: center; padding: 36px 0; color: var(--text-muted);">
                     <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: var(--primary); margin-bottom: 10px;"></i>
                     <div>Connecting to Cashfree Secure Payments...</div>
                 </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -248,10 +272,10 @@ $jsSdkUrl = CashfreeGateway::getJsSdkUrl();
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     <?php if (!empty($paymentSessionId)): ?>
-        const cashfree = Cashfree({ mode: "<?php echo $cashfreeMode; ?>" });
+        const cashfree = Cashfree({ mode: <?php echo js_value($cashfreeMode); ?> });
 
         let checkoutOptions = {
-            paymentSessionId: "<?php echo $paymentSessionId; ?>",
+            paymentSessionId: <?php echo js_value((string)$paymentSessionId); ?>,
             redirectTarget: "_self"
         };
 

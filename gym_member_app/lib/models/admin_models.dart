@@ -155,6 +155,9 @@ class AdminMemberItem {
   final String? dueDate;
   final int attendanceCount;
   final String whatsappReminder;
+  // Only present when the server sends them; null means "unknown" (never assume a default)
+  final double? currWeight;
+  final int? trainerId;
 
   AdminMemberItem({
     required this.memberId,
@@ -177,9 +180,13 @@ class AdminMemberItem {
     this.dueDate,
     required this.attendanceCount,
     required this.whatsappReminder,
+    this.currWeight,
+    this.trainerId,
   });
 
   factory AdminMemberItem.fromJson(Map<String, dynamic> json) {
+    final rawWeight = json['curr_weight'] ?? json['current_weight'] ?? json['weight_current'];
+    final rawTrainer = json['trainer_id'];
     return AdminMemberItem(
       memberId: (json['member_id'] is int) ? json['member_id'] : int.tryParse('${json['member_id']}') ?? 0,
       fullname: json['fullname']?.toString() ?? '',
@@ -201,6 +208,8 @@ class AdminMemberItem {
       dueDate: json['due_date']?.toString(),
       attendanceCount: (json['attendance_count'] is int) ? json['attendance_count'] : int.tryParse('${json['attendance_count']}') ?? 0,
       whatsappReminder: json['whatsapp_reminder']?.toString() ?? '',
+      currWeight: rawWeight is num ? rawWeight.toDouble() : double.tryParse('${rawWeight ?? ''}'),
+      trainerId: rawTrainer is int ? rawTrainer : int.tryParse('${rawTrainer ?? ''}'),
     );
   }
 }
@@ -426,18 +435,39 @@ class AdminDailyAttendanceItem {
   });
 
   factory AdminDailyAttendanceItem.fromJson(Map<String, dynamic> json) {
+    // Current API row keys first (phone/date/check_in_time/check_out_time/is_present), older names as fallback
+    final rawCheckOut = json['check_out_time'] ?? json['checkout_time'];
+    final checkOut = _displayTime(rawCheckOut?.toString());
+    final rawPresent = json.containsKey('is_present') ? json['is_present'] : json['present'];
+    final present = (rawPresent == null)
+        ? '1'
+        : (rawPresent == true || rawPresent.toString() == '1' || rawPresent.toString().toLowerCase() == 'true') ? '1' : '0';
     return AdminDailyAttendanceItem(
       id: (json['id'] is int) ? json['id'] : int.tryParse('${json['id']}') ?? 0,
       memberId: (json['member_id'] is int) ? json['member_id'] : (json['user_id'] is int ? json['user_id'] : int.tryParse('${json['member_id'] ?? json['user_id']}') ?? 0),
       fullname: json['fullname']?.toString() ?? 'Member',
-      contact: json['contact']?.toString() ?? '',
+      contact: (json['phone'] ?? json['contact'])?.toString() ?? '',
       avatar: json['avatar']?.toString() ?? json['photo']?.toString(),
-      currDate: json['curr_date']?.toString() ?? '',
-      currTime: json['curr_time']?.toString() ?? '',
-      checkOutTime: json['checkout_time']?.toString(),
-      present: json['present']?.toString() ?? '1',
-      status: json['status']?.toString() ?? 'Checked In',
+      currDate: (json['date'] ?? json['curr_date'])?.toString() ?? '',
+      currTime: _displayTime((json['check_in_time'] ?? json['curr_time'])?.toString()) ?? '',
+      checkOutTime: checkOut,
+      present: present,
+      status: json['status']?.toString() ?? ((checkOut != null && checkOut.isNotEmpty) ? 'Checked Out' : 'Checked In'),
     );
+  }
+
+  // "18:30:00" -> "06:30 PM"; values already formatted (e.g. "06:30 PM") are kept as they are
+  static String? _displayTime(String? raw) {
+    if (raw == null) return null;
+    final value = raw.trim();
+    final match = RegExp(r'^(\d{1,2}):(\d{2})(?::\d{2})?$').firstMatch(value);
+    if (match == null) return value;
+    final hour = int.parse(match.group(1)!);
+    final minute = match.group(2)!;
+    if (hour > 23) return value;
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final hour12 = hour % 12 == 0 ? 12 : hour % 12;
+    return '${hour12.toString().padLeft(2, '0')}:$minute $period';
   }
 }
 
@@ -536,7 +566,8 @@ class AdminWorkoutItem {
       id: (json['id'] is int) ? json['id'] : int.tryParse('${json['id']}') ?? 0,
       name: json['name']?.toString() ?? '',
       goal: json['goal']?.toString() ?? 'Muscle Building',
-      daysJson: json['days_json']?.toString() ?? '',
+      // The routine is stored as schedule_json; days_json is the older alias of the same text
+      daysJson: (json['schedule_json'] ?? json['days_json'])?.toString() ?? '',
       exercisesJson: json['exercises_json']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
     );

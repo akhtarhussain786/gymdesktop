@@ -28,6 +28,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['renew_plan'])) {
     if (!in_array($payment_method, ['upi', 'card', 'bank_transfer', 'cash'], true)) {
         redirect('subscription.php', 'error', 'Invalid payment method.');
     }
+    // A renewal request is always for a paid term (a 'trial' cycle let any plan be requested for ₹0)
+    if (!in_array($cycle, ['monthly', 'quarterly', 'yearly'], true)) {
+        redirect('subscription.php', 'error', 'Invalid billing cycle.');
+    }
     if ($transaction_ref !== '' && !preg_match('/^[A-Za-z0-9\-_\/]{4,64}$/', $transaction_ref)) {
         redirect('subscription.php', 'error', 'Please enter a valid transaction reference.');
     }
@@ -37,6 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['renew_plan'])) {
         redirect('subscription.php', 'error', $quote['error']);
     }
     $selectedPlan = $quote['plan'];
+    if ((float)$quote['base_price'] <= 0) {
+        redirect('subscription.php', 'error', 'The selected plan has no price for this renewal duration. Please choose a paid plan or another duration.');
+    }
+    $cycle = $quote['cycle'];
 
     // The same reference cannot be submitted twice
     if ($transaction_ref !== '' && DB::fetchValue("SELECT id FROM saas_payments WHERE transaction_ref = ?", [$transaction_ref])) {

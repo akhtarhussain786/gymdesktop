@@ -43,6 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_settings']) || 
     if (!preg_match($hexColor, $secondary_color)) $secondary_color = '#10b981';
     if ($gym_name === '') $gym_name = $tenant['gym_name'] ?? 'My Gym';
     if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) $email = $tenant['email'] ?? '';
+    // The UPI ID is shown to members as the gym's payee (QR codes, app); empty = no UPI collection
+    $upiError = null;
+    if ($upi_id !== '' && !is_valid_upi_id($upi_id) && $upi_id !== trim((string)($tenant['upi_id'] ?? ''))) {
+        $upiError = 'The UPI ID you entered is not valid (expected format: name@bank), so it was not saved. Other settings were saved.';
+    }
 
     $updateData = [
         'gym_name' => $gym_name,
@@ -54,9 +59,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_settings']) || 
         'primary_color' => $primary_color,
         'secondary_color' => $secondary_color,
         'invoice_header' => $invoice_header,
-        'invoice_footer' => $invoice_footer,
-        'upi_id' => $upi_id
+        'invoice_footer' => $invoice_footer
     ];
+    if ($upiError === null) {
+        $updateData['upi_id'] = $upi_id;
+    }
 
     // Robust Logo Upload Handling
     $uploadError = null;
@@ -106,8 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['save_settings']) || 
 
     Auth::auditLog('UPDATE_SETTINGS', 'Updated gym branding, logo and settings');
     
-    if ($uploadError) {
-        redirect('settings.php', 'error', $uploadError);
+    if ($uploadError || $upiError) {
+        redirect('settings.php', 'error', trim(($upiError ?? '') . ' ' . ($uploadError ?? '')));
     } else {
         redirect('settings.php', 'success', 'Gym branding, logo and settings updated successfully!');
     }

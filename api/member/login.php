@@ -69,12 +69,15 @@ if ($blockReason !== null) {
     ApiResponse::forbidden($blockReason);
 }
 
-// 2. Locate User or Member within this specific tenant
-// Match case-insensitively by Username, Email/Gmail, Phone, or Member ID
+// 2. Locate the account within this specific tenant.
+// Match case-insensitively by Username, Email/Gmail, Phone, or Member ID. Phone numbers and emails are
+// not unique (an owner may share a phone with a member, family members may share one), so every
+// matching account is collected and the password is checked against EACH account's own hash.
+// A gym-admin / staff token is only ever issued when that account's own password matched.
 $cleanLogin = strtolower($loginId);
 $numId = is_numeric($loginId) ? (int)$loginId : -1;
 
-$user = DB::fetchOne(
+$userRows = DB::fetchAll(
     "SELECT * FROM users 
      WHERE tenant_id = ? 
        AND (
@@ -83,11 +86,11 @@ $user = DB::fetchOne(
          OR (phone IS NOT NULL AND phone != '' AND TRIM(phone) = ?) 
          OR member_id = ?
        ) 
-     LIMIT 1",
+     LIMIT 20",
     [$tenantId, $cleanLogin, $cleanLogin, $loginId, $numId]
 );
 
-$member = DB::fetchOne(
+$memberRows = DB::fetchAll(
     "SELECT * FROM members 
      WHERE tenant_id = ? 
        AND (
@@ -96,49 +99,86 @@ $member = DB::fetchOne(
          OR (contact IS NOT NULL AND contact != '' AND TRIM(contact) = ?) 
          OR user_id = ?
        ) 
-     LIMIT 1",
+     LIMIT 20",
     [$tenantId, $cleanLogin, $cleanLogin, $loginId, $numId]
 );
 
-// Cross-link user and member if one was found but not the other
-if ($user && !$member) {
-    if (!empty($user['member_id'])) {
-        $member = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [(int)$user['member_id'], $tenantId]);
+$staffRoles = ['gym_admin', 'staff', 'super_admin', 'trainer'];
+$principals = [];   // each: ['user' => users row|null, 'member' => members row|null, 'role' => string]
+$coveredMembers = [];
+
+foreach ($userRows as $u) {
+    $uRole = strtolower((string)$u['role']);
+    if (in_array($uRole, $staffRoles, true)) {
+        $principals[] = ['user' => $u, 'member' => null, 'role' => $uRole];
+    } elseif ($uRole === 'member') {
+        // The member record this login belongs to
+        $m = null;
+        if (!empty($u['member_id'])) {
+            $m = DB::fetchOne("SELECT * FROM members WHERE user_id = ? AND tenant_id = ?", [(int)$u['member_id'], $tenantId]);
+        }
+        if (!$m) {
+            $m = DB::fetchOne(
+                "SELECT * FROM members WHERE tenant_id = ? AND (LOWER(TRIM(username)) = ? OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?)) LIMIT 1",
+                [$tenantId, strtolower(trim((string)$u['username'])), strtolower(trim((string)($u['email'] ?? '')))]
+            );
+        }
+        if ($m) {
+            $coveredMembers[(int)$m['user_id']] = true;
+        }
+        $principals[] = ['user' => $u, 'member' => $m, 'role' => 'member'];
     }
-    if (!$member) {
-        $member = DB::fetchOne(
-            "SELECT * FROM members WHERE tenant_id = ? AND (LOWER(TRIM(username)) = ? OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?)) LIMIT 1",
-            [$tenantId, strtolower(trim($user['username'])), strtolower(trim($user['email'] ?? ''))]
-        );
+}
+
+foreach ($memberRows as $m) {
+    if (isset($coveredMembers[(int)$m['user_id']])) {
+        continue;
     }
-} elseif ($member && !$user) {
-    $user = DB::fetchOne(
-        "SELECT * FROM users WHERE tenant_id = ? AND (member_id = ? OR LOWER(TRIM(username)) = ? OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?)) LIMIT 1",
-        [$tenantId, (int)$member['user_id'], strtolower(trim($member['username'])), strtolower(trim($member['email'] ?? ''))]
+    // Only ever link a member record to a MEMBER login row (never to an owner / staff row)
+    $u = DB::fetchOne(
+        "SELECT * FROM users WHERE tenant_id = ? AND role = 'member' AND (member_id = ? OR LOWER(TRIM(username)) = ? OR (email IS NOT NULL AND email != '' AND LOWER(TRIM(email)) = ?)) ORDER BY (member_id = ?) DESC LIMIT 1",
+        [$tenantId, (int)$m['user_id'], strtolower(trim((string)$m['username'])), strtolower(trim((string)($m['email'] ?? ''))), (int)$m['user_id']]
     );
+    $coveredMembers[(int)$m['user_id']] = true;
+    $principals[] = ['user' => $u ?: null, 'member' => $m, 'role' => 'member'];
 }
 
-$isValid = false;
-$userRole = $user ? strtolower((string)$user['role']) : 'member';
-$needsRehash = false;
-
-// Attempt password verification against user hash
-if ($user && !empty($user['password'])) {
-    $pwCheck = api_verify_password($password, $user['password']);
-    if ($pwCheck !== false) {
-        $isValid = true;
-        if ($pwCheck === 'rehash') $needsRehash = true;
+// Check the password against each account's own hash(es)
+$matched = [];
+foreach ($principals as $p) {
+    $check = false;
+    if ($p['user'] && !empty($p['user']['password'])) {
+        $check = api_verify_password($password, $p['user']['password']);
+    }
+    // A member's password may be stored on the members row (legacy) as well as the users row
+    if ($check === false && $p['role'] === 'member' && $p['member'] && !empty($p['member']['password'])) {
+        $check = api_verify_password($password, $p['member']['password']);
+    }
+    if ($check !== false) {
+        $p['rehash'] = ($check === 'rehash');
+        $matched[] = $p;
     }
 }
 
-// Fallback: try password against member hash if user check did not pass
-if (!$isValid && $member && !empty($member['password'])) {
-    $pwCheck = api_verify_password($password, $member['password']);
-    if ($pwCheck !== false) {
-        $isValid = true;
-        if ($pwCheck === 'rehash') $needsRehash = true;
-    }
+// Pick exactly one account. If an owner/staff account's own password matched, that wins;
+// otherwise exactly one member account must match.
+$chosen = null;
+$staffMatches = array_values(array_filter($matched, fn($p) => $p['role'] !== 'member'));
+$memberMatches = array_values(array_filter($matched, fn($p) => $p['role'] === 'member'));
+if (count($staffMatches) === 1) {
+    $chosen = $staffMatches[0];
+} elseif (count($staffMatches) === 0 && count($memberMatches) === 1) {
+    $chosen = $memberMatches[0];
+} elseif (count($matched) > 1) {
+    $recordLoginFailure();
+    ApiResponse::error('More than one account uses these details. Please sign in with your username or Member ID.', 409);
 }
+
+$isValid = ($chosen !== null);
+$user = $chosen['user'] ?? null;
+$member = $chosen['member'] ?? null;
+$userRole = $chosen['role'] ?? 'member';
+$needsRehash = !empty($chosen['rehash']);
 
 if ($isValid) {
     // If Admin / Staff / Trainer, return authenticated staff session
@@ -191,7 +231,7 @@ if ($isValid) {
                 'gym_code' => $tenant['gym_code'] ?: 'GYM-' . $tenantId,
                 'gym_name' => $tenant['gym_name'],
                 'slug' => $tenant['slug'],
-                'logo' => $tenant['logo'] ? base_url('/img/' . $tenant['logo']) : null,
+                'logo' => api_tenant_logo_url($tenant['logo'] ?? ''),
                 'primary_color' => $tenant['primary_color'] ?: '#2563eb',
                 'secondary_color' => $tenant['secondary_color'] ?: '#10b981',
                 'currency' => $tenant['currency'] ?: '₹',
@@ -342,7 +382,7 @@ $response = [
         'gym_code' => $tenant['gym_code'] ?: 'GYM-' . $tenantId,
         'gym_name' => $tenant['gym_name'],
         'slug' => $tenant['slug'],
-        'logo' => $tenant['logo'] ? base_url('/img/' . $tenant['logo']) : null,
+        'logo' => api_tenant_logo_url($tenant['logo'] ?? ''),
         'primary_color' => $tenant['primary_color'] ?: '#2563eb',
         'secondary_color' => $tenant['secondary_color'] ?: '#10b981',
         'currency' => $tenant['currency'] ?: '$',
@@ -367,9 +407,10 @@ $response = [
         'expiry_date' => $membershipExpiry,
         'days_remaining' => max(0, $daysLeft),
         'attendance_count' => (int)($member['attendance_count'] ?? 0),
-        'current_weight' => (float)($member['current_weight'] ?? $member['curr_weight'] ?? 0),
-        'initial_weight' => (float)($member['initial_weight'] ?? $member['ini_weight'] ?? 0),
-        'body_type' => $member['body_type'] ?? $member['curr_bodytype'] ?? 'Normal',
+        // curr_weight / ini_weight / curr_bodytype are the columns the profile & admin edits update
+        'current_weight' => (float)($member['curr_weight'] ?? $member['current_weight'] ?? 0),
+        'initial_weight' => (float)($member['ini_weight'] ?? $member['initial_weight'] ?? 0),
+        'body_type' => $member['curr_bodytype'] ?? $member['body_type'] ?? 'Normal',
         'branch_id' => (int)($member['branch_id'] ?? 1)
     ],
     'enabled_features' => [

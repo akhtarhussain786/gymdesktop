@@ -7,11 +7,11 @@
 require_once __DIR__ . '/middleware.php';
 require_once __DIR__ . '/../../core/notifications.php';
 
-NotificationEngine::ensureSchema();
-
 $auth = AdminAuthMiddleware::authenticate();
 $tenantId = (int)$auth['tenant_id'];
 $userId = (int)$auth['user_id'];
+
+NotificationEngine::ensureSchema();
 $userRole = !empty($auth['role']) ? strtolower((string)$auth['role']) : 'gym_admin';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -27,7 +27,8 @@ $platform = in_array($platform, ['android', 'ios', 'web']) ? $platform : 'androi
 
 if ($action === 'unregister') {
     if (!empty($deviceId)) {
-        DB::query("UPDATE device_tokens SET user_id = NULL, status = 'inactive', updated_at = NOW() WHERE device_id = ? AND tenant_id = ?", [$deviceId, $tenantId]);
+        // Only the caller's own device registration
+        DB::query("UPDATE device_tokens SET user_id = NULL, status = 'inactive', updated_at = NOW() WHERE device_id = ? AND tenant_id = ? AND user_id = ?", [$deviceId, $tenantId, $userId]);
     }
     ApiResponse::success(null, 'Admin device token unregistered.');
 }
@@ -42,8 +43,8 @@ if (strlen($deviceToken) > 4096 || strlen($deviceId) > 100) {
 // Remove duplicate records with same push token on different device IDs
 try {
     DB::query(
-        "DELETE FROM device_tokens WHERE device_token = ? AND device_id != ?",
-        [$deviceToken, $deviceId]
+        "DELETE FROM device_tokens WHERE device_token = ? AND device_id != ? AND tenant_id = ?",
+        [$deviceToken, $deviceId, $tenantId]
     );
 } catch (Throwable $e) {}
 

@@ -45,18 +45,21 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
         'email': email,
       });
 
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _isSuccess = true;
         _message = 'Password reset request registered. Please check with your gym reception.';
       });
     } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _isSuccess = false;
         _message = e.message;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _isSuccess = false;

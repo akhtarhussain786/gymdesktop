@@ -12,64 +12,81 @@ class NotificationEngine {
     private static $schemaInitialized = false;
 
     /**
-     * Auto-ensure database schema exists with all required columns & indexes
+     * Create the notification tables when they are missing (at most once per request).
+     * Columns added to device_tokens over time (user_id, user_role, status, last_active_at) are kept up to
+     * date by core/db.php with portable checks, so nothing is ALTERed here.
      */
     public static function ensureSchema() {
         if (self::$schemaInitialized) return;
+        self::$schemaInitialized = true;
 
         try {
-            DB::query("CREATE TABLE IF NOT EXISTS `notifications` (
-              `id` int(11) NOT NULL AUTO_INCREMENT,
-              `tenant_id` int(11) DEFAULT NULL,
-              `sender_user_id` int(11) DEFAULT NULL,
-              `sender_role` varchar(50) NOT NULL DEFAULT 'gym_admin',
-              `target_type` varchar(50) NOT NULL DEFAULT 'all_members',
-              `recipient_user_id` int(11) DEFAULT NULL,
-              `recipient_member_id` int(11) DEFAULT NULL,
-              `title` varchar(255) NOT NULL,
-              `message` text NOT NULL,
-              `type` varchar(50) NOT NULL DEFAULT 'announcement',
-              `data_payload` text DEFAULT NULL,
-              `is_read` tinyint(1) NOT NULL DEFAULT 0,
-              `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              PRIMARY KEY (`id`),
-              KEY `idx_tenant_recipient` (`tenant_id`, `recipient_member_id`),
-              KEY `idx_user_recipient` (`recipient_user_id`),
-              KEY `idx_target_type` (`target_type`),
-              KEY `idx_created` (`created_at`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            if (DB::tableColumns('notifications') === null) {
+                DB::query("CREATE TABLE IF NOT EXISTS `notifications` (
+                  `id` int(11) NOT NULL AUTO_INCREMENT,
+                  `tenant_id` int(11) DEFAULT NULL,
+                  `sender_user_id` int(11) DEFAULT NULL,
+                  `sender_role` varchar(50) NOT NULL DEFAULT 'gym_admin',
+                  `target_type` varchar(50) NOT NULL DEFAULT 'all_members',
+                  `recipient_user_id` int(11) DEFAULT NULL,
+                  `recipient_member_id` int(11) DEFAULT NULL,
+                  `title` varchar(255) NOT NULL,
+                  `message` text NOT NULL,
+                  `type` varchar(50) NOT NULL DEFAULT 'announcement',
+                  `data_payload` text DEFAULT NULL,
+                  `is_read` tinyint(1) NOT NULL DEFAULT 0,
+                  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`),
+                  KEY `idx_tenant_recipient` (`tenant_id`, `recipient_member_id`),
+                  KEY `idx_user_recipient` (`recipient_user_id`),
+                  KEY `idx_target_type` (`target_type`),
+                  KEY `idx_created` (`created_at`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            }
 
-            DB::query("CREATE TABLE IF NOT EXISTS `device_tokens` (
-              `id` int(11) NOT NULL AUTO_INCREMENT,
-              `tenant_id` int(11) DEFAULT 0,
-              `member_id` int(11) DEFAULT NULL,
-              `user_id` int(11) DEFAULT NULL,
-              `user_role` varchar(50) DEFAULT 'member',
-              `device_token` text NOT NULL,
-              `device_id` varchar(100) NOT NULL,
-              `platform` enum('android','ios','web') NOT NULL DEFAULT 'android',
-              `status` enum('active','inactive') NOT NULL DEFAULT 'active',
-              `last_active_at` datetime DEFAULT CURRENT_TIMESTAMP,
-              `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (`id`),
-              UNIQUE KEY `idx_device_unique` (`device_id`),
-              KEY `idx_tenant_member` (`tenant_id`, `member_id`),
-              KEY `idx_user_id` (`user_id`),
-              KEY `idx_user_role` (`user_role`),
-              KEY `idx_status` (`status`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-            // Safe column additions if migrating from older schema
-            try {
-                DB::query("ALTER TABLE `device_tokens` ADD COLUMN IF NOT EXISTS `user_role` varchar(50) DEFAULT 'member' AFTER `user_id`");
-                DB::query("ALTER TABLE `device_tokens` ADD COLUMN IF NOT EXISTS `last_active_at` datetime DEFAULT CURRENT_TIMESTAMP AFTER `status`");
-            } catch (Throwable $e) {}
+            if (DB::tableColumns('device_tokens') === null) {
+                DB::query("CREATE TABLE IF NOT EXISTS `device_tokens` (
+                  `id` int(11) NOT NULL AUTO_INCREMENT,
+                  `tenant_id` int(11) DEFAULT 0,
+                  `member_id` int(11) DEFAULT NULL,
+                  `user_id` int(11) DEFAULT NULL,
+                  `user_role` varchar(50) DEFAULT 'member',
+                  `device_token` text NOT NULL,
+                  `device_id` varchar(100) NOT NULL,
+                  `platform` enum('android','ios','web') NOT NULL DEFAULT 'android',
+                  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+                  `last_active_at` datetime DEFAULT CURRENT_TIMESTAMP,
+                  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`id`),
+                  UNIQUE KEY `idx_device_unique` (`device_id`),
+                  KEY `idx_tenant_member` (`tenant_id`, `member_id`),
+                  KEY `idx_user_id` (`user_id`),
+                  KEY `idx_user_role` (`user_role`),
+                  KEY `idx_status` (`status`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            }
         } catch (Throwable $e) {
             error_log("Notification schema auto-check error: " . $e->getMessage());
         }
+    }
 
-        self::$schemaInitialized = true;
+    /** Active device rows that have a push token */
+    private static function activeDeviceSql() {
+        return "(status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''";
+    }
+
+    /**
+     * Devices signed in to the member app. Guest / logged-out registrations (user_role 'guest' or no member)
+     * never match, so an unauthenticated registration receives no broadcasts.
+     */
+    private static function memberDeviceSql() {
+        return "(user_role = 'member' AND member_id > 0 AND tenant_id > 0)";
+    }
+
+    /** Devices signed in to the admin app (gym owners / staff / trainers), registered by api/admin/device_token.php */
+    private static function ownerDeviceSql() {
+        return "(user_role IN ('gym_admin', 'staff', 'trainer') AND user_id > 0 AND (member_id IS NULL OR member_id = 0) AND tenant_id > 0)";
     }
 
     /**
@@ -94,54 +111,59 @@ class NotificationEngine {
 
         $senderUserId = $_SESSION['user_id'] ?? null;
         $payloadJson = !empty($data) ? json_encode($data) : null;
-        $targetType = !empty($targetTenantIds) ? 'specific_gyms' : $audience;
 
-        // 1. Insert Global Broadcast Master Record into In-App Feed
-        try {
-            DB::insert('notifications', [
-                'tenant_id' => !empty($targetTenantIds) && count($targetTenantIds) === 1 ? (int)$targetTenantIds[0] : null,
-                'sender_user_id' => $senderUserId,
-                'sender_role' => 'super_admin',
-                'target_type' => $targetType,
-                'recipient_user_id' => null,
-                'recipient_member_id' => null,
-                'title' => $title,
-                'message' => $message,
-                'type' => $type,
-                'data_payload' => $payloadJson,
-                'is_read' => 0,
-                'created_at' => date('Y-m-d H:i:s')
-            ]);
-        } catch (Throwable $e) {
-            error_log("Failed to insert broadcast notification record: " . $e->getMessage());
+        $requestedSpecific = !empty($targetTenantIds) || $audience === 'specific';
+        $targetTenantIds = array_values(array_unique(array_filter(array_map('intval', $targetTenantIds), function ($id) {
+            return $id > 0;
+        })));
+        // "Specific gyms" with no valid gym must never widen into a platform-wide broadcast
+        if ($requestedSpecific && empty($targetTenantIds)) {
+            return ['success' => false, 'error' => 'Please select at least one gym.'];
+        }
+        $targetType = !empty($targetTenantIds) ? 'specific_gyms' : $audience;
+        $createdAt = date('Y-m-d H:i:s');
+
+        // 1. In-App Feed: one row per targeted gym (so no other gym sees it), or one platform-wide row
+        $feedTenantIds = !empty($targetTenantIds) ? $targetTenantIds : [null];
+        foreach ($feedTenantIds as $feedTenantId) {
+            try {
+                DB::insert('notifications', [
+                    'tenant_id' => $feedTenantId,
+                    'sender_user_id' => $senderUserId,
+                    'sender_role' => 'super_admin',
+                    'target_type' => $targetType,
+                    'recipient_user_id' => null,
+                    'recipient_member_id' => null,
+                    'title' => $title,
+                    'message' => $message,
+                    'type' => $type,
+                    'data_payload' => $payloadJson,
+                    'is_read' => 0,
+                    'created_at' => $createdAt
+                ]);
+            } catch (Throwable $e) {
+                error_log("Failed to insert broadcast notification record: " . $e->getMessage());
+            }
         }
 
-        // 2. Determine target device tokens from database
-        $tokens = [];
+        // 2. Target device tokens. Selected gyms = every signed-in app of those gyms (members and owners / staff),
+        // as before; guest / logged-out installs excluded. No fallback: an audience with no devices gets nothing.
+        $active = self::activeDeviceSql();
         if (!empty($targetTenantIds)) {
             $placeholders = implode(',', array_fill(0, count($targetTenantIds), '?'));
             $tokenRows = DB::fetchAll(
-                "SELECT DISTINCT device_token FROM device_tokens WHERE (tenant_id IN ($placeholders) OR tenant_id = 0 OR tenant_id IS NULL) AND (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''",
-                array_map('intval', $targetTenantIds)
+                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id IN ($placeholders) AND (" . self::memberDeviceSql() . " OR " . self::ownerDeviceSql() . ") AND {$active}",
+                $targetTenantIds
             );
-            $tokens = array_column($tokenRows, 'device_token');
         } elseif ($audience === 'all_members') {
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND (member_id > 0 OR user_role = 'member' OR (user_id IS NULL AND member_id IS NULL)) AND device_token IS NOT NULL AND device_token != ''");
-            $tokens = array_column($tokenRows, 'device_token');
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE " . self::memberDeviceSql() . " AND {$active}");
         } elseif ($audience === 'all_gym_owners') {
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND (user_role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer')) OR tenant_id > 0) AND device_token IS NOT NULL AND device_token != ''");
-            $tokens = array_column($tokenRows, 'device_token');
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE " . self::ownerDeviceSql() . " AND {$active}");
         } else {
-            // Everyone / All
-            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''");
-            $tokens = array_column($tokenRows, 'device_token');
+            // Everyone / All: every signed-in member and admin app (not guest installs)
+            $tokenRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (" . self::memberDeviceSql() . " OR " . self::ownerDeviceSql() . ") AND {$active}");
         }
-
-        // FAILSAFE: If the filtered query returned 0 devices, fallback to all active registered devices
-        if (empty($tokens)) {
-            $fallbackRows = DB::fetchAll("SELECT DISTINCT device_token FROM device_tokens WHERE (status = 'active' OR status IS NULL OR status = '') AND device_token IS NOT NULL AND device_token != ''");
-            $tokens = array_column($fallbackRows, 'device_token');
-        }
+        $tokens = array_column($tokenRows, 'device_token');
 
         // Remove duplicates and empty values
         $tokens = array_values(array_filter(array_unique($tokens)));
@@ -200,6 +222,15 @@ class NotificationEngine {
 
         $senderUserId = $_SESSION['user_id'] ?? null;
         $payloadJson = !empty($data) ? json_encode($data) : null;
+        $createdAt = date('Y-m-d H:i:s');
+
+        // A specific-member send without a member must not fall through to "all members"
+        $memberIds = array_values(array_filter(array_map('intval', $memberIds), function ($id) {
+            return $id > 0;
+        }));
+        if ($target === 'specific_member' && empty($memberIds)) {
+            return ['success' => false, 'error' => 'Please select a member.'];
+        }
 
         // Fetch target members
         $targetMembers = [];
@@ -238,18 +269,20 @@ class NotificationEngine {
                     'type' => $type,
                     'data_payload' => $payloadJson,
                     'is_read' => 0,
-                    'created_at' => date('Y-m-d H:i:s')
+                    'created_at' => $createdAt
                 ]);
             } catch (Throwable $e) {}
         }
 
-        // 2. Fetch active device tokens strictly scoped to this tenant
+        // 2. Fetch active device tokens strictly scoped to this tenant's signed-in member devices
+        // (never admin-app or guest registrations)
+        $memberDevice = self::memberDeviceSql();
         $tokens = [];
         if ($target === 'specific_member' && !empty($memberIds)) {
             $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
             $params = array_merge([$tenantId], array_map('intval', $memberIds));
             $tokenRows = DB::fetchAll(
-                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($placeholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
+                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($placeholders) AND {$memberDevice} AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
                 $params
             );
             $tokens = array_column($tokenRows, 'device_token');
@@ -259,14 +292,14 @@ class NotificationEngine {
                 $placeholders = implode(',', array_fill(0, count($dueMemberIds), '?'));
                 $params = array_merge([$tenantId], array_map('intval', $dueMemberIds));
                 $tokenRows = DB::fetchAll(
-                    "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($placeholders) AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
+                    "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND member_id IN ($placeholders) AND {$memberDevice} AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
                     $params
                 );
                 $tokens = array_column($tokenRows, 'device_token');
             }
-        } else {
+        } elseif ($target !== 'due_members') {
             $tokenRows = DB::fetchAll(
-                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
+                "SELECT DISTINCT device_token FROM device_tokens WHERE tenant_id = ? AND {$memberDevice} AND status = 'active' AND device_token IS NOT NULL AND device_token != ''",
                 [$tenantId]
             );
             $tokens = array_column($tokenRows, 'device_token');
@@ -317,15 +350,19 @@ class NotificationEngine {
         $memberId = (int)$memberId;
         $limit = max(1, min(100, (int)$limit));
 
-        $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at
+        // Own rows (gym sends store one row per member), plus shared rows whose audience includes members:
+        // this gym's member-wide rows (incl. SuperAdmin notices to selected gyms) and platform-wide member /
+        // everyone broadcasts. Owner-only rows (all_gym_owners) and other members' rows are never included.
+        $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at, recipient_member_id
                 FROM notifications
-                WHERE (
-                    (tenant_id = ? AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'all', 'everyone')))
-                    OR (tenant_id IS NULL AND (recipient_member_id = ? OR recipient_member_id IS NULL OR target_type IN ('all_members', 'all', 'everyone', 'global')))
-                )
+                WHERE (tenant_id = ? AND recipient_member_id = ?)
+                   OR (recipient_member_id IS NULL AND recipient_user_id IS NULL AND tenant_id = ?
+                       AND target_type IN ('all_members', 'everyone', 'all', 'broadcast', 'specific_gyms'))
+                   OR (recipient_member_id IS NULL AND recipient_user_id IS NULL AND tenant_id IS NULL
+                       AND target_type IN ('all_members', 'everyone', 'all', 'broadcast', 'global'))
                 ORDER BY id DESC LIMIT ?";
 
-        $rows = DB::fetchAll($sql, [$tenantId, $memberId, $memberId, $limit]);
+        $rows = DB::fetchAll($sql, [$tenantId, $memberId, $tenantId, $limit]);
         return array_map(function($r) {
             return [
                 'id' => (int)$r['id'],
@@ -333,7 +370,8 @@ class NotificationEngine {
                 'message' => $r['message'],
                 'type' => $r['type'],
                 'data' => !empty($r['data_payload']) ? json_decode($r['data_payload'], true) : null,
-                'is_read' => (bool)$r['is_read'],
+                // Shared broadcast rows can't be marked read per member (one row for everyone): never show them as unread forever
+                'is_read' => $r['recipient_member_id'] === null ? true : (bool)$r['is_read'],
                 'sender' => $r['sender_role'] === 'super_admin' ? 'SuperAdmin HQ' : 'Gym Management',
                 'created_at' => $r['created_at'],
                 'time_ago' => self::formatTimeAgo($r['created_at'])
@@ -350,15 +388,20 @@ class NotificationEngine {
         $userId = (int)$userId;
         $limit = max(1, min(100, (int)$limit));
 
-        $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at
+        // SuperAdmin notices for gym owners only: rows sent to this gym, or platform-wide owner / everyone
+        // broadcasts. The gym's own member broadcasts (sender gym_admin) and member-only notices are excluded.
+        $sql = "SELECT id, title, message, type, data_payload, is_read, sender_role, created_at, tenant_id
                 FROM notifications
-                WHERE (
-                    (tenant_id = ? AND (recipient_user_id = ? OR recipient_user_id IS NULL OR target_type IN ('all_gym_owners', 'broadcast', 'all', 'everyone')))
-                    OR (tenant_id IS NULL AND (recipient_user_id = ? OR recipient_user_id IS NULL OR target_type IN ('all_gym_owners', 'broadcast', 'global', 'all', 'everyone')))
-                )
+                WHERE sender_role = 'super_admin'
+                  AND recipient_member_id IS NULL
+                  AND (recipient_user_id IS NULL OR recipient_user_id = ?)
+                  AND (
+                      (tenant_id = ? AND target_type IN ('specific_gyms', 'all_gym_owners', 'everyone', 'all', 'broadcast', 'global'))
+                      OR (tenant_id IS NULL AND target_type IN ('all_gym_owners', 'everyone', 'all', 'broadcast', 'global'))
+                  )
                 ORDER BY id DESC LIMIT ?";
 
-        $rows = DB::fetchAll($sql, [$tenantId, $userId, $userId, $limit]);
+        $rows = DB::fetchAll($sql, [$userId, $tenantId, $limit]);
         return array_map(function($r) {
             return [
                 'id' => (int)$r['id'],
@@ -366,7 +409,8 @@ class NotificationEngine {
                 'message' => $r['message'],
                 'type' => $r['type'],
                 'data' => !empty($r['data_payload']) ? json_decode($r['data_payload'], true) : null,
-                'is_read' => (bool)$r['is_read'],
+                // Platform-wide rows (tenant_id NULL) are shared by every gym and can't be marked read by one of them
+                'is_read' => $r['tenant_id'] === null ? true : (bool)$r['is_read'],
                 'sender' => 'SuperAdmin SaaS',
                 'created_at' => $r['created_at'],
                 'time_ago' => self::formatTimeAgo($r['created_at'])
@@ -425,7 +469,8 @@ class NotificationEngine {
         $ch = curl_init($sa['token_uri'] ?? 'https://oauth2.googleapis.com/token');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
@@ -497,9 +542,21 @@ class NotificationEngine {
             return ['success' => false, 'error' => 'Invalid Firebase Service Account JSON. Ensure "client_email" and "private_key" are present.'];
         }
 
+        $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
+
+        // The credentials file wins over every other source (see getServiceAccountData()). If it exists and
+        // cannot be replaced, the old key would silently stay in use: refuse instead of reporting success.
+        if (file_exists($serviceAccountPath)) {
+            if (!is_writable($serviceAccountPath) || @file_put_contents($serviceAccountPath, $jsonString, LOCK_EX) === false) {
+                return ['success' => false, 'error' => 'The existing credentials file core/firebase_service_account.json could not be overwritten (check its file permissions), so the old key would stay active. Nothing was changed.'];
+            }
+        }
+
         // 1. Save to DB settings table (persists across Git deployments)
         try {
-            DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+            if (DB::tableColumns('settings') === null) {
+                DB::query("CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+            }
             $exists = DB::fetchValue("SELECT COUNT(*) FROM settings WHERE setting_key = 'firebase_service_account_json'");
             if ($exists) {
                 DB::update('settings', ['setting_value' => $jsonString], "setting_key = 'firebase_service_account_json'");
@@ -510,11 +567,17 @@ class NotificationEngine {
             error_log("Failed to save service account to DB: " . $e->getMessage());
         }
 
-        // 2. Write to local file if writable
-        try {
-            $serviceAccountPath = __DIR__ . '/firebase_service_account.json';
-            @file_put_contents($serviceAccountPath, $jsonString);
-        } catch (Throwable $e) {}
+        // 2. Write to local file if writable (when it did not exist yet)
+        if (!file_exists($serviceAccountPath)) {
+            @file_put_contents($serviceAccountPath, $jsonString, LOCK_EX);
+        }
+
+        // The credentials actually in effect must now be the ones just saved (an environment variable
+        // also takes precedence over the database copy)
+        $effective = self::getServiceAccountData();
+        if (!is_array($effective) || ($effective['private_key'] ?? '') !== $sa['private_key'] || ($effective['client_email'] ?? '') !== $sa['client_email']) {
+            return ['success' => false, 'error' => 'The new key could not be activated: other Firebase credentials (FIREBASE_SERVICE_ACCOUNT_JSON / FIREBASE_SERVICE_ACCOUNT_BASE64 environment variable) or an unwritable settings table take precedence.'];
+        }
 
         // 3. Test OAuth2 Token exchange immediately
         $token = self::getGoogleAccessToken();
@@ -546,8 +609,9 @@ class NotificationEngine {
         }
 
         $totalActiveTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE device_token IS NOT NULL AND device_token != ''");
-        $adminTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE (user_role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer') OR user_id IN (SELECT id FROM users WHERE role IN ('gym_admin', 'staff', 'super_admin', 'admin', 'trainer')) OR tenant_id > 0) AND device_token IS NOT NULL AND device_token != ''");
-        $memberTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE (member_id IS NOT NULL OR user_role = 'member' OR (user_id IS NULL AND member_id IS NULL)) AND device_token IS NOT NULL AND device_token != ''");
+        // Same audiences the broadcasts target (guest / logged-out installs are in neither)
+        $adminTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE " . self::ownerDeviceSql() . " AND device_token IS NOT NULL AND device_token != ''");
+        $memberTokens = (int)DB::fetchValue("SELECT COUNT(DISTINCT device_token) FROM device_tokens WHERE " . self::memberDeviceSql() . " AND device_token IS NOT NULL AND device_token != ''");
 
         return [
             'fcm_v1_configured' => $hasKeyFile,
@@ -656,7 +720,8 @@ class NotificationEngine {
                     'Content-Type: application/json'
                 ]);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
                 curl_setopt($ch, CURLOPT_TIMEOUT, 8);
                 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
 

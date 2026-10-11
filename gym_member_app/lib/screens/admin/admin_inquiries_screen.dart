@@ -23,7 +23,10 @@ class _AdminInquiriesScreenState extends State<AdminInquiriesScreen> {
 
   void _showReplyModal(AdminInquiryItem inq) {
     final replyCtrl = TextEditingController(text: inq.reply);
+    // Every status the server uses; an unknown value would make the dropdown assert
+    const knownStatuses = ['open', 'pending', 'in_progress', 'resolved', 'closed'];
     String status = inq.status == 'open' ? 'resolved' : inq.status;
+    if (!knownStatuses.contains(status)) status = 'resolved';
 
     showModalBottomSheet(
       context: context,
@@ -89,6 +92,7 @@ class _AdminInquiriesScreenState extends State<AdminInquiriesScreen> {
                   ),
                   items: const [
                     DropdownMenuItem(value: 'open', child: Text('Open')),
+                    DropdownMenuItem(value: 'pending', child: Text('Pending')),
                     DropdownMenuItem(value: 'in_progress', child: Text('In Progress')),
                     DropdownMenuItem(value: 'resolved', child: Text('Resolved')),
                     DropdownMenuItem(value: 'closed', child: Text('Closed')),

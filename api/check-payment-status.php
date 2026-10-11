@@ -10,8 +10,8 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/cashfree.php';
 require_once __DIR__ . '/../core/account_provisioner.php';
 
-$orderId = $_GET['order_id'] ?? '';
-$regRef  = $_GET['reg_ref'] ?? '';
+$orderId = is_string($_GET['order_id'] ?? null) ? trim($_GET['order_id']) : '';
+$regRef  = is_string($_GET['reg_ref'] ?? null) ? trim($_GET['reg_ref']) : '';
 
 if (empty($orderId) && empty($regRef)) {
     echo json_encode(['status' => 'ERROR', 'message' => 'Missing order reference.']);
@@ -28,12 +28,23 @@ if (!$pending && !empty($orderId)) {
 }
 
 if (!$pending) {
-    // Check if already in saas_payments
-    $payment = DB::fetchOne("SELECT p.*, t.gym_name, t.email, sp.name as plan_name 
-                             FROM saas_payments p 
-                             JOIN tenants t ON p.tenant_id = t.id 
-                             JOIN subscription_plans sp ON p.plan_id = sp.id 
-                             WHERE p.transaction_ref = ? OR p.reg_ref = ?", [$orderId, $regRef]);
+    // Check if already in saas_payments. Match only on the references actually supplied: an empty
+    // value would otherwise match any row whose reg_ref / transaction_ref is blank (another gym's data).
+    $conds = [];
+    $params = [];
+    if ($orderId !== '') {
+        $conds[] = 'p.transaction_ref = ?';
+        $params[] = $orderId;
+    }
+    if ($regRef !== '') {
+        $conds[] = 'p.reg_ref = ?';
+        $params[] = $regRef;
+    }
+    $payment = DB::fetchOne("SELECT p.*, t.gym_name, t.email, sp.name as plan_name
+                             FROM saas_payments p
+                             JOIN tenants t ON p.tenant_id = t.id
+                             JOIN subscription_plans sp ON p.plan_id = sp.id
+                             WHERE " . implode(' OR ', $conds), $params);
     if ($payment && $payment['status'] === 'approved') {
         echo json_encode([
             'status' => 'SUCCESS',

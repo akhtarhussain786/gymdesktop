@@ -7,6 +7,14 @@ $pageTitle = 'Trainer Dashboard';
 $pageSubtitle = 'Manage your assigned trainees, track their body metrics, and prescribe workout/diet routines';
 $tenantId = Tenant::getTenantId();
 $trainerId = $_SESSION['user_id'];
+// members.trainer_id holds a staffs.user_id; a trainer signed in through the users table has a users.id
+// in the session, so use the staffs row linked to that login (users.staff_id) when there is one
+if (($_SESSION['auth_source'] ?? '') === 'users' && in_array('staff_id', DB::tableColumns('users') ?? [], true)) {
+    $linkedStaffId = (int)DB::fetchValue("SELECT staff_id FROM users WHERE id = ? AND tenant_id = ?", [(int)($_SESSION['account_id'] ?? $_SESSION['user_id']), $tenantId]);
+    if ($linkedStaffId > 0) {
+        $trainerId = $linkedStaffId;
+    }
+}
 
 $isTrainer = (($_SESSION['role'] ?? '') === 'trainer');
 

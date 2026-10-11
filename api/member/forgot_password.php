@@ -34,6 +34,7 @@ $tenant = DB::fetchOne("SELECT id, gym_name FROM tenants WHERE gym_code = ? OR s
 if (!$tenant) {
     ApiResponse::success(null, $genericMessage);
 }
+$tenantId = (int)$tenant['id'];
 
 $cleanIdent = strtolower($email);
 $member = DB::fetchOne(
@@ -58,6 +59,7 @@ if ($member && !api_member_is_blocked($member)) {
         // Log inquiry/reset request
         DB::insert('member_inquiries', [
             'tenant_id' => $tenantId,
+            'branch_id' => (int)($member['branch_id'] ?? 1),
             'member_id' => $member['user_id'],
             'category' => 'Account / Password Reset',
             'subject' => 'Password Reset Request for ' . $member['fullname'],

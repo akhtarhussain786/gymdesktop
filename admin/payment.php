@@ -36,8 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['approve_upi']) || is
         Auth::auditLog('APPROVE_UPI_RENEWAL', "Verified member UPI renewal (UTR {$mp['cashfree_payment_id']}) for member #{$mp['member_id']}");
         redirect(!empty($res['invoice_id']) ? "userpay.php?id={$res['invoice_id']}" : 'payment.php', 'success', 'Payment verified. ' . ($res['message'] ?? ''));
     } else {
-        DB::update('membership_payments', ['payment_status' => 'CANCELLED'], 'id = ? AND payment_status = ?', [$mp['id'], 'PENDING']);
-        DB::update('invoices', ['status' => 'cancelled', 'paid_amount' => 0], 'tenant_id = ? AND payment_id = ?', [$tenantId, $mp['id']]);
+        // Only a submission that is still pending can be rejected: if an approval got there first
+        // (it locks the row), the paid invoice must not be turned into a cancelled ₹0 one
+        $rejected = DB::update('membership_payments', ['payment_status' => 'CANCELLED'], 'id = ? AND payment_status = ?', [$mp['id'], 'PENDING']);
+        if ((int)$rejected !== 1) {
+            redirect('payment.php', 'error', 'Pending payment not found or already processed.');
+        }
+        DB::update('invoices', ['status' => 'cancelled', 'paid_amount' => 0], "tenant_id = ? AND payment_id = ? AND LOWER(status) IN ('pending', 'unpaid')", [$tenantId, $mp['id']]);
         Auth::auditLog('REJECT_UPI_RENEWAL', "Rejected member UPI renewal (UTR {$mp['cashfree_payment_id']}) for member #{$mp['member_id']}");
         redirect('payment.php', 'success', 'Payment submission rejected.');
     }
@@ -60,8 +65,8 @@ $statusFilter = trim($_GET['status'] ?? '');
 SubscriptionEngine::activateUpcomingSubscriptions($tenantId);
 
 $sql = "SELECT m.*, 
-        DATE_ADD(m.paid_date, INTERVAL CAST(m.plan AS UNSIGNED) MONTH) as expiry_date,
-        DATEDIFF(DATE_ADD(m.paid_date, INTERVAL CAST(m.plan AS UNSIGNED) MONTH), CURDATE()) as days_remaining 
+        DATE_ADD(m.paid_date, INTERVAL GREATEST(1, CAST(m.plan AS UNSIGNED)) MONTH) as expiry_date,
+        DATEDIFF(DATE_ADD(m.paid_date, INTERVAL GREATEST(1, CAST(m.plan AS UNSIGNED)) MONTH), CURDATE()) as days_remaining 
         FROM members m 
         WHERE m.tenant_id = ?";
 $params = [$tenantId];
@@ -98,8 +103,8 @@ foreach ($allUpcomingSubs as $ups) {
 
 // Financial summary
 // Revenue comes from paid invoices (members.amount only holds each member's latest fee)
-$totalCollected = (float)DB::fetchValue("SELECT SUM(paid_amount) FROM invoices WHERE tenant_id = ? AND LOWER(status) IN ('paid','partial')", [$tenantId]);
-$thisMonthCollected = (float)DB::fetchValue("SELECT SUM(paid_amount) FROM invoices WHERE tenant_id = ? AND LOWER(status) IN ('paid','partial') AND payment_date >= ? AND payment_date < ?", [$tenantId, date('Y-m-01'), date('Y-m-01', strtotime('first day of next month'))]);
+$totalCollected = (float)DB::fetchValue("SELECT SUM(CASE WHEN LOWER(status) = 'paid' AND COALESCE(paid_amount, 0) <= 0 THEN COALESCE(amount, 0) ELSE COALESCE(paid_amount, 0) END) FROM invoices WHERE tenant_id = ? AND LOWER(status) IN ('paid','partial')", [$tenantId]);
+$thisMonthCollected = (float)DB::fetchValue("SELECT SUM(CASE WHEN LOWER(status) = 'paid' AND COALESCE(paid_amount, 0) <= 0 THEN COALESCE(amount, 0) ELSE COALESCE(paid_amount, 0) END) FROM invoices WHERE tenant_id = ? AND LOWER(status) IN ('paid','partial') AND payment_date >= ? AND payment_date < ?", [$tenantId, date('Y-m-01'), date('Y-m-01', strtotime('first day of next month'))]);
 $upcomingTotalAmount = (float)DB::fetchValue("SELECT SUM(plan_price_snapshot) FROM member_subscriptions WHERE tenant_id = ? AND status = 'upcoming'", [$tenantId]);
 
 include __DIR__ . '/../includes/header.php';
@@ -330,7 +335,7 @@ include __DIR__ . '/../includes/topbar.php';
                                     </td>
                                     <td>
                                         <div><?php echo e($m['services']); ?></div>
-                                        <div style="font-size: 0.78rem; color: var(--text-muted);"><?php echo $m['plan']; ?> Month(s)</div>
+                                        <div style="font-size: 0.78rem; color: var(--text-muted);"><?php echo max(1, (int)$m['plan']); ?> Month(s)</div>
                                     </td>
                                     <td>
                                         <strong style="color: var(--primary);"><?php echo format_currency($m['amount']); ?></strong>

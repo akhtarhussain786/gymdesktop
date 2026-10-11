@@ -208,7 +208,7 @@ include __DIR__ . '/../includes/topbar.php';
                 <?php echo e($member['fullname']); ?> (#MEM-<?php echo str_pad($member['user_id'], 4, '0', STR_PAD_LEFT); ?>)
             </div>
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">
-                Current Plan: <strong><?php echo e($member['services']); ?></strong> (<?php echo $member['plan']; ?> Mo) • Status: <?php echo status_badge($member['status']); ?>
+                Current Plan: <strong><?php echo e($member['services']); ?></strong> (<?php echo e($member['plan']); ?> Mo) • Status: <?php echo status_badge($member['status']); ?>
             </div>
         </div>
 
@@ -264,7 +264,7 @@ include __DIR__ . '/../includes/topbar.php';
 
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">Monthly Rate (<?php echo $tenant['currency']; ?>) *</label>
+                    <label class="form-label">Monthly Rate (<?php echo e($tenant['currency']); ?>) *</label>
                     <input type="number" step="0.01" name="amount" id="rate-input" class="form-control" value="<?php echo $initialMonthlyRate; ?>" oninput="updatePayTotal()" required />
                 </div>
                 <div class="form-group">
@@ -313,7 +313,7 @@ include __DIR__ . '/../includes/topbar.php';
                         <div style="font-size: 0.85rem; color: var(--text-muted);">Gym Owner UPI ID / VPA:</div>
                         <div style="font-weight: 700; font-size: 0.95rem; color: var(--primary); margin-bottom: 10px; word-break: break-all;">
                             <span id="upi-id-display"><?php echo e($upiId); ?></span>
-                            <button type="button" onclick="navigator.clipboard.writeText('<?php echo e($upiId); ?>'); alert('UPI ID Copied to clipboard!');" class="btn btn-sm btn-secondary" style="padding: 2px 8px; font-size: 0.75rem; margin-left: 6px;">
+                            <button type="button" onclick="navigator.clipboard.writeText(<?php echo e(js_value($upiId)); ?>); alert('UPI ID Copied to clipboard!');" class="btn btn-sm btn-secondary" style="padding: 2px 8px; font-size: 0.75rem; margin-left: 6px;">
                                 <i class="fas fa-copy"></i> Copy
                             </button>
                         </div>
@@ -365,13 +365,13 @@ function updatePayTotal() {
     const rate = parseFloat(document.getElementById('rate-input').value) || 0;
     const plan = parseInt(document.getElementById('plan-select').value) || 1;
     const total = (rate * plan).toFixed(2);
-    const currency = "<?php echo $tenant['currency']; ?>";
+    const currency = <?php echo js_value((string)($tenant['currency'] ?? '')); ?>;
     document.getElementById('total-pay-display').innerText = currency + total;
 
     // Live Dynamic UPI QR Code Generation
-    const upiId = "<?php echo e($upiId); ?>";
-    const gymName = "<?php echo e($gymName); ?>";
-    const memberName = "<?php echo e($member['fullname']); ?>";
+    const upiId = <?php echo js_value($upiId); ?>;
+    const gymName = <?php echo js_value($gymName); ?>;
+    const memberName = <?php echo js_value((string)$member['fullname']); ?>;
     const serviceSelect = document.getElementById('service-select');
     const serviceName = serviceSelect ? serviceSelect.value : 'Fitness';
 

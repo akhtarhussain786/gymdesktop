@@ -6,8 +6,9 @@
 require_once __DIR__ . '/middleware.php';
 require_once __DIR__ . '/../../core/pdf_generator.php';
 
-// GET document opened in a browser/webview: ?token= is accepted for this endpoint only
-$auth = MemberAuthMiddleware::authenticate(null, true);
+// Header / POST-body token only: a ?token= query string leaks into access logs and browser history
+// (no app version builds such a link; the member app renders receipts itself)
+$auth = MemberAuthMiddleware::authenticate();
 $tenant = $auth['tenant'];
 $member = $auth['member'];
 $tenantId = $auth['tenant_id'];

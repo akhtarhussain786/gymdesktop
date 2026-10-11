@@ -359,6 +359,41 @@ class AccountProvisioner {
     }
 
     /**
+     * What happened to an existing Cashfree order (used by checkout pages when the order could not be
+     * created again, before they replace its order id — a PAID order must never be orphaned).
+     * Returns ['state' => 'paid'|'active'|'closed'|'not_found'|'unknown', 'payment_session_id' => ?string]
+     *   paid      → take the verification / provisioning path, never start a new payment
+     *   active    → still payable; reuse 'payment_session_id' when Cashfree returned one
+     *   closed    → EXPIRED / TERMINATED / CANCELLED: safe to replace with a new order id
+     *   not_found → Cashfree has no order with this id: safe to replace
+     *   unknown   → could not tell (network / auth error, other status): do not replace
+     */
+    public static function gatewayOrderState($orderId) {
+        if (!class_exists('CashfreeGateway')) {
+            require_once __DIR__ . '/cashfree.php';
+        }
+        $verify = CashfreeGateway::verifyOrder($orderId);
+        if (empty($verify['success'])) {
+            $err = strtolower((string)($verify['error'] ?? ''));
+            $notFound = strpos($err, 'not found') !== false || strpos($err, 'not exist') !== false || strpos($err, 'not_found') !== false;
+            return ['state' => $notFound ? 'not_found' : 'unknown', 'payment_session_id' => null];
+        }
+
+        $orderStatus = strtoupper((string)($verify['order_status'] ?? ''));
+        if ($orderStatus === 'PAID' || ($verify['status'] ?? '') === 'PAID') {
+            return ['state' => 'paid', 'payment_session_id' => null];
+        }
+        if ($orderStatus === 'ACTIVE') {
+            $sid = $verify['raw_order']['payment_session_id'] ?? null;
+            return ['state' => 'active', 'payment_session_id' => (is_string($sid) && $sid !== '') ? $sid : null];
+        }
+        if (in_array($orderStatus, ['EXPIRED', 'TERMINATED', 'CANCELLED'], true)) {
+            return ['state' => 'closed', 'payment_session_id' => null];
+        }
+        return ['state' => 'unknown', 'payment_session_id' => null];
+    }
+
+    /**
      * Mask email for display on public confirmation screens (e.g. j***n@example.com)
      */
     public static function maskEmail($email) {

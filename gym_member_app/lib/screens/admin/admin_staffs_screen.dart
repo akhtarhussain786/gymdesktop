@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/admin_models.dart';
 import '../../providers/admin_provider.dart';
@@ -22,6 +23,7 @@ class _AdminStaffsScreenState extends State<AdminStaffsScreen> {
   void _showAddStaffModal() {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
+    final usernameCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
     final addressCtrl = TextEditingController();
     final salaryCtrl = TextEditingController();
@@ -154,6 +156,22 @@ class _AdminStaffsScreenState extends State<AdminStaffsScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  controller: usernameCtrl,
+                  style: const TextStyle(color: Colors.white),
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: 'Login Username (Optional)',
+                    helperText: 'Leave empty to auto-generate. A temporary password is generated and shown after saving.',
+                    helperMaxLines: 2,
+                    helperStyle: const TextStyle(color: Colors.white38, fontSize: 11),
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.05),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
                   controller: emailCtrl,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
@@ -182,7 +200,7 @@ class _AdminStaffsScreenState extends State<AdminStaffsScreen> {
                       }
                       Navigator.pop(ctx);
                       try {
-                        await context.read<AdminProvider>().addStaff(
+                        final result = await context.read<AdminProvider>().addStaff(
                           fullname: nameCtrl.text.trim(),
                           phone: phoneCtrl.text.trim(),
                           email: emailCtrl.text.trim(),
@@ -190,8 +208,14 @@ class _AdminStaffsScreenState extends State<AdminStaffsScreen> {
                           designation: designation,
                           gender: gender,
                           salary: double.tryParse(salaryCtrl.text.trim()) ?? 0.0,
+                          username: usernameCtrl.text.trim(),
                         );
-                        if (mounted) {
+                        if (!mounted) return;
+                        final username = (result['username'] ?? '').toString();
+                        final password = (result['password'] ?? '').toString();
+                        if (username.isNotEmpty || password.isNotEmpty) {
+                          _showStaffCredentials(nameCtrl.text.trim(), username, password);
+                        } else {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Staff member added successfully!')),
                           );
@@ -211,6 +235,58 @@ class _AdminStaffsScreenState extends State<AdminStaffsScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // Login details returned by the server; the temporary password is shown only this once
+  void _showStaffCredentials(String name, String username, String password) {
+    final text = 'Login details for $name\n'
+        '${username.isNotEmpty ? 'Username: $username\n' : ''}'
+        '${password.isNotEmpty ? 'Temporary password: $password\n' : ''}';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2C),
+        title: const Text('Staff member added', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (username.isNotEmpty) ...[
+              const Text('Username', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              SelectableText(username, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+            ],
+            if (password.isNotEmpty) ...[
+              const Text('Temporary password', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              SelectableText(password, style: const TextStyle(color: Color(0xFFFDCB6E), fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              const Text(
+                'Share it with the staff member now — it will not be shown again. They should change it after first login.',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Login details copied')));
+              }
+            },
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text('Copy'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6C5CE7)),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }

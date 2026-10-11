@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/subscription_engine.php';
 Auth::requireAuth(['gym_admin', 'staff', 'trainer']);
 
 $page = 'members';
@@ -9,12 +10,21 @@ $memberId = (int)($_GET['id'] ?? 0);
 
 $member = DB::fetchOne("SELECT m.*, s.fullname as trainer_name 
                         FROM members m 
-                        LEFT JOIN staffs s ON m.trainer_id = s.user_id 
+                        LEFT JOIN staffs s ON m.trainer_id = s.user_id AND s.tenant_id = m.tenant_id 
                         WHERE m.user_id = ? AND m.tenant_id = ?", [$memberId, $tenantId]);
 // Trainers may only open members assigned to them (or unassigned), matching trainer/index.php
-if ($member && ($_SESSION['role'] ?? '') === 'trainer'
-    && !empty($member['trainer_id']) && (int)$member['trainer_id'] !== (int)$_SESSION['user_id']) {
-    $member = null;
+if ($member && ($_SESSION['role'] ?? '') === 'trainer' && !empty($member['trainer_id'])) {
+    // members.trainer_id is a staffs.user_id; a users-table login maps to it through users.staff_id
+    $viewerStaffId = (int)$_SESSION['user_id'];
+    if (($_SESSION['auth_source'] ?? '') === 'users' && in_array('staff_id', DB::tableColumns('users') ?? [], true)) {
+        $linkedStaffId = (int)DB::fetchValue("SELECT staff_id FROM users WHERE id = ? AND tenant_id = ?", [(int)($_SESSION['account_id'] ?? $_SESSION['user_id']), $tenantId]);
+        if ($linkedStaffId > 0) {
+            $viewerStaffId = $linkedStaffId;
+        }
+    }
+    if ((int)$member['trainer_id'] !== $viewerStaffId) {
+        $member = null;
+    }
 }
 if (!$member) {
     redirect((($_SESSION['role'] ?? '') === 'trainer') ? base_url('/trainer/index') : base_url('/admin/members'), 'error', 'Member record not found.');
@@ -54,7 +64,7 @@ include __DIR__ . '/../includes/topbar.php';
         <div class="card" style="background: linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-app) 100%); border: 2px solid var(--border-color); text-align: center; padding: 24px; position: relative;">
             <div style="position: absolute; top: 16px; right: 16px;">
                 <?php
-                    $planEnd = !empty($member['paid_date']) ? date('Y-m-d', strtotime('+' . max(1, (int)$member['plan']) . ' months', strtotime($member['paid_date']))) : null;
+                    $planEnd = !empty($member['paid_date']) ? SubscriptionEngine::addMonths($member['paid_date'], max(1, (int)$member['plan'])) : null;
                     $effStatus = ($member['status'] === 'Active' && ($planEnd === null || $planEnd < date('Y-m-d'))) ? 'Expired' : $member['status'];
                     echo status_badge($effStatus);
                 ?>
@@ -72,7 +82,7 @@ include __DIR__ . '/../includes/topbar.php';
             </div>
 
             <div style="text-align: left; background: var(--bg-surface); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 0.88rem; line-height: 1.8;">
-                <div><span style="color: var(--text-muted);">Service:</span> <strong><?php echo e($member['services']); ?> (<?php echo $member['plan']; ?> Mo)</strong></div>
+                <div><span style="color: var(--text-muted);">Service:</span> <strong><?php echo e($member['services']); ?> (<?php echo e($member['plan']); ?> Mo)</strong></div>
                 <div><span style="color: var(--text-muted);">Joined Date:</span> <strong><?php echo format_date($member['dor']); ?></strong></div>
                 <div><span style="color: var(--text-muted);">Phone:</span> <strong><?php echo e($member['contact']); ?></strong></div>
                 <div><span style="color: var(--text-muted);">Email:</span> <strong><?php echo e($member['email'] ?: 'Not Provided'); ?></strong></div>

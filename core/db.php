@@ -41,6 +41,7 @@ if (!$isApiRequest && PHP_SAPI !== 'cli') {
 class DB {
     public static $lastError = '';
     private static $connection = null;
+    private static $columnCache = [];
     private static $config = [
         'host' => 'localhost',
         'user' => '',
@@ -51,7 +52,7 @@ class DB {
     /**
      * Bump this whenever ensureSchema() gains new DDL so it re-runs once on every deployment
      */
-    const SCHEMA_VERSION = '2026-10-06.1';
+    const SCHEMA_VERSION = '2026-10-10.3';
 
     /**
      * Get or initialize the MySQLi database connection
@@ -99,7 +100,8 @@ class DB {
             if (!headers_sent()) {
                 http_response_code(503);
             }
-            $showDebug = isset($_GET['debug']) || isset($_GET['check_db']);
+            // Connection details are only ever shown on the command line, never to web visitors
+            $showDebug = (PHP_SAPI === 'cli');
             $debugInfo = '';
             if ($showDebug) {
                 $debugInfo = "<div style='margin-top:16px;padding:14px;background:#fff;border:1px solid #fca5a5;border-radius:6px;font-family:monospace;font-size:13px;color:#7f1d1d;line-height:1.6;'>
@@ -124,10 +126,16 @@ class DB {
         $markerValue = self::SCHEMA_VERSION . '|' . md5(self::$config['host'] . '/' . self::$config['name']);
         $currentMarker = @file_get_contents($markerFile);
         if ($currentMarker === false || trim($currentMarker) !== $markerValue) {
-            self::ensureSchema($con);
-            $verify = mysqli_query($con, "SHOW TABLES LIKE 'tenants'");
-            if ($verify && mysqli_num_rows($verify) > 0) {
-                @file_put_contents($markerFile, $markerValue, LOCK_EX);
+            // Only one request runs the DDL; concurrent requests skip it instead of piling up on table locks
+            $lockRes = mysqli_query($con, "SELECT GET_LOCK('gymsaas_ensure_schema', 0)");
+            $gotLock = $lockRes && (int)(mysqli_fetch_row($lockRes)[0] ?? 0) === 1;
+            if ($gotLock) {
+                self::ensureSchema($con);
+                $verify = mysqli_query($con, "SHOW TABLES LIKE 'tenants'");
+                if ($verify && mysqli_num_rows($verify) > 0) {
+                    @file_put_contents($markerFile, $markerValue, LOCK_EX);
+                }
+                mysqli_query($con, "SELECT RELEASE_LOCK('gymsaas_ensure_schema')");
             }
         }
 
@@ -138,15 +146,23 @@ class DB {
      * Automatically ensure SaaS schema & email tracking is created if not present
      */
     private static function ensureSchema($con) {
+        $freshInstall = false;
         $check = mysqli_query($con, "SHOW TABLES LIKE 'tenants'");
         if ($check && mysqli_num_rows($check) === 0) {
             $migration_path = __DIR__ . '/../database/migration_saas.sql';
             if (file_exists($migration_path)) {
+                // The migration file changes sql_mode / time_zone for the session; restore them afterwards
+                $modeRes = mysqli_query($con, "SELECT @@SESSION.sql_mode, @@SESSION.time_zone");
+                $sessionVars = $modeRes ? mysqli_fetch_row($modeRes) : null;
                 $sql = file_get_contents($migration_path);
                 mysqli_multi_query($con, $sql);
                 while (mysqli_more_results($con) && mysqli_next_result($con)) {
                     // flush multi_query buffers
                 }
+                if ($sessionVars) {
+                    mysqli_query($con, "SET SESSION sql_mode = '" . mysqli_real_escape_string($con, (string)$sessionVars[0]) . "', time_zone = '" . mysqli_real_escape_string($con, (string)$sessionVars[1]) . "'");
+                }
+                $freshInstall = true;
             }
         }
         $checkSub = mysqli_query($con, "SHOW TABLES LIKE 'member_subscriptions'");
@@ -246,36 +262,36 @@ class DB {
                 }
             }
             if (!in_array('amount', $existingCols) && in_array('total_amount', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `amount` decimal(10,2) NOT NULL DEFAULT 0.00"); // no AFTER: payment_id may not exist yet
-                @mysqli_query($con, "UPDATE `invoices` SET `amount` = `total_amount` WHERE `amount` = 0 AND `total_amount` > 0");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `amount` decimal(10,2) NOT NULL DEFAULT 0.00"); // no AFTER: payment_id may not exist yet
+                self::ddl($con, "UPDATE `invoices` SET `amount` = `total_amount` WHERE `amount` = 0 AND `total_amount` > 0");
             }
             if (!in_array('total_amount', $existingCols) && in_array('amount', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `total_amount` decimal(10,2) NOT NULL DEFAULT 0.00 AFTER `plan_months`");
-                @mysqli_query($con, "UPDATE `invoices` SET `total_amount` = `amount` WHERE `total_amount` = 0 AND `amount` > 0");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `total_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+                self::ddl($con, "UPDATE `invoices` SET `total_amount` = `amount` WHERE `total_amount` = 0 AND `amount` > 0");
             }
             if (!in_array('branch_id', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `branch_id` int(11) DEFAULT 1 AFTER `tenant_id`");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `branch_id` int(11) DEFAULT 1 AFTER `tenant_id`");
             }
             if (!in_array('payment_id', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `payment_id` int(11) DEFAULT NULL AFTER `member_id`");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `payment_id` int(11) DEFAULT NULL AFTER `member_id`");
             }
             if (!in_array('paid_amount', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
             }
             if (!in_array('discount', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `discount` decimal(10,2) NOT NULL DEFAULT 0.00");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `discount` decimal(10,2) NOT NULL DEFAULT 0.00");
             }
             if (!in_array('plan_months', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `plan_months` int(11) NOT NULL DEFAULT 1");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `plan_months` int(11) NOT NULL DEFAULT 1");
             }
             if (!in_array('service_name', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `service_name` varchar(100) DEFAULT 'Gym Membership'");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `service_name` varchar(100) DEFAULT 'Gym Membership'");
             }
             if (!in_array('transaction_ref', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `transaction_ref` varchar(100) DEFAULT NULL");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `transaction_ref` varchar(100) DEFAULT NULL");
             }
             if (!in_array('notes', $existingCols)) {
-                @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `notes` text DEFAULT NULL");
+                self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `notes` text DEFAULT NULL");
             }
         }
 
@@ -288,45 +304,45 @@ class DB {
             }
         }
         if (!in_array('gym_code', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `gym_code` varchar(50) DEFAULT NULL AFTER `id`");
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD INDEX `idx_gym_code` (`gym_code`)");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `gym_code` varchar(50) DEFAULT NULL AFTER `id`");
+            self::ddl($con, "ALTER TABLE `tenants` ADD INDEX `idx_gym_code` (`gym_code`)");
         }
         if (!in_array('name', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `name` varchar(150) DEFAULT NULL AFTER `gym_name`");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `name` varchar(150) DEFAULT NULL AFTER `gym_name`");
         }
         if (!in_array('gym_name', $existingTCols) && in_array('name', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `gym_name` varchar(150) DEFAULT NULL AFTER `id`");
-            @mysqli_query($con, "UPDATE `tenants` SET `gym_name` = `name` WHERE `gym_name` IS NULL OR `gym_name` = ''");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `gym_name` varchar(150) DEFAULT NULL AFTER `id`");
+            self::ddl($con, "UPDATE `tenants` SET `gym_name` = `name` WHERE `gym_name` IS NULL OR `gym_name` = ''");
         }
         if (!in_array('upi_id', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `upi_id` varchar(100) DEFAULT NULL AFTER `phone`");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `upi_id` varchar(100) DEFAULT NULL AFTER `phone`");
         }
         if (!in_array('upi_qr', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `upi_qr` varchar(255) DEFAULT NULL AFTER `upi_id`");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `upi_qr` varchar(255) DEFAULT NULL AFTER `upi_id`");
         }
         if (!in_array('invoice_header', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `invoice_header` text DEFAULT NULL AFTER `upi_qr`");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `invoice_header` text DEFAULT NULL AFTER `upi_qr`");
         }
         if (!in_array('invoice_footer', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `invoice_footer` text DEFAULT NULL AFTER `invoice_header`");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `invoice_footer` text DEFAULT NULL AFTER `invoice_header`");
         }
         if (!in_array('primary_color', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `primary_color` varchar(16) DEFAULT '#3b82f6'");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `primary_color` varchar(16) DEFAULT '#3b82f6'");
         }
         if (!in_array('secondary_color', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `secondary_color` varchar(16) DEFAULT '#10b981'");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `secondary_color` varchar(16) DEFAULT '#10b981'");
         }
         if (!in_array('currency', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `currency` varchar(10) DEFAULT '₹'");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `currency` varchar(10) DEFAULT '₹'");
         }
         if (!in_array('timezone', $existingTCols)) {
-            @mysqli_query($con, "ALTER TABLE `tenants` ADD COLUMN `timezone` varchar(64) DEFAULT 'Asia/Kolkata'");
+            self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `timezone` varchar(64) DEFAULT 'Asia/Kolkata'");
         }
 
         // Ensure users.must_change_password exists (forced first-login password change)
         $uColRes = mysqli_query($con, "SHOW COLUMNS FROM `users` LIKE 'must_change_password'");
         if ($uColRes && mysqli_num_rows($uColRes) === 0) {
-            @mysqli_query($con, "ALTER TABLE `users` ADD COLUMN `must_change_password` tinyint(1) NOT NULL DEFAULT 0 AFTER `status`");
+            self::ddl($con, "ALTER TABLE `users` ADD COLUMN `must_change_password` tinyint(1) NOT NULL DEFAULT 0 AFTER `status`");
         }
 
         // Password reset tokens + request log (used for rate limiting)
@@ -359,28 +375,286 @@ class DB {
             }
         }
         if (!in_array('avatar', $existingMCols)) {
-            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `avatar` varchar(255) DEFAULT NULL");
+            self::ddl($con, "ALTER TABLE `members` ADD COLUMN `avatar` varchar(255) DEFAULT NULL");
         }
         if (!in_array('due_amount', $existingMCols)) {
-            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `due_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
+            self::ddl($con, "ALTER TABLE `members` ADD COLUMN `due_amount` decimal(10,2) NOT NULL DEFAULT 0.00");
         }
         if (!in_array('due_date', $existingMCols)) {
-            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `due_date` date DEFAULT NULL");
+            self::ddl($con, "ALTER TABLE `members` ADD COLUMN `due_date` date DEFAULT NULL");
         }
         if (!in_array('notes', $existingMCols)) {
-            @mysqli_query($con, "ALTER TABLE `members` ADD COLUMN `notes` text DEFAULT NULL");
+            self::ddl($con, "ALTER TABLE `members` ADD COLUMN `notes` text DEFAULT NULL");
         }
 
         // Ensure users.avatar exists
         $uAvatarRes = mysqli_query($con, "SHOW COLUMNS FROM `users` LIKE 'avatar'");
         if ($uAvatarRes && mysqli_num_rows($uAvatarRes) === 0) {
-            @mysqli_query($con, "ALTER TABLE `users` ADD COLUMN `avatar` varchar(255) DEFAULT NULL AFTER `phone`");
+            self::ddl($con, "ALTER TABLE `users` ADD COLUMN `avatar` varchar(255) DEFAULT NULL AFTER `phone`");
         }
 
         // Ensure invoices.due_date exists
         $iDueDateRes = mysqli_query($con, "SHOW COLUMNS FROM `invoices` LIKE 'due_date'");
         if ($iDueDateRes && mysqli_num_rows($iDueDateRes) === 0) {
-            @mysqli_query($con, "ALTER TABLE `invoices` ADD COLUMN `due_date` date DEFAULT NULL AFTER `payment_date`");
+            self::ddl($con, "ALTER TABLE `invoices` ADD COLUMN `due_date` date DEFAULT NULL AFTER `payment_date`");
+        }
+
+        // Status values the code writes must exist in the enum (installs differ: Paid/Partial/Unpaid vs paid/pending/partial/cancelled).
+        // Only appends missing values, so existing rows and their spelling are untouched.
+        self::ensureEnumValues($con, 'invoices', 'status', ['paid', 'partial', 'unpaid', 'pending', 'cancelled']);
+
+        // Support tickets table (used by the member app; missing on installs upgraded from the legacy template)
+        $checkInq = mysqli_query($con, "SHOW TABLES LIKE 'member_inquiries'");
+        if ($checkInq && mysqli_num_rows($checkInq) === 0) {
+            self::ddl($con, "CREATE TABLE IF NOT EXISTS `member_inquiries` (
+              `id` int(11) NOT NULL AUTO_INCREMENT,
+              `tenant_id` int(11) NOT NULL,
+              `branch_id` int(11) DEFAULT 1,
+              `member_id` int(11) NOT NULL,
+              `category` varchar(50) NOT NULL DEFAULT 'General',
+              `subject` varchar(150) NOT NULL,
+              `message` text NOT NULL,
+              `reply` text DEFAULT NULL,
+              `status` enum('open','pending','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
+              `replied_by` int(11) DEFAULT NULL,
+              `replied_at` datetime DEFAULT NULL,
+              `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (`id`),
+              KEY `idx_tenant_member` (`tenant_id`, `member_id`),
+              KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } else {
+            self::ensureEnumValues($con, 'member_inquiries', 'status', ['open', 'pending', 'in_progress', 'resolved', 'closed']);
+        }
+
+        // Reusable workout / diet plan templates (older installs store per-member plans without these columns)
+        foreach (['workout_plans', 'diet_plans'] as $planTable) {
+            $pCols = self::columnsOf($con, $planTable);
+            if ($pCols === null) {
+                continue;
+            }
+            if (!isset($pCols['name'])) {
+                self::ddl($con, "ALTER TABLE `{$planTable}` ADD COLUMN `name` varchar(150) DEFAULT NULL");
+                if (isset($pCols['plan_name'])) {
+                    self::ddl($con, "UPDATE `{$planTable}` SET `name` = `plan_name` WHERE `name` IS NULL");
+                }
+            }
+            if (!isset($pCols['description'])) {
+                self::ddl($con, "ALTER TABLE `{$planTable}` ADD COLUMN `description` text DEFAULT NULL");
+            }
+            if (!isset($pCols['created_by'])) {
+                self::ddl($con, "ALTER TABLE `{$planTable}` ADD COLUMN `created_by` int(11) DEFAULT NULL");
+            }
+            // Template rows have no member / legacy plan_name: allow NULL instead of failing the insert
+            $jsonCol = ($planTable === 'workout_plans') ? 'schedule_json' : 'meals_json';
+            foreach (['member_id', 'plan_name', $jsonCol] as $relaxCol) {
+                if (isset($pCols[$relaxCol]) && $pCols[$relaxCol]['Null'] === 'NO' && $pCols[$relaxCol]['Default'] === null) {
+                    self::ddl($con, "ALTER TABLE `{$planTable}` MODIFY `{$relaxCol}` {$pCols[$relaxCol]['Type']} NULL");
+                }
+            }
+        }
+
+        // Push device registry columns used by the notification engine (portable: no "ADD COLUMN IF NOT EXISTS")
+        $dCols = self::columnsOf($con, 'device_tokens');
+        if ($dCols !== null) {
+            if (!isset($dCols['user_id'])) {
+                self::ddl($con, "ALTER TABLE `device_tokens` ADD COLUMN `user_id` int(11) DEFAULT NULL");
+            }
+            if (!isset($dCols['user_role'])) {
+                self::ddl($con, "ALTER TABLE `device_tokens` ADD COLUMN `user_role` varchar(30) DEFAULT 'member'");
+            }
+            if (!isset($dCols['status'])) {
+                self::ddl($con, "ALTER TABLE `device_tokens` ADD COLUMN `status` varchar(20) DEFAULT 'active'");
+            }
+            if (!isset($dCols['last_active_at'])) {
+                self::ddl($con, "ALTER TABLE `device_tokens` ADD COLUMN `last_active_at` datetime DEFAULT NULL");
+            }
+        }
+
+        // Paid gym sign-up (Cashfree onboarding) tables & columns from database/migration_onboarding.sql,
+        // which was never applied automatically: without them paid registrations and webhooks fail silently.
+        self::ddl($con, "CREATE TABLE IF NOT EXISTS `pending_onboardings` (
+          `id` int(11) NOT NULL AUTO_INCREMENT,
+          `reg_ref` varchar(60) NOT NULL,
+          `gym_name` varchar(150) NOT NULL,
+          `slug` varchar(150) NOT NULL,
+          `owner_name` varchar(100) NOT NULL,
+          `email` varchar(100) NOT NULL,
+          `phone` varchar(30) NOT NULL,
+          `address` varchar(255) DEFAULT NULL,
+          `country` varchar(100) DEFAULT 'India',
+          `state` varchar(100) DEFAULT NULL,
+          `city` varchar(100) DEFAULT NULL,
+          `currency` varchar(10) DEFAULT '₹',
+          `timezone` varchar(50) DEFAULT 'Asia/Kolkata',
+          `plan_id` int(11) NOT NULL,
+          `billing_cycle` varchar(20) DEFAULT 'monthly',
+          `amount` decimal(10,2) NOT NULL DEFAULT 0.00,
+          `order_id` varchar(100) DEFAULT NULL,
+          `status` enum('pending','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+          `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `idx_reg_ref` (`reg_ref`),
+          KEY `idx_order_id` (`order_id`),
+          KEY `idx_email` (`email`),
+          KEY `idx_phone` (`phone`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        self::ddl($con, "CREATE TABLE IF NOT EXISTS `webhook_logs` (
+          `id` int(11) NOT NULL AUTO_INCREMENT,
+          `event_type` varchar(100) DEFAULT NULL,
+          `order_id` varchar(100) DEFAULT NULL,
+          `signature` varchar(255) DEFAULT NULL,
+          `payload` longtext DEFAULT NULL,
+          `status` varchar(50) DEFAULT 'received',
+          `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_order_id` (`order_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $spCols = self::columnsOf($con, 'saas_payments');
+        if ($spCols !== null) {
+            $spAdd = [
+                'reg_ref' => "varchar(60) DEFAULT NULL",
+                'cf_order_id' => "varchar(100) DEFAULT NULL",
+                'cf_payment_id' => "varchar(100) DEFAULT NULL",
+                'email_status' => "enum('pending','sent','failed') NOT NULL DEFAULT 'pending'",
+                'email_sent_at' => "datetime DEFAULT NULL",
+                'failure_reason' => "text DEFAULT NULL",
+                'webhook_payload' => "longtext DEFAULT NULL",
+                'webhook_status' => "varchar(50) DEFAULT NULL",
+                'approved_by' => "int(11) DEFAULT NULL",
+            ];
+            foreach ($spAdd as $col => $def) {
+                if (!isset($spCols[$col])) {
+                    self::ddl($con, "ALTER TABLE `saas_payments` ADD COLUMN `{$col}` {$def}");
+                }
+            }
+        }
+        $tCols = self::columnsOf($con, 'tenants');
+        if ($tCols !== null) {
+            foreach (['country' => "varchar(100) DEFAULT 'India'", 'state' => "varchar(100) DEFAULT NULL", 'city' => "varchar(100) DEFAULT NULL"] as $col => $def) {
+                if (!isset($tCols[$col])) {
+                    self::ddl($con, "ALTER TABLE `tenants` ADD COLUMN `{$col}` {$def}");
+                }
+            }
+        }
+        // Member renewal orders store their duration (otherwise it is inferred from amount / rate)
+        $mpCols = self::columnsOf($con, 'membership_payments');
+        if ($mpCols !== null && !isset($mpCols['plan_months'])) {
+            self::ddl($con, "ALTER TABLE `membership_payments` ADD COLUMN `plan_months` int(11) DEFAULT NULL");
+        }
+
+        // Platform key/value settings (created here so set_platform_setting() never needs DDL mid-transaction)
+        self::ddl($con, "CREATE TABLE IF NOT EXISTS `settings` (`id` int(11) AUTO_INCREMENT PRIMARY KEY, `setting_key` varchar(100) UNIQUE, `setting_value` longtext)");
+
+        // Staff login link (users.staff_id) so password changes / deletions reach both account rows
+        $uCols = self::columnsOf($con, 'users');
+        if ($uCols !== null && !isset($uCols['staff_id'])) {
+            self::ddl($con, "ALTER TABLE `users` ADD COLUMN `staff_id` int(11) DEFAULT NULL");
+        }
+
+        // A brand-new install seeds `superadmin` / `admin` from migration_saas.sql with a publicly known password.
+        // Replace it with a random one that must be changed at first login, and leave it in a non-public file.
+        if ($freshInstall) {
+            self::rotateSeededPasswords($con);
+        }
+    }
+
+    /**
+     * Run a DDL / maintenance statement, logging (not hiding) failures
+     */
+    private static function ddl($con, $sql) {
+        $ok = mysqli_query($con, $sql);
+        if (!$ok) {
+            error_log('DB schema update failed: ' . mysqli_error($con) . ' | SQL: ' . substr(preg_replace('/\s+/', ' ', $sql), 0, 300));
+        }
+        return $ok;
+    }
+
+    /**
+     * SHOW COLUMNS as [lowercase name => row], or null if the table does not exist
+     */
+    private static function columnsOf($con, $table) {
+        $res = mysqli_query($con, "SHOW COLUMNS FROM `{$table}`");
+        if (!$res) {
+            return null;
+        }
+        $cols = [];
+        while ($row = mysqli_fetch_assoc($res)) {
+            $cols[strtolower($row['Field'])] = $row;
+        }
+        return $cols;
+    }
+
+    /**
+     * Append any missing values (case-insensitive) to an ENUM column, keeping existing values, default and nullability
+     */
+    private static function ensureEnumValues($con, $table, $column, array $required) {
+        $cols = self::columnsOf($con, $table);
+        if ($cols === null || !isset($cols[strtolower($column)])) {
+            return;
+        }
+        $col = $cols[strtolower($column)];
+        if (!preg_match("/^enum\((.*)\)$/i", (string)$col['Type'], $m)) {
+            return; // not an enum (e.g. varchar) — nothing to do
+        }
+        preg_match_all("/'((?:[^'\\\\]|\\\\.|'')*)'/", $m[1], $vm);
+        $existing = $vm[1];
+        $existingLower = array_map('strtolower', $existing);
+        $missing = [];
+        foreach ($required as $val) {
+            if (!in_array(strtolower($val), $existingLower, true)) {
+                $missing[] = $val;
+            }
+        }
+        if (empty($missing)) {
+            return;
+        }
+        $all = array_merge($existing, $missing);
+        $enumSql = implode(',', array_map(function ($v) use ($con) {
+            return "'" . mysqli_real_escape_string($con, str_replace("''", "'", $v)) . "'";
+        }, $all));
+        $nullSql = ($col['Null'] === 'YES') ? 'NULL' : 'NOT NULL';
+        $defaultSql = '';
+        if ($col['Default'] !== null) {
+            $defaultSql = " DEFAULT '" . mysqli_real_escape_string($con, $col['Default']) . "'";
+        } elseif ($col['Null'] === 'YES') {
+            $defaultSql = ' DEFAULT NULL';
+        }
+        self::ddl($con, "ALTER TABLE `{$table}` MODIFY `{$column}` enum({$enumSql}) {$nullSql}{$defaultSql}");
+    }
+
+    /**
+     * Fresh installs only: replace the publicly known seed password of `superadmin` / `admin`
+     */
+    private static function rotateSeededPasswords($con) {
+        $knownSeedHash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+        $res = mysqli_query($con, "SELECT id, username FROM `users` WHERE `password` = '" . mysqli_real_escape_string($con, $knownSeedHash) . "'");
+        if (!$res || mysqli_num_rows($res) === 0) {
+            return;
+        }
+        $lines = [];
+        while ($row = mysqli_fetch_assoc($res)) {
+            $newPass = bin2hex(random_bytes(6)) . 'Aa1';
+            $hash = password_hash($newPass, PASSWORD_DEFAULT);
+            $stmt = mysqli_prepare($con, "UPDATE `users` SET `password` = ?, `must_change_password` = 1 WHERE `id` = ?");
+            if ($stmt) {
+                $id = (int)$row['id'];
+                mysqli_stmt_bind_param($stmt, 'si', $hash, $id);
+                mysqli_stmt_execute($stmt);
+                mysqli_stmt_close($stmt);
+                $lines[] = $row['username'] . ' : ' . $newPass;
+            }
+        }
+        if (!empty($lines)) {
+            // logs/ is blocked from the web by .htaccess
+            @file_put_contents(
+                __DIR__ . '/../logs/initial_admin_credentials.txt',
+                "Initial passwords generated " . date('Y-m-d H:i:s') . " (change required at first login; delete this file afterwards)\n" . implode("\n", $lines) . "\n",
+                LOCK_EX
+            );
+            error_log('Fresh install: seeded admin passwords rotated; see logs/initial_admin_credentials.txt');
         }
     }
 
@@ -389,7 +663,12 @@ class DB {
      */
     public static function query($sql, $params = [], $types = "") {
         $con = self::connect();
-        
+
+        // Schema changes made during this request invalidate the cached column lists
+        if (preg_match('/^\s*(ALTER|CREATE|DROP|RENAME)\s/i', (string)$sql)) {
+            self::$columnCache = [];
+        }
+
         if (empty($params)) {
             $result = mysqli_query($con, $sql);
             if (!$result) {
@@ -414,7 +693,10 @@ class DB {
                 }
             }
 
-            if (!$executed) {
+            // Only fall back to typed binding when the statement never reached the server.
+            // Re-running a statement the server rejected (e.g. after a deadlock rolled the
+            // transaction back) would execute it a second time outside the transaction.
+            if (!$executed && mysqli_stmt_errno($stmt) === 0) {
                 if (empty($types)) {
                     $types = "";
                     foreach ($params as $p) {
@@ -556,21 +838,10 @@ class DB {
         }
 
         // Auto-filter columns to match existing table schema
-        $colRes = @mysqli_query($con, "SHOW COLUMNS FROM `$table`");
-        if ($colRes) {
-            $validCols = [];
-            while ($c = mysqli_fetch_assoc($colRes)) {
-                $validCols[] = strtolower($c['Field']);
-            }
-            $filteredData = [];
-            foreach ($data as $key => $val) {
-                if (in_array(strtolower($key), $validCols)) {
-                    $filteredData[$key] = $val;
-                }
-            }
-            if (!empty($filteredData)) {
-                $data = $filteredData;
-            }
+        $data = self::filterColumns($table, $data);
+        if (empty($data)) {
+            error_log("DB: insert into `{$table}` skipped, none of the supplied columns exist");
+            return 0;
         }
 
         $cols = array_keys($data);
@@ -588,6 +859,13 @@ class DB {
      * Update table row securely
      */
     public static function update($table, $data, $whereSql, $whereParams = []) {
+        // Skip columns this database does not have (schemas differ between installs) instead of
+        // letting one unknown column make the whole UPDATE fail silently
+        $data = self::filterColumns($table, $data);
+        if (empty($data)) {
+            return 0;
+        }
+
         $setClauses = [];
         $params = [];
         foreach ($data as $col => $val) {
@@ -609,6 +887,49 @@ class DB {
         $sql = "DELETE FROM `$table` WHERE " . $whereSql;
         $res = self::query($sql, $whereParams);
         return is_array($res) ? $res['affected'] : 0;
+    }
+
+    /**
+     * Lower-cased column names of a table (cached per request). Returns null if the table can't be read.
+     */
+    public static function tableColumns($table) {
+        $key = strtolower((string)$table);
+        if (!array_key_exists($key, self::$columnCache)) {
+            $cols = null;
+            $colRes = @mysqli_query(self::connect(), "SHOW COLUMNS FROM `" . str_replace('`', '', (string)$table) . "`");
+            if ($colRes) {
+                $cols = [];
+                while ($c = mysqli_fetch_assoc($colRes)) {
+                    $cols[] = strtolower($c['Field']);
+                }
+            }
+            self::$columnCache[$key] = $cols;
+        }
+        return self::$columnCache[$key];
+    }
+
+    /**
+     * Drop keys that are not columns of $table (logged, so schema drift stays visible).
+     * If the column list can't be read the data is returned unchanged.
+     */
+    private static function filterColumns($table, $data) {
+        $validCols = self::tableColumns($table);
+        if ($validCols === null) {
+            return $data;
+        }
+        $filtered = [];
+        $dropped = [];
+        foreach ($data as $key => $val) {
+            if (in_array(strtolower((string)$key), $validCols, true)) {
+                $filtered[$key] = $val;
+            } else {
+                $dropped[] = $key;
+            }
+        }
+        if (!empty($dropped)) {
+            error_log("DB: skipped unknown column(s) for `{$table}`: " . implode(', ', $dropped));
+        }
+        return $filtered;
     }
 
     /**

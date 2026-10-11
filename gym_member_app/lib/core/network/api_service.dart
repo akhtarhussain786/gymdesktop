@@ -13,6 +13,9 @@ class ApiException implements Exception {
 
   ApiException(this.message, {this.statusCode, this.errors});
 
+  /// True when the request never got a usable answer from the server (offline, timeout, 5xx).
+  bool get isNetworkOrServerError => statusCode == null || statusCode! >= 500;
+
   @override
   String toString() => message;
 }
@@ -20,16 +23,19 @@ class ApiException implements Exception {
 class ApiService {
   static VoidCallback? onSessionExpired;
   static String? activeToken;
+  static bool _sessionExpiryNotified = false;
+
+  static const Duration _defaultTimeout = Duration(seconds: 25);
 
   // Build standard headers with active bearer token and gym code
-  static Future<Map<String, String>> _getHeaders({String? gymCode}) async {
+  static Future<Map<String, String>> _getHeaders({String? gymCode, String? overrideToken}) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'Connection': 'close',
     };
 
-    String? token = activeToken;
+    String? token = (overrideToken != null && overrideToken.isNotEmpty) ? overrideToken : activeToken;
     if (token == null || token.isEmpty) {
       token = await SecureStorageService.getToken();
     }
@@ -48,15 +54,26 @@ class ApiService {
     return headers;
   }
 
-  // Resilient HTTP executor: handles keep-alive disconnects, edge proxy timeouts, and broken pipes
-  static Future<http.Response> _execute(Future<http.Response> Function(http.Client client) action) async {
+  static String? _tokenFromHeaders(Map<String, String> headers) => headers['X-Auth-Token'];
+
+  /// Re-arms the 401 handler once a new session is active (login / restore).
+  static void resetSessionExpiryGuard() {
+    _sessionExpiryNotified = false;
+  }
+
+  // Resilient HTTP executor: handles keep-alive disconnects, edge proxy timeouts, and broken pipes.
+  // Only idempotent requests (GET) are retried: replaying a POST could create a second payment/member.
+  static Future<http.Response> _execute(
+    Future<http.Response> Function(http.Client client) action, {
+    bool retry = false,
+  }) async {
     http.Client client = http.Client();
     try {
       return await action(client);
     } catch (e) {
       client.close();
-      // Auto-retry once on network/socket/write failure
-      if (e is http.ClientException || e is SocketException || e.toString().contains('Write failed') || e.toString().contains('Broken pipe')) {
+      if (retry &&
+          (e is http.ClientException || e is SocketException || e.toString().contains('Write failed') || e.toString().contains('Broken pipe'))) {
         client = http.Client();
         try {
           return await action(client);
@@ -76,6 +93,8 @@ class ApiService {
     Map<String, String>? queryParams,
     String? gymCode,
     bool isAdmin = false,
+    bool handleUnauthorized = true,
+    Duration? timeout,
   }) async {
     try {
       final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
@@ -85,8 +104,15 @@ class ApiService {
       }
 
       final headers = await _getHeaders(gymCode: gymCode);
-      final response = await _execute((client) => client.get(uri, headers: headers).timeout(const Duration(seconds: 25)));
-      return _handleResponse(response);
+      final response = await _execute(
+        (client) => client.get(uri, headers: headers).timeout(timeout ?? _defaultTimeout),
+        retry: true,
+      );
+      return _handleResponse(
+        response,
+        usedToken: _tokenFromHeaders(headers),
+        handleUnauthorized: handleUnauthorized,
+      );
     } on SocketException {
       throw ApiException('No internet connection. Please check your network and try again.');
     } on TimeoutException {
@@ -103,15 +129,24 @@ class ApiService {
     dynamic body,
     String? gymCode,
     bool isAdmin = false,
+    bool handleUnauthorized = true,
+    bool returnEnvelope = false,
+    Duration? timeout,
+    String? bearerToken,
   }) async {
     try {
       final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
       final uri = Uri.parse('$base$endpoint');
-      final headers = await _getHeaders(gymCode: gymCode);
+      final headers = await _getHeaders(gymCode: gymCode, overrideToken: bearerToken);
       final response = await _execute((client) => client
           .post(uri, headers: headers, body: body != null ? jsonEncode(body) : null)
-          .timeout(const Duration(seconds: 25)));
-      return _handleResponse(response);
+          .timeout(timeout ?? _defaultTimeout));
+      return _handleResponse(
+        response,
+        usedToken: _tokenFromHeaders(headers),
+        handleUnauthorized: handleUnauthorized,
+        returnEnvelope: returnEnvelope,
+      );
     } on SocketException {
       throw ApiException('No internet connection. Please check your network and try again.');
     } on TimeoutException {
@@ -132,6 +167,7 @@ class ApiService {
     String? fileName,
     String? gymCode,
     bool isAdmin = false,
+    bool handleUnauthorized = true,
   }) async {
     try {
       final base = isAdmin ? ApiConfig.adminBaseUrl : ApiConfig.baseUrl;
@@ -157,7 +193,11 @@ class ApiService {
 
       final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
       final response = await http.Response.fromStream(streamedResponse);
-      return _handleResponse(response);
+      return _handleResponse(
+        response,
+        usedToken: _tokenFromHeaders(headers),
+        handleUnauthorized: handleUnauthorized,
+      );
     } on SocketException {
       throw ApiException('No internet connection. Please check your network and try again.');
     } on TimeoutException {
@@ -169,7 +209,12 @@ class ApiService {
   }
 
   // Unified Response Parser
-  static dynamic _handleResponse(http.Response response) {
+  static dynamic _handleResponse(
+    http.Response response, {
+    String? usedToken,
+    bool handleUnauthorized = true,
+    bool returnEnvelope = false,
+  }) {
     dynamic decodedBody;
     try {
       decodedBody = jsonDecode(response.body);
@@ -186,7 +231,16 @@ class ApiService {
         : 'Request failed.';
 
     if (response.statusCode == 401) {
-      onSessionExpired?.call();
+      // Only a rejected token of the CURRENT session means the session expired. A wrong password on the
+      // login screen, or a late reply to a request made with an older token, must not log anyone out.
+      if (handleUnauthorized &&
+          usedToken != null &&
+          usedToken.isNotEmpty &&
+          usedToken == activeToken &&
+          !_sessionExpiryNotified) {
+        _sessionExpiryNotified = true;
+        onSessionExpired?.call();
+      }
       throw ApiException(message, statusCode: 401);
     }
 
@@ -202,6 +256,9 @@ class ApiService {
       throw ApiException(message, statusCode: response.statusCode, errors: validationErrors);
     }
 
+    if (returnEnvelope) {
+      return Map<String, dynamic>.from(decodedBody);
+    }
     return decodedBody['data'];
   }
 }

@@ -439,24 +439,105 @@ class Auth {
         }
 
         if ($source === 'users') {
-            $row = DB::fetchOne("SELECT status, role, tenant_id FROM users WHERE id = ?", [$accountId]);
+            $row = DB::fetchOne("SELECT status, role, tenant_id, password FROM users WHERE id = ?", [$accountId]);
             if (!$row || ($row['status'] ?? '') !== 'active') return false;
             if (self::normalizeRole($row['role']) !== ($_SESSION['role'] ?? '')) return false;
             if (($_SESSION['role'] ?? '') !== 'super_admin' && (int)$row['tenant_id'] !== (int)($_SESSION['tenant_id'] ?? 0)) return false;
-            return true;
+            return self::passwordUnchanged($row['password'] ?? '');
         }
         if ($source === 'staffs') {
-            $row = DB::fetchOne("SELECT status FROM staffs WHERE user_id = ? AND tenant_id = ?", [$accountId, (int)($_SESSION['tenant_id'] ?? 0)]);
-            return $row && strtolower($row['status'] ?? 'active') === 'active';
+            $row = DB::fetchOne("SELECT status, password FROM staffs WHERE user_id = ? AND tenant_id = ?", [$accountId, (int)($_SESSION['tenant_id'] ?? 0)]);
+            return $row && strtolower($row['status'] ?? 'active') === 'active' && self::passwordUnchanged($row['password'] ?? '');
         }
         if ($source === 'members') {
-            $row = DB::fetchOne("SELECT user_id FROM members WHERE user_id = ? AND tenant_id = ?", [$accountId, (int)($_SESSION['tenant_id'] ?? 0)]);
-            return (bool)$row;
+            $row = DB::fetchOne("SELECT user_id, password FROM members WHERE user_id = ? AND tenant_id = ?", [$accountId, (int)($_SESSION['tenant_id'] ?? 0)]);
+            return $row && self::passwordUnchanged($row['password'] ?? '');
         }
         if ($source === 'admin') {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Sessions remember a fingerprint of the password hash they were opened with; if the password is
+     * changed or reset elsewhere, every other session for that account is signed out.
+     * The fingerprint is taken lazily on the first check after login (so a login-time hash upgrade
+     * or an existing pre-deploy session never signs anyone out by itself).
+     */
+    private static function passwordUnchanged($storedHash) {
+        $fp = hash('sha256', 'pwfp|' . (string)$storedHash);
+        if (empty($_SESSION['pw_fp'])) {
+            $_SESSION['pw_fp'] = $fp;
+            return true;
+        }
+        return hash_equals((string)$_SESSION['pw_fp'], $fp);
+    }
+
+    /**
+     * Call after the logged-in user changed their own password, so this session stays signed in
+     */
+    public static function refreshPasswordFingerprint() {
+        unset($_SESSION['pw_fp']);
+    }
+
+    /**
+     * Store one new password hash on every row that belongs to the same person:
+     * a members row and its unified users login (users.member_id), or a staffs row and its users login (users.staff_id).
+     * $source is the table the account was identified in ('users', 'members', 'staffs'), $id its primary key.
+     */
+    public static function syncLinkedPasswords($source, $id, $tenantId, $newHash) {
+        $id = (int)$id;
+        $tenantId = (int)$tenantId;
+        if ($id <= 0) return;
+        $memberId = null;
+        $staffId = null;
+        $userIds = [];
+
+        if ($source === 'users') {
+            $u = DB::fetchOne("SELECT * FROM users WHERE id = ?", [$id]);
+            if (!$u) return;
+            $userIds[] = $id;
+            $tenantId = (int)($u['tenant_id'] ?? $tenantId);
+            if (!empty($u['member_id']) && ($u['role'] ?? '') === 'member') $memberId = (int)$u['member_id'];
+            if (!empty($u['staff_id'])) $staffId = (int)$u['staff_id'];
+        } elseif ($source === 'members') {
+            $memberId = $id;
+        } elseif ($source === 'staffs') {
+            $staffId = $id;
+        } else {
+            return;
+        }
+
+        if ($memberId && $tenantId > 0) {
+            DB::update('members', ['password' => $newHash], 'user_id = ? AND tenant_id = ?', [$memberId, $tenantId]);
+            DB::update('users', ['password' => $newHash], "tenant_id = ? AND member_id = ? AND role = 'member'", [$tenantId, $memberId]);
+        }
+        if ($staffId && $tenantId > 0) {
+            DB::update('staffs', ['password' => $newHash], 'user_id = ? AND tenant_id = ?', [$staffId, $tenantId]);
+            if (DB::tableColumns('users') !== null && in_array('staff_id', DB::tableColumns('users'), true)) {
+                DB::update('users', ['password' => $newHash], "tenant_id = ? AND staff_id = ? AND role <> 'member' AND role <> 'super_admin'", [$tenantId, $staffId]);
+            }
+        }
+        foreach ($userIds as $uid) {
+            DB::update('users', ['password' => $newHash], 'id = ?', [$uid]);
+        }
+    }
+
+    /**
+     * Revoke mobile-app sessions (member_tokens). Pass the users.id and/or members.user_id of the person.
+     * $exceptTokenId keeps the caller's own app session alive.
+     */
+    public static function revokeApiTokens($tenantId, $userId = null, $memberId = null, $exceptTokenId = null) {
+        $tenantId = (int)$tenantId;
+        $except = (int)$exceptTokenId;
+        if (!empty($userId)) {
+            DB::query("DELETE FROM member_tokens WHERE user_id = ? AND id <> ?" . ($tenantId > 0 ? " AND tenant_id = ?" : ""),
+                $tenantId > 0 ? [(int)$userId, $except, $tenantId] : [(int)$userId, $except]);
+        }
+        if (!empty($memberId) && $tenantId > 0) {
+            DB::query("DELETE FROM member_tokens WHERE tenant_id = ? AND member_id = ? AND id <> ?", [$tenantId, (int)$memberId, $except]);
+        }
     }
 
     /**
@@ -508,6 +589,19 @@ class Auth {
                 $sep = (strpos($target, '?') === false) ? '?' : '&';
                 header('Location: ' . $target . $sep . 'error=unauthorized');
                 exit();
+            }
+        }
+
+        // Gyms whose platform subscription has expired (past grace) or was cancelled are read-only:
+        // staff can still sign in, view data and renew, but form submissions that save data are refused.
+        // (Super admins impersonating a gym are exempt so support can still fix records.)
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST'
+            && in_array($currentRole, ['gym_admin', 'staff', 'trainer'], true)
+            && empty($_SESSION['impersonator'])) {
+            $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+            $alwaysAllowed = ['subscription.php', 'cashfree-subscription-checkout.php', 'cashfree-subscription-callback.php', 'change-password.php', 'logout.php'];
+            if (!in_array($script, $alwaysAllowed, true)) {
+                Tenant::requireWrite();
             }
         }
     }
@@ -590,12 +684,15 @@ class Auth {
     /**
      * Audit logger
      */
-    public static function auditLog($action, $description, $tenantId = null) {
+    public static function auditLog($action, $description, $tenantId = null, $userId = null) {
         // Attribute to the explicit tenant, else the session tenant; platform (super admin) actions stay NULL
         if ($tenantId === null) {
             $tenantId = !empty($_SESSION['tenant_id']) ? (int)$_SESSION['tenant_id'] : null;
         }
-        $userId = $_SESSION['account_id'] ?? $_SESSION['user_id'] ?? null;
+        // Token-authenticated API calls have no session: callers pass the acting user explicitly
+        if ($userId === null) {
+            $userId = $_SESSION['account_id'] ?? $_SESSION['user_id'] ?? null;
+        }
         $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
         if (!empty($_SESSION['impersonator']['username'])) {
             $description = '[impersonated by super admin ' . $_SESSION['impersonator']['username'] . '] ' . $description;
