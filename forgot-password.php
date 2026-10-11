@@ -26,6 +26,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
         $identifierHash = hash('sha256', strtolower($input));
 
+        // Ensure password_resets table and superadmin email exist
+        DB::query("CREATE TABLE IF NOT EXISTS `password_resets` (
+          `id` int(11) NOT NULL AUTO_INCREMENT,
+          `user_id` int(11) DEFAULT NULL,
+          `identifier_hash` char(64) NOT NULL,
+          `token_hash` char(64) DEFAULT NULL,
+          `ip_address` varchar(45) DEFAULT NULL,
+          `expires_at` datetime DEFAULT NULL,
+          `used_at` datetime DEFAULT NULL,
+          `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `idx_token_hash` (`token_hash`),
+          KEY `idx_user_id` (`user_id`),
+          KEY `idx_identifier_created` (`identifier_hash`, `created_at`),
+          KEY `idx_ip_created` (`ip_address`, `created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        DB::query("UPDATE `users` SET `email` = 'akhtarhussain132003@gmail.com' WHERE (`role` = 'super_admin' OR `username` = 'superadmin') AND (`email` IS NULL OR `email` = '' OR `email` = 'superadmin@fitisify.com')");
+
         $recentForIdentifier = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE identifier_hash = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)", [$identifierHash]);
         $recentForIp = (int)DB::fetchValue("SELECT COUNT(*) FROM password_resets WHERE ip_address = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)", [$ip]);
 
@@ -55,6 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     [(int)$acct['id'], $identifierHash, $tokenHash, $ip]
                 );
                 if (!is_array($res)) {
+                    error_log('Password reset failed: could not insert token into password_resets for user #' . (int)$acct['id'] . ' (' . DB::$lastError . ')');
                     continue;
                 }
                 $sentAny = true;

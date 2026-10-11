@@ -52,7 +52,7 @@ class DB {
     /**
      * Bump this whenever ensureSchema() gains new DDL so it re-runs once on every deployment
      */
-    const SCHEMA_VERSION = '2026-10-10.3';
+    const SCHEMA_VERSION = '2026-10-11.2';
 
     /**
      * Get or initialize the MySQLi database connection
@@ -347,7 +347,7 @@ class DB {
 
         // Password reset tokens + request log (used for rate limiting)
         $checkResets = mysqli_query($con, "SHOW TABLES LIKE 'password_resets'");
-        if ($checkResets && mysqli_num_rows($checkResets) === 0) {
+        if (!$checkResets || mysqli_num_rows($checkResets) === 0) {
             $sqlResets = "CREATE TABLE IF NOT EXISTS `password_resets` (
               `id` int(11) NOT NULL AUTO_INCREMENT,
               `user_id` int(11) DEFAULT NULL,
@@ -365,6 +365,9 @@ class DB {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
             mysqli_query($con, $sqlResets);
         }
+
+        // Ensure superadmin has updated email
+        mysqli_query($con, "UPDATE `users` SET `email` = 'akhtarhussain132003@gmail.com' WHERE (`role` = 'super_admin' OR `username` = 'superadmin') AND (`email` IS NULL OR `email` = '' OR `email` = 'superadmin@fitisify.com')");
 
         // Ensure members columns for mobile dues & avatar
         $mColRes = mysqli_query($con, "SHOW COLUMNS FROM `members`");
