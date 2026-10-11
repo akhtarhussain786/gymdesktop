@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO `users` (`id`, `tenant_id`, `branch_id`, `role`, `username`, `password`, `email`, `fullname`, `phone`, `status`) VALUES
-(1, NULL, NULL, 'super_admin', 'superadmin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'superadmin@fitisify.com', 'Master Platform Admin', '0000000000', 'active'),
+(1, NULL, NULL, 'super_admin', 'superadmin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'akhtarhussain132003@gmail.com', 'Master Platform Admin', '0000000000', 'active'),
 (2, 1, 1, 'gym_admin', 'admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin@fitisify.com', 'Gym Administrator', '8520281200', 'active');
 
 -- 7. Expenses Table
