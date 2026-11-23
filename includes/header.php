@@ -30,7 +30,27 @@ $secondaryColor = $currentTenant['secondary_color'] ?? '#10b981';
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <!-- Custom Modern UI Design System -->
-    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css?v=' . (file_exists(__DIR__ . '/../assets/css/app.css') ? filemtime(__DIR__ . '/../assets/css/app.css') : '1.0.7')); ?>" />
+    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css?v=' . (file_exists(__DIR__ . '/../assets/css/app.css') ? filemtime(__DIR__ . '/../assets/css/app.css') : '1.0.8')); ?>" />
+
+    <!-- Immediate Mobile Drawer Controller -->
+    <script>
+    window.toggleAppSidebar = function(forceState) {
+        var sidebar = document.querySelector('.app-sidebar');
+        var backdrop = document.querySelector('.sidebar-backdrop');
+        if (!sidebar) return;
+        var isOpen = sidebar.classList.contains('show');
+        var shouldOpen = (forceState !== undefined) ? !!forceState : !isOpen;
+        if (shouldOpen) {
+            sidebar.classList.add('show');
+            if (backdrop) backdrop.classList.add('show');
+            if (window.innerWidth <= 992) document.body.style.overflow = 'hidden';
+        } else {
+            sidebar.classList.remove('show');
+            if (backdrop) backdrop.classList.remove('show');
+            document.body.style.overflow = '';
+        }
+    };
+    </script>
 
     <!-- Tenant Dynamic Branding Styles -->
     <style>

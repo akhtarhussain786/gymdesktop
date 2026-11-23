@@ -21,7 +21,7 @@ $currentUser = Auth::user();
     <?php endif; ?>
     <header class="app-topbar">
         <div class="topbar-left">
-            <button type="button" class="topbar-toggle-btn" aria-label="Toggle Navigation" onclick="if(window.toggleAppSidebar)toggleAppSidebar();">
+            <button type="button" class="topbar-toggle-btn" aria-label="Toggle Navigation" onclick="toggleAppSidebar();">
                 <i class="fas fa-bars"></i>
             </button>
             <div class="page-title-box">

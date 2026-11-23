@@ -62,90 +62,105 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Login | Fitisify Gym SaaS Portal</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/app.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css?v=' . (file_exists(__DIR__ . '/assets/css/app.css') ? filemtime(__DIR__ . '/assets/css/app.css') : '1.0.8')); ?>" />
     <style>
         body {
             background: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
                         radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.12) 0%, transparent 40%),
-                        var(--bg-app);
+                        #070a0f;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 20px 16px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: #f8fafc;
         }
 
         .auth-card {
             width: 100%;
             max-width: 440px;
-            background: var(--bg-surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-xl);
-            padding: 36px 32px;
+            background: #0d1219;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+            padding: 36px 30px;
             position: relative;
             z-index: 10;
         }
 
         .auth-brand {
             text-align: center;
-            margin-bottom: 28px;
+            margin-bottom: 26px;
         }
 
-        .auth-logo-badge {
-            width: 56px;
-            height: 56px;
-            border-radius: 16px;
-            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-            color: #fff;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.6rem;
-            margin-bottom: 14px;
-            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35);
+        .form-group {
+            margin-bottom: 18px;
+            width: 100%;
         }
 
-        .auth-brand h2 {
-            font-family: var(--font-display);
-            font-size: 1.65rem;
-            font-weight: 800;
-            color: var(--text-main);
-            letter-spacing: -0.5px;
-        }
-
-        .auth-brand p {
+        .form-label {
+            display: block;
             font-size: 0.88rem;
-            color: var(--text-muted);
-            margin-top: 4px;
+            font-weight: 700;
+            color: #e2e8f0;
+            margin-bottom: 8px;
         }
 
         .input-with-icon {
             position: relative;
             display: flex;
             align-items: center;
+            width: 100%;
         }
 
         .input-with-icon > i {
             position: absolute;
-            left: 14px;
+            left: 15px;
             top: 50%;
             transform: translateY(-50%);
-            color: var(--text-light);
+            color: #64748b;
+            font-size: 1rem;
             transition: color 0.2s;
             pointer-events: none;
             z-index: 2;
         }
 
         .input-with-icon .form-control {
-            width: 100%;
-            padding-left: 42px;
-            padding-right: 44px;
+            width: 100% !important;
+            background: #111720 !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-radius: 10px !important;
+            padding: 13px 44px 13px 44px !important;
+            color: #ffffff !important;
+            font-size: 16px !important;
+            outline: none !important;
+            box-sizing: border-box !important;
+            height: 48px !important;
+            transition: all 0.2s ease;
+        }
+
+        .input-with-icon .form-control:focus {
+            border-color: #c7ff2e !important;
+            box-shadow: 0 0 16px rgba(199, 255, 46, 0.3) !important;
+            background: #151c27 !important;
+            color: #ffffff !important;
         }
 
         .input-with-icon .form-control:focus ~ i {
-            color: var(--primary);
+            color: #c7ff2e !important;
+        }
+
+        /* Chrome/Safari Autofill Dark Theme Fix */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus, 
+        input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0 1000px #111720 inset !important;
+            -webkit-text-fill-color: #ffffff !important;
+            transition: background-color 5000s ease-in-out 0s;
+            caret-color: #ffffff !important;
         }
 
         .password-toggle-btn {
@@ -155,15 +170,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
             transform: translateY(-50%);
             background: transparent;
             border: none;
-            color: var(--text-muted);
+            color: #64748b;
             cursor: pointer;
-            padding: 6px;
+            padding: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1rem;
+            font-size: 1.05rem;
             transition: color 0.2s;
             z-index: 10;
+        }
+
+        .password-toggle-btn:hover {
+            color: #c7ff2e;
         }
 
         .password-toggle-btn i {
@@ -172,8 +191,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
             color: inherit !important;
         }
 
-        .password-toggle-btn:hover {
-            color: var(--primary);
+        .btn-submit-login {
+            width: 100%;
+            padding: 13px 20px;
+            font-size: 1rem;
+            font-weight: 800;
+            background: #c7ff2e !important;
+            color: #05080d !important;
+            border: none !important;
+            border-radius: 10px !important;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 4px 18px rgba(199, 255, 46, 0.38) !important;
+            transition: all 0.2s ease;
+        }
+
+        .btn-submit-login:hover {
+            background: #b8f522 !important;
+            box-shadow: 0 0 28px rgba(199, 255, 46, 0.55) !important;
+            transform: translateY(-1px);
+        }
+
+        .btn-submit-login:active {
+            transform: scale(0.98);
         }
 
         .role-hint {
@@ -183,16 +226,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
             gap: 8px;
             margin-top: 20px;
             padding-top: 16px;
-            border-top: 1px solid var(--border-color);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
             font-size: 0.82rem;
-            color: var(--text-muted);
+            color: #64748b;
+            text-align: center;
         }
 
         .nexora-footer {
             margin-top: 20px;
             text-align: center;
             font-size: 0.82rem;
-            color: var(--text-muted);
+            color: #64748b;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -202,10 +246,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
         }
 
         .nexora-badge {
-            color: var(--primary);
+            color: #c7ff2e;
             font-weight: 800;
             letter-spacing: 0.5px;
-            font-family: var(--font-display);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 12px 10px !important;
+                align-items: flex-start !important;
+                padding-top: 28px !important;
+            }
+            .auth-card {
+                padding: 24px 18px !important;
+                border-radius: 16px !important;
+                max-width: 100% !important;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
+            }
         }
     </style>
 </head>
@@ -264,17 +322,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
         </div>
 
         <div style="margin-top: 24px;">
-            <button type="submit" name="login" value="1" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 1rem;">
+            <button type="submit" name="login" value="1" class="btn btn-primary btn-submit-login">
                 <i class="fas fa-sign-in-alt"></i> Sign In to Account
             </button>
         </div>
     </form>
 
     <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 8px;">
-        <a href="<?php echo base_url('/register-gym'); ?>" class="btn btn-secondary btn-sm" style="width: 100%;">
+        <a href="<?php echo base_url('/register-gym'); ?>" class="btn btn-secondary btn-sm" style="width: 100%; border-radius: 10px; padding: 10px 14px;">
             <i class="fas fa-plus-circle"></i> Register New Gym / Start Free Trial
         </a>
-        <a href="<?php echo base_url('/'); ?>" style="text-align: center; font-size: 0.85rem; color: var(--primary); font-weight: 600; text-decoration: none; padding: 4px;">
+        <a href="<?php echo base_url('/'); ?>" style="text-align: center; font-size: 0.85rem; color: var(--primary); font-weight: 600; text-decoration: none; padding: 6px;">
             <i class="fas fa-sparkles"></i> Explore SaaS Platform Features & Pricing &rarr;
         </a>
     </div>
@@ -290,7 +348,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     </div>
 </div>
 
-<script src="assets/js/app.js"></script>
+<script src="<?php echo base_url('/assets/js/app.js?v=' . (file_exists(__DIR__ . '/assets/js/app.js') ? filemtime(__DIR__ . '/assets/js/app.js') : '1.0.8')); ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const passwordInput = document.getElementById('passwordInput');

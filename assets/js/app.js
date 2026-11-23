@@ -58,19 +58,27 @@ const App = {
 };
 
 // Global Function to Toggle Admin / Superadmin App Sidebar & Backdrop
+let _lastSidebarToggleTime = 0;
 function toggleAppSidebar(forceState) {
+    const now = Date.now();
+    if (forceState === undefined && (now - _lastSidebarToggleTime) < 250) {
+        return; // Debounce guard against duplicate click firing
+    }
+    _lastSidebarToggleTime = now;
+
     const sidebar = document.querySelector('.app-sidebar');
     const backdrop = document.querySelector('.sidebar-backdrop');
     if (!sidebar) return;
 
-    const shouldOpen = (forceState !== undefined) ? !!forceState : !sidebar.classList.contains('show');
-    sidebar.classList.toggle('show', shouldOpen);
-    if (backdrop) backdrop.classList.toggle('show', shouldOpen);
-    
-    // Lock / unlock body scroll on mobile
-    if (window.innerWidth <= 992) {
-        document.body.style.overflow = shouldOpen ? 'hidden' : '';
+    const isOpen = sidebar.classList.contains('show');
+    const shouldOpen = (forceState !== undefined) ? !!forceState : !isOpen;
+    if (shouldOpen) {
+        sidebar.classList.add('show');
+        if (backdrop) backdrop.classList.add('show');
+        if (window.innerWidth <= 992) document.body.style.overflow = 'hidden';
     } else {
+        sidebar.classList.remove('show');
+        if (backdrop) backdrop.classList.remove('show');
         document.body.style.overflow = '';
     }
 }
@@ -78,20 +86,14 @@ window.toggleAppSidebar = toggleAppSidebar;
 
 // Global DOM Listeners for Admin / Superadmin
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Sidebar Collapse / Mobile Drawer Toggle
-    const sidebarToggle = document.querySelector('.topbar-toggle-btn');
+    // 1. Sidebar Collapse / Mobile Drawer Dismiss Listeners
     const sidebar = document.querySelector('.app-sidebar');
     const backdrop = document.querySelector('.sidebar-backdrop');
-
-    if (sidebarToggle) {
-        sidebarToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleAppSidebar();
-        });
-    }
+    const sidebarToggle = document.querySelector('.topbar-toggle-btn');
 
     if (backdrop) {
-        backdrop.addEventListener('click', () => {
+        backdrop.addEventListener('click', (e) => {
+            e.stopPropagation();
             toggleAppSidebar(false);
         });
     }

@@ -831,6 +831,17 @@ a {
   background: #151c27;
 }
 
+/* Global Browser Autofill Dark Fix */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #111720 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #ffffff !important;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -2163,18 +2174,36 @@ pre, code {
 /* 2. TABLETS & SMALL LAPTOPS (Max-Width: 992px) */
 @media (max-width: 992px) {
   .app-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 280px;
-    height: 100vh;
-    z-index: 1000;
-    transform: translateX(-100%);
-    box-shadow: 0 0 50px rgba(0, 0, 0, 0.95);
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 280px !important;
+    max-width: 85vw !important;
+    height: 100vh !important;
+    z-index: 10000 !important;
+    transform: translateX(-100%) !important;
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1) !important;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.95) !important;
+    display: flex !important;
+    pointer-events: none;
+    visibility: hidden;
   }
 
   .app-sidebar.show {
-    transform: translateX(0);
+    transform: translateX(0) !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+  }
+
+  .sidebar-backdrop {
+    z-index: 9990 !important;
+  }
+
+  .sidebar-backdrop.show {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
   }
 
   .sidebar-close-btn {
