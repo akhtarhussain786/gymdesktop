@@ -6,7 +6,7 @@
 <div id="toast-container"></div>
 
 <!-- Core App Scripts -->
-<script src="<?php echo base_url('/assets/js/app.js'); ?>"></script>
+<script src="<?php echo base_url('/assets/js/app.js?v=' . (file_exists(__DIR__ . '/../assets/js/app.js') ? filemtime(__DIR__ . '/../assets/js/app.js') : '1.0.7')); ?>"></script>
 
 <?php
 // Auto-render any pending flash notification

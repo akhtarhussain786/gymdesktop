@@ -87,18 +87,20 @@ include __DIR__ . '/../includes/topbar.php';
             <i class="fas fa-users"></i>
             <span>Members List (<?php echo count($members); ?>)</span>
         </div>
-        <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <input type="text" name="search" value="<?php echo e($search); ?>" placeholder="Search member name, phone..." class="form-control" style="width: 220px;" />
-            <select name="status" class="form-select" style="width: 140px;" onchange="this.form.submit()">
+        <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap; width: 100%; max-width: 600px;">
+            <input type="text" name="search" value="<?php echo e($search); ?>" placeholder="Search member name, phone..." class="form-control" style="flex: 1 1 200px; min-width: 140px;" />
+            <select name="status" class="form-select" style="flex: 0 1 140px; min-width: 120px;" onchange="this.form.submit()">
                 <option value="">All Statuses</option>
                 <option value="Active" <?php echo $statusFilter === 'Active' ? 'selected' : ''; ?>>Active</option>
                 <option value="Expired" <?php echo $statusFilter === 'Expired' ? 'selected' : ''; ?>>Expired</option>
                 <option value="Pending" <?php echo $statusFilter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
             </select>
-            <button type="submit" class="btn btn-secondary btn-sm"><i class="fas fa-search"></i></button>
-            <?php if ($search || $statusFilter): ?>
-                <a href="members.php" class="btn btn-secondary btn-sm">Clear</a>
-            <?php endif; ?>
+            <div style="display: inline-flex; gap: 6px;">
+                <button type="submit" class="btn btn-secondary btn-sm"><i class="fas fa-search"></i></button>
+                <?php if ($search || $statusFilter): ?>
+                    <a href="members.php" class="btn btn-secondary btn-sm">Clear</a>
+                <?php endif; ?>
+            </div>
         </form>
     </div>
     <div class="card-body" style="padding: 0;">

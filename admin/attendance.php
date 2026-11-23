@@ -168,25 +168,27 @@ include __DIR__ . '/../includes/topbar.php';
             <i class="fas fa-calendar-check"></i>
             <span>Daily Attendance Register (<?php echo format_date($selectedDate); ?>)</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <a href="attendance.php?date=<?php echo urlencode($prevDate); ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" class="btn btn-secondary btn-sm" title="Previous Day">
-                <i class="fas fa-chevron-left"></i>
-            </a>
-            <form method="GET" action="" style="display: inline-flex; align-items: center; gap: 8px; margin: 0;">
-                <input type="date" name="date" value="<?php echo e($selectedDate); ?>" class="form-control" style="width: 155px; padding: 4px 8px;" onchange="this.form.submit()" />
-                <?php if (!empty($search)): ?>
-                    <input type="hidden" name="search" value="<?php echo e($search); ?>" />
-                <?php endif; ?>
-            </form>
-            <a href="attendance.php?date=<?php echo urlencode($nextDate); ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" class="btn btn-secondary btn-sm" title="Next Day">
-                <i class="fas fa-chevron-right"></i>
-            </a>
+        <div class="attendance-filter-bar" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: inline-flex; align-items: center; gap: 6px;">
+                <a href="attendance.php?date=<?php echo urlencode($prevDate); ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" class="btn btn-secondary btn-sm" title="Previous Day">
+                    <i class="fas fa-chevron-left"></i>
+                </a>
+                <form method="GET" action="" style="display: inline-flex; align-items: center; gap: 8px; margin: 0;">
+                    <input type="date" name="date" value="<?php echo e($selectedDate); ?>" class="form-control" style="width: auto; max-width: 155px; padding: 4px 8px;" onchange="this.form.submit()" />
+                    <?php if (!empty($search)): ?>
+                        <input type="hidden" name="search" value="<?php echo e($search); ?>" />
+                    <?php endif; ?>
+                </form>
+                <a href="attendance.php?date=<?php echo urlencode($nextDate); ?><?php echo !empty($search) ? '&search=' . urlencode($search) : ''; ?>" class="btn btn-secondary btn-sm" title="Next Day">
+                    <i class="fas fa-chevron-right"></i>
+                </a>
+            </div>
             <a href="attendance.php" class="btn <?php echo $isToday ? 'btn-primary' : 'btn-secondary'; ?> btn-sm">
                 <i class="fas fa-calendar-day"></i> Today
             </a>
-            <form method="GET" action="" style="display: inline-flex; gap: 6px; margin: 0;">
+            <form method="GET" action="" style="display: inline-flex; gap: 6px; margin: 0; flex: 1 1 160px;">
                 <input type="hidden" name="date" value="<?php echo e($selectedDate); ?>" />
-                <input type="text" name="search" value="<?php echo e($search); ?>" placeholder="Search member..." class="form-control" style="width: 160px; padding: 4px 8px;" />
+                <input type="text" name="search" value="<?php echo e($search); ?>" placeholder="Search member..." class="form-control" style="flex: 1; min-width: 120px; padding: 4px 8px;" />
                 <button type="submit" class="btn btn-secondary btn-sm"><i class="fas fa-search"></i></button>
             </form>
         </div>

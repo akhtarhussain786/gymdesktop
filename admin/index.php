@@ -188,7 +188,7 @@ include __DIR__ . '/../includes/topbar.php';
 </div>
 
 <!-- Charts Row -->
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px;">
+<div class="dash-charts-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-bottom: 24px;">
     <div class="card" style="margin-bottom: 0;">
         <div class="card-header">
             <div class="card-title">
@@ -215,7 +215,7 @@ include __DIR__ . '/../includes/topbar.php';
 </div>
 
 <!-- Tables Row: Recent Members & Gym Announcements -->
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+<div class="dash-tables-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
     <!-- Recent Members -->
     <div class="card" style="margin-bottom: 0;">
         <div class="card-header">

@@ -155,7 +155,7 @@ include __DIR__ . '/../includes/sidebar.php';
 include __DIR__ . '/../includes/topbar.php';
 ?>
 
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+<div class="dash-tables-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;">
     <!-- Branding Form -->
     <div class="card">
         <div class="card-header">

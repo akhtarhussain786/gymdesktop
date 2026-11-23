@@ -294,8 +294,8 @@ include __DIR__ . '/../includes/topbar.php';
             <i class="fas fa-building"></i>
             <span>All Registered Gym Tenants (<?php echo count($tenants); ?>)</span>
         </div>
-        <div style="display: flex; gap: 10px;">
-            <input type="text" placeholder="Search gym name or owner..." data-table-search="#tenants-list-table" class="form-control" style="width: 250px;" />
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; width: 100%; max-width: 480px;">
+            <input type="text" placeholder="Search gym name or owner..." data-table-search="#tenants-list-table" class="form-control" style="flex: 1 1 200px; min-width: 140px;" />
             <button type="button" class="btn btn-primary btn-sm" onclick="App.openModal('create-tenant-modal')">
                 <i class="fas fa-plus"></i> Create New Gym
             </button>

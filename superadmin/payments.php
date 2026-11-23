@@ -237,19 +237,21 @@ include __DIR__ . '/../includes/topbar.php';
             <span>SaaS Gateway Orders & Invoices</span>
         </div>
 
-        <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <input type="text" name="search" class="form-control" placeholder="Search Gym, Order ID, Email..." value="<?php echo e($search); ?>" style="width: 240px; height: 36px;" />
-            <select name="status" class="form-select" style="width: 140px; height: 36px;" onchange="this.form.submit()">
+        <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap; width: 100%; max-width: 580px;">
+            <input type="text" name="search" class="form-control" placeholder="Search Gym, Order ID, Email..." value="<?php echo e($search); ?>" style="flex: 1 1 200px; min-width: 140px; height: 36px;" />
+            <select name="status" class="form-select" style="flex: 0 1 140px; min-width: 120px; height: 36px;" onchange="this.form.submit()">
                 <option value="">All Statuses</option>
                 <option value="approved" <?php echo $statusFilter === 'approved' ? 'selected' : ''; ?>>Approved / Paid</option>
                 <option value="pending" <?php echo $statusFilter === 'pending' ? 'selected' : ''; ?>>Pending</option>
                 <option value="failed" <?php echo $statusFilter === 'failed' ? 'selected' : ''; ?>>Failed</option>
                 <option value="rejected" <?php echo $statusFilter === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
             </select>
-            <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Filter</button>
-            <?php if (!empty($search) || !empty($statusFilter)): ?>
-                <a href="payments.php" class="btn btn-secondary btn-sm"><i class="fas fa-times"></i> Reset</a>
-            <?php endif; ?>
+            <div style="display: inline-flex; gap: 6px;">
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Filter</button>
+                <?php if (!empty($search) || !empty($statusFilter)): ?>
+                    <a href="payments.php" class="btn btn-secondary btn-sm"><i class="fas fa-times"></i> Reset</a>
+                <?php endif; ?>
+            </div>
         </form>
 
         <form method="POST" action="" style="margin: 0;" onsubmit="return confirm('Mark unpaid Cashfree checkouts older than 2 days as abandoned? Nothing is deleted.');">

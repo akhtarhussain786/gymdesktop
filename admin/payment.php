@@ -216,9 +216,9 @@ include __DIR__ . '/../includes/topbar.php';
                 (<?php echo ($statusFilter === 'Upcoming') ? count($allUpcomingSubs) : count($members); ?>)
             </span>
         </div>
-        <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <input type="text" name="search" value="<?php echo e($search); ?>" placeholder="Search member..." class="form-control" style="width: 200px;" />
-            <select name="status" class="form-select" style="width: 160px;" onchange="this.form.submit()">
+        <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap; width: 100%; max-width: 520px;">
+            <input type="text" name="search" value="<?php echo e($search); ?>" placeholder="Search member..." class="form-control" style="flex: 1 1 180px; min-width: 140px;" />
+            <select name="status" class="form-select" style="flex: 1 1 150px; min-width: 130px;" onchange="this.form.submit()">
                 <option value="">All Statuses</option>
                 <option value="Active" <?php echo $statusFilter === 'Active' ? 'selected' : ''; ?>>Active</option>
                 <option value="Expired" <?php echo $statusFilter === 'Expired' ? 'selected' : ''; ?>>Expired</option>

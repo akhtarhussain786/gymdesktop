@@ -57,24 +57,62 @@ const App = {
     }
 };
 
+// Global Function to Toggle Admin / Superadmin App Sidebar & Backdrop
+function toggleAppSidebar(forceState) {
+    const sidebar = document.querySelector('.app-sidebar');
+    const backdrop = document.querySelector('.sidebar-backdrop');
+    if (!sidebar) return;
+
+    const shouldOpen = (forceState !== undefined) ? !!forceState : !sidebar.classList.contains('show');
+    sidebar.classList.toggle('show', shouldOpen);
+    if (backdrop) backdrop.classList.toggle('show', shouldOpen);
+    
+    // Lock / unlock body scroll on mobile
+    if (window.innerWidth <= 992) {
+        document.body.style.overflow = shouldOpen ? 'hidden' : '';
+    } else {
+        document.body.style.overflow = '';
+    }
+}
+window.toggleAppSidebar = toggleAppSidebar;
+
 // Global DOM Listeners for Admin / Superadmin
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Sidebar Collapse / Mobile Toggle
+    // 1. Sidebar Collapse / Mobile Drawer Toggle
     const sidebarToggle = document.querySelector('.topbar-toggle-btn');
     const sidebar = document.querySelector('.app-sidebar');
+    const backdrop = document.querySelector('.sidebar-backdrop');
 
-    if (sidebarToggle && sidebar) {
-        sidebarToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('show');
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleAppSidebar();
+        });
+    }
+
+    if (backdrop) {
+        backdrop.addEventListener('click', () => {
+            toggleAppSidebar(false);
         });
     }
 
     // Close sidebar on outer click on mobile
     document.addEventListener('click', (e) => {
-        if (sidebar && sidebar.classList.contains('show') && !sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
-            sidebar.classList.remove('show');
+        if (sidebar && sidebar.classList.contains('show') && !sidebar.contains(e.target) && (!sidebarToggle || !sidebarToggle.contains(e.target))) {
+            toggleAppSidebar(false);
         }
     });
+
+    // Close sidebar when clicking any navigation link on mobile
+    if (sidebar) {
+        sidebar.querySelectorAll('.sidebar-link').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth <= 992) {
+                    toggleAppSidebar(false);
+                }
+            });
+        });
+    }
 
     // 2. Table Real-Time Filter / Search
     document.querySelectorAll('[data-table-search]').forEach(input => {
@@ -117,6 +155,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. Mobile Navigation Drawer & Backdrop Control
     window.addEventListener('resize', () => {
+        if (window.innerWidth > 992) {
+            const sidebar = document.querySelector('.app-sidebar');
+            const backdrop = document.querySelector('.sidebar-backdrop');
+            if (sidebar) sidebar.classList.remove('show');
+            if (backdrop) backdrop.classList.remove('show');
+            document.body.style.overflow = '';
+        }
         if (window.innerWidth > 768) {
             const drawer = document.getElementById('mobile-nav-drawer');
             const backdrop = document.getElementById('mobile-menu-backdrop');
@@ -128,6 +173,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            const sidebar = document.querySelector('.app-sidebar');
+            if (sidebar && sidebar.classList.contains('show')) {
+                toggleAppSidebar(false);
+            }
             const drawer = document.getElementById('mobile-nav-drawer');
             if (drawer && drawer.classList.contains('open')) {
                 toggleMobileNav();

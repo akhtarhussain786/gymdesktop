@@ -30,7 +30,7 @@ $secondaryColor = $currentTenant['secondary_color'] ?? '#10b981';
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <!-- Custom Modern UI Design System -->
-    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css'); ?>" />
+    <link rel="stylesheet" href="<?php echo base_url('/assets/css/app.css?v=' . (file_exists(__DIR__ . '/../assets/css/app.css') ? filemtime(__DIR__ . '/../assets/css/app.css') : '1.0.7')); ?>" />
 
     <!-- Tenant Dynamic Branding Styles -->
     <style>

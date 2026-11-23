@@ -109,7 +109,7 @@ include __DIR__ . '/../../includes/topbar.php';
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+<div class="dash-tables-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px;">
     <!-- Workout & Diet Prescriptions -->
     <div>
         <div class="card">

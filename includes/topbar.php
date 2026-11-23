@@ -21,7 +21,7 @@ $currentUser = Auth::user();
     <?php endif; ?>
     <header class="app-topbar">
         <div class="topbar-left">
-            <button class="topbar-toggle-btn" aria-label="Toggle Navigation">
+            <button type="button" class="topbar-toggle-btn" aria-label="Toggle Navigation" onclick="if(window.toggleAppSidebar)toggleAppSidebar();">
                 <i class="fas fa-bars"></i>
             </button>
             <div class="page-title-box">
@@ -34,7 +34,7 @@ $currentUser = Auth::user();
 
         <div class="topbar-right">
             <!-- Gym Badge -->
-            <div style="display: flex; align-items: center; gap: 8px; background: var(--bg-app); padding: 4px 14px; border-radius: var(--radius-full); border: 1px solid var(--border-color); font-size: 0.85rem; font-weight: 600;">
+            <div class="topbar-gym-badge" style="display: flex; align-items: center; gap: 8px; background: var(--bg-app); padding: 4px 14px; border-radius: var(--radius-full); border: 1px solid var(--border-color); font-size: 0.85rem; font-weight: 600;">
                 <?php if (!empty($tenant['logo']) && ($currentUser['role'] ?? '') !== 'super_admin'): ?>
                     <img src="<?php echo e(str_starts_with($tenant['logo'], 'http') ? $tenant['logo'] : base_url('/uploads/logos/' . $tenant['logo'])); ?>" style="width: 22px; height: 22px; object-fit: contain; border-radius: 4px;" />
                 <?php elseif (($currentUser['role'] ?? '') === 'super_admin'): ?>

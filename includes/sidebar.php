@@ -3,6 +3,9 @@ $currentPage = $page ?? 'dashboard';
 $role = $currentUser['role'] ?? '';
 $tenant = Tenant::getCurrent();
 ?>
+<!-- Mobile Backdrop Overlay -->
+<div class="sidebar-backdrop" onclick="if(window.toggleAppSidebar)toggleAppSidebar(false);"></div>
+
 <aside class="app-sidebar">
     <div class="sidebar-brand">
         <div class="brand-logo" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(204, 255, 0, 0.12); border-color: rgba(204, 255, 0, 0.35);">
@@ -32,6 +35,9 @@ $tenant = Tenant::getCurrent();
         <?php else: ?>
             <span class="tenant-tag"><?php echo e($tenant['plan_name'] ?? 'PRO'); ?></span>
         <?php endif; ?>
+        <button type="button" class="sidebar-close-btn" onclick="if(window.toggleAppSidebar)toggleAppSidebar(false);" aria-label="Close Navigation">
+            <i class="fas fa-times"></i>
+        </button>
     </div>
 
     <ul class="sidebar-menu">
